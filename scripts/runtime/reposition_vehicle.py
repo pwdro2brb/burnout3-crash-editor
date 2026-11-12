@@ -78,6 +78,9 @@ def create_variant(source: Path, output: Path, report_path: Path, expected_sha25
     for offset in (0, 0x30, 0xA0):
         if not all(math.isfinite(value) for value in memory.xyz(address + offset)):
             raise ValueError("The two anchor positions and current translation must be finite")
+    if math.dist(memory.xyz(address), memory.xyz(address + 0x30)) <= 1e-6:
+        raise ValueError("Selected object's physical anchors are degenerate or uninitialized; "
+                         "advance until it receives nearby physics updates, then capture a new reference")
     if not all(math.isfinite(value) for value in memory.read(node + 0x30, "<2f")):
         raise ValueError("Node progression and lateral fraction must be finite")
 
@@ -143,7 +146,7 @@ def create_variant(source: Path, output: Path, report_path: Path, expected_sha25
         "zip_verification": zip_checks,
         "limitations": ["Offline test-copy tool, not an in-game editor or persistent event/resource patcher.",
                         "Four stock hooks and inferred pool invariants do not prove every byte of the source is unmodified.",
-                        "The controlled validation covers one independent vehicle in one USA Crash scene; other events, models and long-term collision behavior need separate runtime testing.",
+                        "Runtime evidence covers one stationary scene and one moving Grand Slam object over short configured frame advances; visual identification of the Grand Slam target, impacts, other models and long-term behavior need separate testing.",
                         "The cached target and collider bounds are left untouched so the game can update them; that update is not guaranteed by file generation."]
     }
     with report_path.open("x", encoding="utf8") as handle:

@@ -79,7 +79,9 @@ suportada pelo Python local podem exigir uma configuração compatível no PCSX2
 `scripts/runtime/reposition_vehicle.py` gera um **arquivo novo**. Ele exige o
 SHA-256 explícito da referência, um objeto ativo independente com node válido,
 as quatro palavras de código de controle originais e os invariantes conhecidos
-do pool. O perfil é específico do executável USA pesquisado. Não aceita escrita
+do pool. Os dois pontos físicos devem estar inicializados e separados; objetos
+distantes com âncoras degeneradas são recusados. O perfil é específico do
+executável USA pesquisado. Não aceita escrita
 no arquivo de entrada nem sobrescrita de saída ou relatório.
 
 Exemplo, com caminhos de teste e hash fornecidos pelo usuário:
@@ -87,6 +89,9 @@ Exemplo, com caminhos de teste e hash fornecidos pelo usuário:
 ```powershell
 python scripts/runtime/reposition_vehicle.py --input <referencia.p2s> --output <nova-copia.p2s> --report <relatorio.json> --source-sha256 <sha256-da-referencia> --vehicle-index 9 --dx 2.1409912109375 --dz 0.3963623046875 --lateral 0.1
 ```
+
+Esses valores pertencem ao primeiro ensaio estacionário. A direção lateral
+deve ser recalculada para o caminho e o ponto da nova captura.
 
 `--dx` e `--dz` transladam X/Z dos dois pontos de ancoragem e da transformação
 atual; `--lateral` é opcional e deve estar em `0..1`. Y, normais, listas,
@@ -98,24 +103,26 @@ admitido usa entradas simples stored/deflate, sem duplicatas, criptografia,
 descritores de dados, ZIP64 ou múltiplos discos. Nenhum membro é extraído.
 
 Use uma configuração isolada do emulador e cópias de teste. O protótipo não muda
-o ISO nem os recursos do evento. A validação atual cobre um veículo independente
-em uma cena do Crash durante 30 frames; outros eventos, modelos, colisões de longa
-duração e persistência após reiniciar um evento ainda precisam de investigação.
-Detalhes em [docs/repositioning-milestone.md](docs/repositioning-milestone.md).
+o ISO nem os recursos do evento. Há um teste visual de 30 quadros e um teste
+físico de tráfego em movimento no Grand Slam até 120 quadros configurados.
+Outros modelos, impactos e persistência após reiniciar o evento ainda precisam
+de investigação. Detalhes em [docs/repositioning-milestone.md](docs/repositioning-milestone.md)
+e [docs/moving-traffic-reference.md](docs/moving-traffic-reference.md).
 
 ## Estado e próximos passos
 
 Consulte [docs/findings.md](docs/findings.md) e o marco de reposicionamento para
 fatos e limites. O teste controlado ligou um objeto de RAM a uma mudança visual
 localizada e verificou atualização dos limites de colisão. Isso não demonstra
-um editor de eventos completo. Ainda faltam uma referência anterior ao GO,
-testes de física e repetição mais amplos, criação de veículos e uma interface de
+um editor de eventos completo. Ainda faltam testes de física e repetição mais
+amplos, criação de veículos e uma interface de
 edição. O reempacotamento implementado é de save states, não de recursos do jogo.
 
-A nova referência fornecida pelo usuário foi confirmada visualmente como o
-evento **Grand Slam**. Ela contém campos candidatos de velocidade positivos
-e foi preservada para testar tráfego em movimento. Essa validação ainda não
-foi realizada; veja [docs/moving-traffic-reference.md](docs/moving-traffic-reference.md).
+A nova referência foi confirmada como **Grand Slam**, incluindo a contagem
+inicial. Um veículo continuou em movimento e manteve um pequeno deslocamento
+lateral após 30 e 120 quadros configurados, com atualização automática do AABB.
+A confirmação visual do alvo e um impacto real ainda estão pendentes; veja
+[docs/moving-traffic-reference.md](docs/moving-traffic-reference.md).
 
 Os endereços conhecidos pertencem ao perfil USA pesquisado. Uma versão diferente
 do jogo exige nova validação. Pseudocódigo, nomes inferidos e valores plausíveis

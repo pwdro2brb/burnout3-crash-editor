@@ -83,10 +83,30 @@ viewport original. Isso não comprova um impacto contra o carro reposicionado
 nem estabilidade prolongada. O protótipo portátil gera apenas novas cópias de
 save state; não há editor dentro do jogo.
 
+## Tráfego em movimento no Grand Slam
+
+A referência seguinte restaurou a introdução do Grand Slam e sua contagem
+inicial. Num estado de aproximação, um veículo independente com âncoras
+inicializadas recebeu um deslocamento horizontal de cerca de 0,51 unidade e
+uma nova fração lateral do caminho. Após passos configurados de 30 e 120
+quadros, a comparação dos estados mostrou movimento real das posições,
+separação lateral persistente e atualização automática do AABB e de Y.
+
+Os outros registros dos pools de objetos, nós e matrizes ficaram iguais entre
+controle e variante, assim como os outros descritores ativos de colisão.
+Isso não estabelece igualdade de toda a RAM: existem diferenças fora das
+regiões classificadas. A identificação visual do alvo e um impacto real estão
+pendentes. Método, números e limites em
+[moving-traffic-reference.md](moving-traffic-reference.md).
+
+Objetos distantes podem estar ativos com os dois pontos físicos ainda zerados.
+O protótipo recusa âncoras degeneradas; estar ativo e ter coordenadas finitas
+não basta para usar esse caso de reposicionamento.
+
 ## Próximas verificações
 
-1. Confirmar visualmente um estado do Crash na contagem inicial ou imediatamente antes do GO.
-2. Ampliar a verificação de colisões e repetição para o reposicionamento confirmado.
+1. Enquadrar e identificar o alvo do Grand Slam no tráfego em movimento.
+2. Testar impactos reais e ampliar a duração e os modelos do reposicionamento.
 3. Investigar persistência no evento, novos veículos e edição de locais.
 
 Este repositório é uma base de pesquisa experimental. Não comprova que todos os
