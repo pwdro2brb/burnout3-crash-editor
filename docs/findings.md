@@ -44,35 +44,50 @@ save states históricos do perfil USA, e novamente em estados fornecidos depois:
 | Objetos | `0x00539c10` / `0x180`, 254 posições |
 | Nodes | `0x00551910` / `0x50`, 254 posições |
 | Matrizes | `0x00556870` / `0x50` |
-| Candidato XYZ do objeto | objeto `+0xa0` |
-| Candidato de tradução na matriz | matriz `+0x30` |
+| Translação visual do objeto | objeto `+0xa0` |
+| Dois pontos físicos absolutos | objeto `+0x00` e `+0x30` |
+| Translação na matriz de seguimento | matriz `+0x30` |
 
 Índices próprios, listas livres, partições livre/alocado, bitmaps, flags,
 contadores e backlinks conferiram nas capturas examinadas. Nas capturas anteriores,
 as contagens de objetos foram 4 e 46; há componentes com links pai/filho, portanto isso não equivale ao
 número de veículos independentes ou visíveis. Alguns componentes tinham node
-nulo. A interpretação espacial ainda precisa ser ligada a um veículo na tela.
+nulo. A associação espacial foi ligada a um veículo na tela no teste descrito
+em [repositioning-milestone.md](repositioning-milestone.md).
 
-Um teste visual isolado confirmou que os dois saves anteriores restauravam telas
+O primeiro teste visual isolado confirmou que os dois saves anteriores restauravam telas
 de resultados do Crash Mode. **Aqueles dois não eram referências anteriores ao GO.** Não foi
-aplicado patch espacial ou de geração de veículos e não houve confirmação visual
-de reposicionamento. Comparar quatro palavras de código no save não prova que
+aplicado patch espacial ou de geração de veículos naquela etapa. Comparar quatro palavras de código no save não prova que
 todo o estado esteja sem modificações.
 
 Na segunda atualização, novos estados fornecidos pelo usuário apresentaram
 respectivamente 16 objetos/16 nós e 13 objetos/9 nós alocados. As quatro palavras
 de código de controle coincidiam com o ELF estudado e duas áreas reservadas
 conhecidas estavam zeradas. Esses controles localizados não demonstram ausência
-de toda modificação possível. **O frame inicial desses novos estados ainda não
-foi confirmado visualmente**; eles não foram classificados como telas de
-resultados nem como referências anteriores ao GO apenas pelos números do pool.
+de toda modificação possível. As cenas carregadas foram observadas depois:
+uma via tropical com curva e um trecho urbano com caminhão de bombeiros.
+**Não foi confirmada uma contagem inicial ou referência anterior ao GO**;
+essa classificação não foi inferida apenas pelos números do pool.
 
-## Primeiro marco verificável
+## Primeiro marco confirmado em 12/11/2026
+
+Um carro independente foi reposicionado em uma cópia de estado salvo. Alterar
+só a fração lateral mudou a matriz de seguimento, sem deslocar o corpo. O teste
+confirmado coordenou X/Z dos dois pontos físicos e da translação visual com o
+parâmetro lateral do nó. O deslocamento persistiu pelo passo configurado de 30
+quadros e a caixa de colisão se atualizou automaticamente.
+
+Os demais registros de objetos ficaram idênticos ao controle. A diferença de
+pixels ficou localizada no carro distante e restaurar a referência devolveu o
+viewport original. Isso não comprova um impacto contra o carro reposicionado
+nem estabilidade prolongada. O protótipo portátil gera apenas novas cópias de
+save state; não há editor dentro do jogo.
+
+## Próximas verificações
 
 1. Confirmar visualmente um estado do Crash na contagem inicial ou imediatamente antes do GO.
-2. Correlacionar um objeto, seus links e sua transformação com um veículo visível.
-3. Testar um pequeno deslocamento reversível numa cópia isolada e observar o jogo.
-4. Só depois investigar persistência no evento, novos veículos e edição de locais.
+2. Ampliar a verificação de colisões e repetição para o reposicionamento confirmado.
+3. Investigar persistência no evento, novos veículos e edição de locais.
 
 Este repositório é uma base de pesquisa experimental. Não comprova que todos os
 locais do jogo possam hospedar eventos Crash nem que um editor dentro do jogo

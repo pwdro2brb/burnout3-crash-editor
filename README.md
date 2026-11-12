@@ -1,9 +1,10 @@
 # Burnout 3 Crash Editor — pesquisa experimental
 
 Ferramentas próprias para investigar um futuro editor de eventos do Crash Mode
-de Burnout 3: Takedown. **Não existe editor pronto neste repositório.** O primeiro
-marco é reposicionar um veículo de um evento existente e confirmar a mudança no
-jogo. Adicionar veículos e usar locais novos são etapas posteriores.
+de Burnout 3: Takedown. **Não existe editor dentro do jogo neste repositório.**
+Há um protótipo que reposiciona um veículo existente em uma nova cópia de
+save state, validado em um teste controlado. Adicionar veículos, editar eventos
+de forma persistente e usar locais novos são etapas posteriores.
 
 O repositório contém somente código e documentação. Cada usuário fornece sua
 própria cópia extraída do jogo, ferramentas e, quando necessário, save states.
@@ -73,15 +74,48 @@ antes/depois e não extrai nem regrava o save. O limite padrão é oito exemplos
 RAM: devem permanecer privados e ignorados. Formatos ZIP com compressão não
 suportada pelo Python local podem exigir uma configuração compatível no PCSX2.
 
+## Protótipo de reposicionamento em save state
+
+`scripts/runtime/reposition_vehicle.py` gera um **arquivo novo**. Ele exige o
+SHA-256 explícito da referência, um objeto ativo independente com node válido,
+as quatro palavras de código de controle originais e os invariantes conhecidos
+do pool. O perfil é específico do executável USA pesquisado. Não aceita escrita
+no arquivo de entrada nem sobrescrita de saída ou relatório.
+
+Exemplo, com caminhos de teste e hash fornecidos pelo usuário:
+
+```powershell
+python scripts/runtime/reposition_vehicle.py --input <referencia.p2s> --output <nova-copia.p2s> --report <relatorio.json> --source-sha256 <sha256-da-referencia> --vehicle-index 9 --dx 2.1409912109375 --dz 0.3963623046875 --lateral 0.1
+```
+
+`--dx` e `--dz` transladam X/Z dos dois pontos de ancoragem e da transformação
+atual; `--lateral` é opcional e deve estar em `0..1`. Y, normais, listas,
+velocidades, alvo armazenado e limites de colisão não são editados pelo script.
+O jogo precisa atualizar seus dados dependentes. O relatório registra campos,
+hashes, endereços de todos os bytes diferentes e verificações do ZIP. Os outros
+membros mantêm seus conteúdos e payloads comprimidos originais. O perfil de ZIP
+admitido usa entradas simples stored/deflate, sem duplicatas, criptografia,
+descritores de dados, ZIP64 ou múltiplos discos. Nenhum membro é extraído.
+
+Use uma configuração isolada do emulador e cópias de teste. O protótipo não muda
+o ISO nem os recursos do evento. A validação atual cobre um veículo independente
+em uma cena do Crash durante 30 frames; outros eventos, modelos, colisões de longa
+duração e persistência após reiniciar um evento ainda precisam de investigação.
+Detalhes em [docs/repositioning-milestone.md](docs/repositioning-milestone.md).
+
 ## Estado e próximos passos
 
-Consulte [docs/findings.md](docs/findings.md) para fatos e limites. Não há patch
-espacial, criação de veículos, reempacotador ou interface de edição implementados.
-Ainda precisamos confirmar visualmente uma referência do Crash na contagem
-inicial ou antes do GO, ligando um objeto de RAM a um veículo visível. Novos
-estados fornecidos pelo usuário passaram por verificações estruturais, mas o
-frame inicial ainda não foi confirmado na tela. O plano é validar uma única
-mudança reversível em uma cópia de teste antes de desenvolver edição persistente.
+Consulte [docs/findings.md](docs/findings.md) e o marco de reposicionamento para
+fatos e limites. O teste controlado ligou um objeto de RAM a uma mudança visual
+localizada e verificou atualização dos limites de colisão. Isso não demonstra
+um editor de eventos completo. Ainda faltam uma referência anterior ao GO,
+testes de física e repetição mais amplos, criação de veículos e uma interface de
+edição. O reempacotamento implementado é de save states, não de recursos do jogo.
+
+A nova referência fornecida pelo usuário foi confirmada visualmente como o
+evento **Grand Slam**. Ela contém campos candidatos de velocidade positivos
+e foi preservada para testar tráfego em movimento. Essa validação ainda não
+foi realizada; veja [docs/moving-traffic-reference.md](docs/moving-traffic-reference.md).
 
 Os endereços conhecidos pertencem ao perfil USA pesquisado. Uma versão diferente
 do jogo exige nova validação. Pseudocódigo, nomes inferidos e valores plausíveis
