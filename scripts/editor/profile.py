@@ -102,6 +102,15 @@ class Snapshot:
         vehicles = []
         for index, row in sorted(self.vehicles.items()):
             model = self.models[row['model_id']]
+            reason = None
+            if not row['independent']:
+                reason = 'Cabine/carga vinculada: a edição de conjuntos ainda não está habilitada.'
+            elif row['type'] not in (1, 2):
+                reason = 'Este tipo de veículo ainda não está habilitado para edição.'
+            elif not row['initialized']:
+                reason = 'O jogo ainda não inicializou os pontos físicos deste veículo.'
+            elif not row['editable']:
+                reason = 'O veículo não tem um caminho válido para esta edição.'
             public_row = {
                 'id': index, 'label': f"Veículo {index} — {model['label']}",
                 'model_id': row['model_id'], 'type_label': model['type_label'],
@@ -109,6 +118,7 @@ class Snapshot:
                 'progress': row['progress'],
                 'lateral_percent': None if row['lateral'] is None else 100 * row['lateral'],
                 'editable': row['editable'], 'independent': row['independent'],
+                'edit_reason': reason,
                 'initialized': row['initialized'],
                 'can_add': row['editable'] and model['eligible'] and row['travel_speed'] > 0,
             }
@@ -162,6 +172,9 @@ def snapshot(client, require_paused: bool = True, *, allow_editor_hook: bool = F
         raise ProfileError('Este estado contém alterações de código incompatíveis com o editor.')
     epilogue = memory.read_bytes(EPILOGUE, 8)
     if epilogue != EPILOGUE_ORIGINAL and not (allow_editor_hook and epilogue == EDITOR_JUMP):
+        if epilogue == EDITOR_JUMP:
+            raise ProfileError('Há uma criação pendente de outra sessão do editor neste estado. '
+                               'Recarregue a referência anterior à criação e conecte novamente.')
         raise ProfileError('Há uma alteração de código não reconhecida na atualização do tráfego.')
     model_count = memory.u8(MODEL_COUNT)
     if not 1 <= model_count <= 12:

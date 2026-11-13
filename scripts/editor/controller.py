@@ -111,7 +111,21 @@ class EditorController:
 
     def _snapshot(self, *, pending=False):
         self._paused()
-        return profile.snapshot(self.client, require_paused=True, allow_editor_hook=pending)
+        try:
+            return profile.snapshot(self.client, require_paused=True, allow_editor_hook=pending)
+        except profile.ProfileError as error:
+            # Keep a bounded, read-only explanation of a rejection. An unknown
+            # hook must not be treated as pool exhaustion or silently restored.
+            details = {'message': str(error), 'pending_request': self.pending is not None}
+            try:
+                details.update(core_status=int(self.client.status()),
+                    epilogue_hex=self.client.read_bytes(profile.EPILOGUE, 8).hex(),
+                    probe_hex=self.client.read_bytes(spawncode.DATA, 12).hex(),
+                    request_marker_hex=self.client.read_bytes(spawncode.MAGIC_ADDRESS, 24).hex())
+            except PineError as diagnostic_error:
+                details['diagnostic_error'] = type(diagnostic_error).__name__
+            self._journal('profile_rejected', **details)
+            raise
 
     def connect(self):
         try:
@@ -309,6 +323,18 @@ class EditorController:
         if self.client.read_bytes(spawncode.CAVE, 4096) != bytes(4096):
             raise EditorError('A limpeza da área de trabalho não conferiu.')
 
+    def _cleanup_completed_request(self, pending: Pending, event: str, **fields):
+        """Remove only our completed request; never repair or move its actor."""
+        try:
+            self._clean(pending)
+        except Exception:
+            self.unsafe = True
+            self._journal('cleanup_unconfirmed', nonce=pending.nonce, **fields)
+            raise EditorError('A limpeza não pôde ser confirmada. Recarregue um estado limpo antes de continuar.')
+        self.pending = None
+        self.replay_queue.clear()
+        self._journal(event, nonce=pending.nonce, **fields)
+
     def poll(self):
         pending = self.pending
         if pending is None:
@@ -321,9 +347,11 @@ class EditorController:
         if state is Status.SHUTDOWN:
             raise EditorError('O jogo foi encerrado. A criação não será repetida automaticamente.')
         flag, object_ptr, node_ptr = self.client.read_many([(spawncode.DATA+i, 4) for i in (0,4,8)])
+        waiting_message = ('Aguardando a atualização do tráfego. Retome o PCSX2 e, '
+                           'se estiver em Continue/menu, inicie o evento.')
         if state is not Status.PAUSED:
-            message = ('Carro criado. Pause o emulador novamente com Esc para finalizar.' if flag == 2
-                       else 'Retome o emulador com Esc para executar a criação.')
+            message = ('Veículo criado. Pause agora o PCSX2 para finalizar antes de dirigir.' if flag == 2
+                       else waiting_message)
             return {'pending': True, 'message': message, 'core_paused': False}
         live_hook = self.client.read_bytes(spawncode.HOOK, 8)
         scratch = self.client.read_bytes(spawncode.CAVE, 4096)
@@ -336,19 +364,37 @@ class EditorController:
         self._validate_pending_bytes(pending, live_hook, scratch)
         if flag != 2:
             return {'pending': True, 'core_paused': True,
-                    'message': 'Retome com Esc por um instante e pause novamente para concluir a criação.'}
+                    'message': waiting_message}
         if object_ptr == 0:
-            self._clean(pending)
-            self.pending = None
-            self.replay_queue.clear()
+            self._cleanup_completed_request(pending, 'spawn_refused',
+                reason='allocator_returned_null', object_pointer=object_ptr, node_pointer=node_ptr)
             raise EditorError('O jogo recusou criar o veículo. A edição temporária foi removida.')
         snap = self._snapshot(pending=True)
         new_id = (object_ptr - 0x539C10) // 0x180
         row = snap.vehicles.get(new_id)
-        if (object_ptr != 0x539C10 + new_id*0x180 or new_id in pending.old_ids or not row
-                or row['node'] != node_ptr or row['model_hash'] != pending.model_hash
-                or row['path'] != pending.path or row['type'] != pending.type_code or not row['independent']):
-            raise EditorError('O veículo criado não corresponde à solicitação. Recarregue um estado limpo.')
+        mismatch = None
+        if object_ptr != 0x539C10 + new_id*0x180:
+            mismatch = 'unaligned_object_pointer'
+        elif new_id in pending.old_ids:
+            mismatch = 'previously_active_object'
+        elif not row:
+            mismatch = 'object_no_longer_active'
+        elif row['node'] != node_ptr:
+            mismatch = 'node_changed'
+        elif row['model_hash'] != pending.model_hash:
+            mismatch = 'model_changed'
+        elif row['path'] != pending.path:
+            mismatch = 'path_changed'
+        elif row['type'] != pending.type_code:
+            mismatch = 'type_changed'
+        elif not row['independent']:
+            mismatch = 'object_no_longer_independent'
+        if mismatch:
+            self._cleanup_completed_request(pending, 'spawn_not_finalized', reason=mismatch,
+                object_pointer=object_ptr, node_pointer=node_ptr)
+            return {'pending': False, 'core_paused': True, 'warning': True,
+                    'message': 'Criação executada, mas o veículo mudou ou saiu do cenário. '
+                               'Código temporário removido. Alinhamento não confirmado.'}
         if not row['initialized']:
             return {'pending': True, 'core_paused': True,
                     'message': 'A física ainda está inicializando. Retome por um instante e pause novamente.'}

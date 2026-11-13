@@ -90,6 +90,7 @@ class EditorApp:
         self.connected = False
         self.busy = False
         self.pending = False
+        self.pending_sized = False
         self.pending_poll_id: str | None = None
         self.core_paused: bool | None = None
         self.closed = False
@@ -267,8 +268,9 @@ class EditorApp:
                   foreground='#5f6875', wraplength=350).grid(row=0, column=2, sticky='e')
         self.progress = ttk.Progressbar(container, mode='indeterminate')
         self.progress.grid(row=5, column=0, sticky='ew', pady=(13, 6))
-        ttk.Label(container, textvariable=self.status,
-                  wraplength=950).grid(row=6, column=0, sticky='ew')
+        self.status_label = ttk.Label(container, textvariable=self.status,
+                                      foreground='#273444', wraplength=950)
+        self.status_label.grid(row=6, column=0, sticky='ew')
 
     def selected(self) -> dict[str, Any] | None:
         selected = self.table.selection()
@@ -284,6 +286,8 @@ class EditorApp:
             xyz = vehicle.get('position') or []
             self.position_text.set('     '.join(f'{axis}: {coordinate(xyz[i] if i < len(xyz) else None)}'
                                                for i, axis in enumerate('XYZ')))
+            if vehicle.get('edit_reason'):
+                self.position_text.set(self.position_text.get() + '\n' + str(vehicle['edit_reason']))
             try:
                 lateral = float(vehicle.get('lateral_percent', 50))
                 if not math.isfinite(lateral):
@@ -424,8 +428,26 @@ class EditorApp:
                     '1. Retome com Esc por um instante. 2. Pause com Esc '
                     '(Sistema → Pausar) e aguarde a confirmação.\n' + self.status.get())
                 self.pending_banner.grid()
+                if not getattr(self, 'pending_sized', False) and hasattr(self, 'root'):
+                    self.pending_sized = True
+                    self.root.after_idle(self._fit_pending_window)
             else:
                 self.pending_banner.grid_remove()
+                self.pending_sized = False
+
+    def _fit_pending_window(self) -> None:
+        """Keep the pending instructions visible using Tk's measured request."""
+        if self.closed or not self.pending:
+            return
+        height = min(max(820, self.root.winfo_reqheight()),
+                     max(1, self.root.winfo_screenheight() - 80))
+        if self.root.winfo_height() < height:
+            self.root.geometry(f'{self.root.winfo_width()}x{height}')
+
+    def _set_status(self, message: str, *, warning: bool = False) -> None:
+        self.status.set(f'Atenção: {message}' if warning else message)
+        if hasattr(self, 'status_label'):
+            self.status_label.configure(foreground='#8a5200' if warning else '#273444')
 
     def _submit(self, label: str, action: Callable[[], Any],
                 callback: Callable[[Any], None], *, quiet: bool = False) -> None:
@@ -433,7 +455,7 @@ class EditorApp:
             return
         self.busy = True
         if not quiet:
-            self.status.set(label)
+            self._set_status(label)
         if not self.pending:
             self.progress.start(12)
         self._update_controls()
@@ -462,7 +484,7 @@ class EditorApp:
         else:
             self.busy = False
             if error:
-                self.status.set(f'Erro: {error}')
+                self._set_status(f'Erro: {error}')
                 if self.pending:
                     self._schedule_pending_poll(2000)
                 else:
@@ -471,7 +493,7 @@ class EditorApp:
                 try:
                     callback(value)
                 except Exception as exc:
-                    self.status.set(f'Não foi possível exibir a resposta: {exc}')
+                    self._set_status(f'Não foi possível exibir a resposta: {exc}')
                     if self.pending:
                         self._schedule_pending_poll(2000)
             if self.closed:
@@ -520,7 +542,7 @@ class EditorApp:
                 self.table.selection_set(iid)
                 self.table.see(iid)
         self._selection_changed()
-        self.status.set(str(snapshot.get('status') or f'{len(self.vehicles)} veículos listados.'))
+        self._set_status(str(snapshot.get('status') or f'{len(self.vehicles)} veículos listados.'))
 
     def connect(self) -> None:
         self.connected = False
@@ -536,6 +558,9 @@ class EditorApp:
             self.connection_text.set(' · '.join(part for part in parts if part) or 'Conectado')
             self._set_core_state(connection)
             self._snapshot(snapshot)
+            if snapshot.get('warning'):
+                self._set_status(str(snapshot.get('message') or snapshot.get('status')
+                                     or 'Confira o resultado antes de continuar.'), warning=True)
             if self.pending:
                 self._schedule_pending_poll()
         self._submit('Conectando ao emulador…', work, done)
@@ -562,7 +587,7 @@ class EditorApp:
             message = str(result.get('message') or 'Alteração aplicada.')
             if refresh_error:
                 message += f' A lista não pôde ser atualizada: {refresh_error}. Use Atualizar lista.'
-            self.status.set(message)
+            self._set_status(message, warning=bool(result.get('warning') or refresh_error))
             if self.pending:
                 self._schedule_pending_poll()
         self._submit(label, work, done)
@@ -598,7 +623,7 @@ class EditorApp:
             if refresh_error:
                 message += f' Use Atualizar lista: {refresh_error}'
             if message:
-                self.status.set(message)
+                self._set_status(message, warning=bool(result.get('warning') or refresh_error))
             if self.pending:
                 self._schedule_pending_poll()
         self._submit('', work, done, quiet=True)
@@ -638,7 +663,7 @@ class EditorApp:
         if path:
             self._submit('Salvando a configuração…',
                          lambda: self.controller.save_preset(str(Path(path))),
-                         lambda result: self.status.set(str(result.get('message') or 'Configuração salva.')))
+                         lambda result: self._set_status(str(result.get('message') or 'Configuração salva.')))
 
     def load_preset(self) -> None:
         path = filedialog.askopenfilename(parent=self.root, title='Abrir configuração',

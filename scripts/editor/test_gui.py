@@ -112,9 +112,11 @@ class InterfaceContractTests(unittest.TestCase):
         app = app_shell()
         app.pending = True
         app.connection_text = Var()
+        app.status_label = Widget()
         app._snapshot = Mock()
         app._schedule_pending_poll = Mock()
-        snapshot = {'pending': False, 'core_paused': True}
+        snapshot = {'pending': False, 'core_paused': True,
+                    'warning': True, 'message': 'A preparação temporária foi removida.'}
         app.controller = types.SimpleNamespace(
             connect=Mock(return_value={'game': 'Burnout 3 USA', 'pending': False}),
             refresh=Mock(return_value=snapshot))
@@ -129,6 +131,7 @@ class InterfaceContractTests(unittest.TestCase):
         app.controller.refresh.assert_called_once()
         app._snapshot.assert_called_once_with(snapshot)
         app._schedule_pending_poll.assert_not_called()
+        self.assertEqual(app.status.get(), 'Atenção: ' + snapshot['message'])
 
     def test_connect_while_running_keeps_editing_disabled(self):
         app = app_shell({'id': 9, 'editable': True})
@@ -220,6 +223,53 @@ class InterfaceContractTests(unittest.TestCase):
         app.progress.stop.assert_not_called()
         app._update_controls.assert_not_called()
         app.root.after.assert_not_called()
+
+    def test_expired_creation_warning_survives_final_refresh_and_unblocks_editing(self):
+        app = app_shell({'id': 9, 'editable': True})
+        app.pending, app.pending_poll_id = True, 'old-timer'
+        app.status_label = Widget()
+        warning = 'O veículo já saiu da referência. A preparação temporária foi removida.'
+        result = {'pending': False, 'core_paused': True, 'warning': True, 'message': warning}
+        snapshot = {'pending': False, 'core_paused': True}
+        app.controller = types.SimpleNamespace(poll=Mock(return_value=result),
+                                               refresh=Mock(return_value=snapshot))
+        def display_snapshot(value, selected_id=None):
+            app._set_core_state(value)
+            app._set_status('Lista atualizada.')
+        app._snapshot = Mock(side_effect=display_snapshot)
+        jobs = []
+        app._submit = lambda label, work, done, **options: jobs.append((work, done))
+        app._poll_pending()
+        work, done = jobs.pop()
+        done(work())
+        app._update_controls()
+        app.controller.poll.assert_called_once()
+        app.controller.refresh.assert_called_once()
+        app._snapshot.assert_called_once_with(snapshot, None)
+        self.assertFalse(app.pending)
+        self.assertTrue(app.core_paused)
+        self.assertEqual(app.status.get(), 'Atenção: ' + warning)
+        self.assertEqual(app.status_label.options['foreground'], '#8a5200')
+        self.assertEqual(app.move_button.options['state'], 'normal')
+        self.assertEqual(app.add_button.options['state'], 'normal')
+
+    def test_pending_window_growth_uses_widget_request_and_screen_limit(self):
+        app = app_shell()
+        app.pending, app.root = True, Mock()
+        app.root.winfo_height.return_value = 710
+        app.root.winfo_width.return_value = 1040
+        app.root.winfo_reqheight.return_value = 860
+        app.root.winfo_screenheight.return_value = 1080
+        app._fit_pending_window()
+        app.root.geometry.assert_called_once_with('1040x860')
+        app.root.geometry.reset_mock()
+        app.root.winfo_screenheight.return_value = 768
+        app._fit_pending_window()
+        app.root.geometry.assert_not_called()
+        app.pending = False
+        app.root.winfo_screenheight.return_value = 1080
+        app._fit_pending_window()
+        app.root.geometry.assert_not_called()
 
     def test_snapshot_pause_boolean_is_understood(self):
         app = app_shell(paused=None)

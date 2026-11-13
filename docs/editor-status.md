@@ -81,6 +81,30 @@ rodada: a conclusão técnica de alinhamento/limpeza foi demonstrada no teste
 separado do controlador acima. Presença/colisão relatadas e finalização
 registrada são evidências distintas.
 
+## Finalização após o teste manual
+
+O usuário confirmou novamente que o veículo foi adicionado e funcionou no
+jogo, embora a interface ainda pedisse retomar ou pausar. A observação da
+janela mostrou **Carro criado** com **Jogo em execução**: a solicitação já
+havia retornado do alocador e aguardava a pausa do núcleo. Ao pausar a cópia
+correta, a validação já não reconheceu a instância original. Isso explica
+uma pendência de finalização, sem invalidar o relato manual de presença e
+colisão nem provar a causa exata da mudança daquela instância.
+
+O controlador passou a encerrar esse caso com aviso. Após validar a pausa,
+a identidade e todos os bytes imutáveis da própria solicitação, ele restaura
+somente o hook e a área temporária, cancela a fila e não alinha veículos nem
+registra a criação na receita. Uma falha na limpeza continua bloqueando
+edições e exige referência limpa. A interface preserva o aviso em âmbar,
+distingue espera do tráfego de espera da pausa e destaca as duas etapas.
+
+Para atualizar a sessão aberta, uma recuperação local validou a última
+solicitação `HEVYCAR35` contra seu nonce registrado e os bytes canônicos da
+rotina. Ela removeu apenas o código temporário; os hashes de toda a região
+de objetos/nós/matrizes antes e depois ficaram iguais. Hook e área temporária
+ficaram limpos, sem carregar outro estado ou alinhar atores. A interface
+atualizada reconectou com **Jogo pausado**, sem criação pendente.
+
 ## Implementação disponível
 
 - Interface externa em Tkinter, aberta por `Abrir Editor.cmd`.
@@ -117,9 +141,13 @@ recriar o tráfego. Um preset JSON guarda uma receita; ele não substitui um
 save state e não resolve a persistência no evento.
 
 Os testes automatizados verificam o protocolo, o perfil, a rotina de criação
-e o fluxo da interface. Nesta revisão passaram 41 testes distribuíveis e 25
+e o fluxo da interface. Nesta revisão passaram 49 testes distribuíveis e 29
 testes locais com capturas privadas do perfil/controlador. Eles não demonstram
 impacto, estabilidade prolongada ou funcionamento de todos os modelos e níveis.
 A integração e o relato manual acima cobrem somente os ensaios descritos.
 Edição dentro do jogo,
 novos locais de Crash e gravação persistente continuam como etapas futuras.
+
+Os testes posteriores do usuário, o diagnóstico de veículos bloqueados e a
+pesquisa sobre cabine/carga e a hipótese de três tanques estão em
+[traffic-capacity-and-trucks.md](traffic-capacity-and-trucks.md).

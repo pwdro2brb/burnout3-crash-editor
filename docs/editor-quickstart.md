@@ -24,6 +24,10 @@ teste do emulador e preserve uma referência do evento antes de editar.
    Use **Atualizar lista** para reler a sessão atual. Após carregar outro estado
    ou evento, clique em **Conectar / nova sessão** antes de iniciar uma receita.
 
+Ao selecionar um veículo bloqueado, os detalhes explicam se ele é um
+componente vinculado, um tipo ainda não habilitado ou se o jogo ainda não
+inicializou sua física. Estar listado não significa estar pronto para editar.
+
 Uma nova conexão limpa a receita de ações que ainda está no editor. Salve a
 configuração antes de iniciar outra sessão, caso queira conservar essa receita.
 
@@ -92,6 +96,18 @@ ser editados por este método.
 6. Aguarde a confirmação no editor. Depois pressione **Esc** para jogar e
    testar a presença e a colisão do carro novo.
 
+Confira também **Jogo pausado** no editor e `<PAUSED>` no título da janela
+do jogo. Se houver duas instalações abertas, pausar a outra janela do PCSX2
+não pausa a sessão à qual o editor está conectado.
+
+A faixa amarela **CRIAÇÃO PENDENTE** permanece até a finalização. O aviso de
+que o veículo foi criado ainda exige a segunda pausa, antes de dirigir.
+Se o veículo já mudou ou saiu do cenário, o editor pode encerrar com
+**Atenção: ... Código temporário removido. Alinhamento não confirmado.**
+Nesse caso ele limpa somente sua rotina temporária, libera a interface e
+não inclui essa criação na receita JSON. Ele não move outro veículo para
+tentar corrigir uma referência antiga.
+
 Durante uma criação em andamento, não carregue outro estado, troque de evento
 ou feche o editor. A mensagem da interface indica a etapa necessária. Se uma
 operação falhar, siga a mensagem exibida. Se for pedido um estado limpo, recarregue
@@ -117,3 +133,6 @@ dos arquivos de Crash Events, criação de mapas ou editor dentro do jogo.
 O protocolo e a pausa exigida foram conferidos no
 [PINE oficial do PCSX2 v1.7.2521](https://github.com/PCSX2/pcsx2/blob/v1.7.2521/pcsx2/PINE.cpp).
 As mensagens de sucesso da interface não substituem a observação no jogo.
+
+As restrições, o erro de proteção e a investigação de caminhões estão em
+[traffic-capacity-and-trucks.md](traffic-capacity-and-trucks.md).
