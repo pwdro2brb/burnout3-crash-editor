@@ -123,8 +123,32 @@ manual não constitui uma captura instrumentada do impacto. Não há prova de
 persistência após reiniciar o evento.
 
 Método e limites em [vehicle-creation-milestone.md](vehicle-creation-milestone.md).
-O criador experimental permanece local, sem ferramenta portátil de criação
-ou editor dentro do jogo publicado neste repositório.
+Esse ensaio usou um criador local. A ferramenta externa acrescentada depois
+está descrita em [editor-status.md](editor-status.md); ainda não há editor
+dentro do jogo.
+
+## Catálogo e editor externo do evento atual
+
+Os 40 identificadores de tráfego foram decodificados em base 40 e associados
+à tabela de rótulos do próprio jogo e aos recursos correspondentes. O carro
+do ensaio anterior usa `COMPCAR14`, classificado como **Car**. `HEVYCAR33` e
+`HEVYCAR35` são **Van**; `HEVYCAR20` é **Bus**. O catálogo identifica os
+modelos carregados, inclusive aqueles cuja criação ainda está bloqueada.
+
+A interface externa lista veículos, mostra suas posições em vista de cima,
+aplica deslocamento lateral e prepara uma criação atrás de uma referência.
+Uma integração real por PINE confirmou leitura e reposicionamento. O
+controlador também criou `HEVYCAR33` como objeto independente de tipo 2,
+com nó, pontos físicos inicializados e lateral alinhada; o hook original e
+a área temporária foram restaurados. Isso não demonstra a colisão dessa
+van, a persistência no evento ou a validação de todos os modelos.
+
+Na rodada seguinte preparada pela interface, o usuário relatou presença e
+colisão da van no Grand Slam. O cancelamento após recarregar o estado e a
+finalização técnica do ensaio separado estão distinguidos no registro abaixo.
+
+O fluxo pela interface e o teste manual desta versão estão documentados em
+[editor-status.md](editor-status.md) e no [guia](editor-quickstart.md).
 
 ## Próximas verificações
 
