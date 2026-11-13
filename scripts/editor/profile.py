@@ -27,6 +27,7 @@ EPILOGUE = 0x166D6C
 EPILOGUE_ORIGINAL = bytes.fromhex('0800b6c79000be7b')
 EDITOR_JUMP = struct.pack('<II', 0x08000000 | (0xB3000 >> 2), 0)
 PLAYER_TRANSFORM_POINTER = 0x64D388
+TRAILER_CATEGORIES = {'freight_container', 'flatbed', 'lumber_trailer', 'tanker', 'covered_trailer'}
 
 
 class ProfileError(ValueError):
@@ -103,8 +104,14 @@ class Snapshot:
         for index, row in sorted(self.vehicles.items()):
             model = self.models[row['model_id']]
             reason = None
-            if not row['independent']:
-                reason = 'Cabine/carga vinculada: a edição de conjuntos ainda não está habilitada.'
+            if row['can_edit_compound']:
+                reason = None
+            elif row.get('parent_id') is not None:
+                reason = 'Carga vinculada: selecione a cabine para editar o conjunto.'
+            elif row.get('kind') == 'truck':
+                reason = 'O conjunto ainda não tem física ou formato validado para reposicionamento.'
+            elif not row['independent']:
+                reason = 'Este componente vinculado não pode ser editado isoladamente.'
             elif row['type'] not in (1, 2):
                 reason = 'Este tipo de veículo ainda não está habilitado para edição.'
             elif not row['initialized']:
@@ -120,12 +127,20 @@ class Snapshot:
                 'editable': row['editable'], 'independent': row['independent'],
                 'edit_reason': reason,
                 'initialized': row['initialized'],
-                'can_add': row['editable'] and model['eligible'] and row['travel_speed'] > 0,
+                'kind': row['kind'], 'parent_id': row['parent_id'], 'child_id': row['child_id'],
+                'parent_model_id': row['parent_model_id'], 'child_model_id': row['child_model_id'],
+                'secondary_model_id': row['secondary_model_id'],
+                'native_pair_valid': row['native_pair_valid'],
+                'can_reference': row['can_reference'],
+                'can_edit_compound': row['can_edit_compound'],
+                'can_add': row['can_reference'] and model['eligible'],
             }
             if self.player and _finite(row['position']):
                 public_row['distance_to_player'] = math.dist(row['position'], self.player['position'])
             vehicles.append(public_row)
-        models = [{k: row[k] for k in ('id', 'label', 'type_label', 'verified', 'eligible')}
+        models = [{k: row[k] for k in ('id', 'label', 'type_label', 'verified', 'eligible',
+                  'kind', 'type', 'eligible_as_trailer', 'trailer_model_ids', 'truck_model_ids',
+                  'native_pair_valid')}
                   for row in self.models.values()]
         result = {'vehicles': vehicles, 'models': models,
                 'status': 'Jogo pausado' if self.core_paused else 'Pause o jogo no PCSX2 para editar.',
@@ -146,6 +161,85 @@ def _player(memory: CachedMemory) -> dict[str, list[float]] | None:
     if not 0.5 <= math.sqrt(sum(v*v for v in forward)) <= 1.5:
         return None
     return {'position': position, 'forward': forward}
+
+
+def _compound_metadata(vehicles, models):
+    """Recognize loaded native 4+11 pairs and the guarded placement layout.
+
+    Model compatibility is demonstrated by actual reciprocal native pairs,
+    not inferred from a category label or the presence of unrelated trailers.
+    Zero/uninitialized physics may prove a model pairing but cannot be used
+    as a placement reference. The controller still verifies path direction.
+    """
+    members = {name: [] for name in models}
+    for row in vehicles.values():
+        members[row['model_id']].append(row)
+        parent, child = vehicles.get(row['parent_id']), vehicles.get(row['child_id'])
+        row['parent_model_id'] = parent['model_id'] if parent else None
+        row['child_model_id'] = child['model_id'] if child else None
+        row['secondary_model_id'] = None
+        row['native_pair_valid'] = False
+        row['can_edit_compound'] = False
+        row['can_reference'] = row['editable'] and row['travel_speed'] > 0
+    for primary in vehicles.values():
+        child = vehicles.get(primary['child_id'])
+        if not child:
+            continue
+        truck, trailer = models[primary['model_id']], models[child['model_id']]
+        valid = (truck['kind'] == 'truck' and trailer['kind'] == 'trailer'
+            and truck['verified'] and trailer['verified']
+            and truck['observed_types'] == {4} and trailer['observed_types'] == {11}
+            and primary['type'] == 4 and child['type'] == 11
+            and primary['parent_id'] is None and child['child_id'] is None
+            and child['parent_id'] == primary['id']
+            and primary['node_index'] is not None and child['node'] == 0)
+        if not valid:
+            continue
+        primary['native_pair_valid'] = child['native_pair_valid'] = True
+        primary['secondary_model_id'] = child['model_id']
+        primary['can_edit_compound'] = _compound_layout_ready(primary, child)
+        primary['editable'] = primary['can_edit_compound']
+        primary['can_reference'] = (primary['initialized'] and child['initialized']
+            and primary['path_valid'] and primary['travel_speed'] > 0)
+        truck['trailer_model_ids'].add(child['model_id'])
+        trailer['truck_model_ids'].add(primary['model_id'])
+    for name, model in models.items():
+        observed = model['observed_types']
+        if model['verified'] and len(observed) == 1:
+            model['type'] = next(iter(observed))
+        if model['kind'] == 'independent':
+            model['eligible'] = (model['verified'] and len(observed) == 1
+                and observed <= {1, 2} and model['independent_observed_types'] == observed)
+        else:
+            model['native_pair_valid'] = bool(members[name]) and all(row['native_pair_valid'] for row in members[name])
+            model['eligible'] = model['kind'] == 'truck' and observed == {4} and model['native_pair_valid']
+            model['eligible_as_trailer'] = model['kind'] == 'trailer' and observed == {11} and model['native_pair_valid']
+        model['observed_types'] = sorted(observed)
+        model['independent_observed_types'] = sorted(model['independent_observed_types'])
+        model['trailer_model_ids'] = sorted(model['trailer_model_ids'])
+        model['truck_model_ids'] = sorted(model['truck_model_ids'])
+
+
+def _compound_layout_ready(primary, child):
+    if not (primary['native_pair_valid'] and child['native_pair_valid']
+            and primary['type'] == 4 and child['type'] == 11
+            and primary['parent_id'] is None and child['child_id'] is None
+            and primary['child_id'] == child['id'] and child['parent_id'] == primary['id']
+            and primary['node_index'] is not None and child['node'] == 0
+            and primary['initialized'] and child['initialized'] and primary['path_valid']):
+        return False
+    # Type 11 derives its front/hitch from the parent in FUN_00172070. Its
+    # unused first anchor must retain the observed null layout; only rear and
+    # rendered center receive the same X/Z translation as the tractor.
+    if child['anchor0'] != [0.0, 0.0, 0.0]:
+        return False
+    if not _finite(child['anchor1']+child['position']+primary['body_forward']
+                   +[primary['hitch_offset'], child['front_offset'], child['rear_offset']]):
+        return False
+    if any(math.sqrt(sum(v*v for v in point)) <= 1e-6 for point in (child['anchor1'], child['position'])):
+        return False
+    hitch = [primary['position'][k]+primary['body_forward'][k]*primary['hitch_offset'] for k in range(3)]
+    return math.dist(hitch, child['anchor1']) > 1e-6
 
 
 def snapshot(client, require_paused: bool = True, *, allow_editor_hook: bool = False) -> Snapshot:
@@ -196,7 +290,11 @@ def snapshot(client, require_paused: bool = True, *, allow_editor_hook: bool = F
         row = {'id': name, 'model_id': name, 'model_hash': value, 'model_pointer': pointer,
                'model_index': index, 'label': info['label'], 'type_label': info['category_label'],
                'category': info['category'], 'verified': info['verified'], 'eligible': False,
-               'type': None, 'observed_types': set()}
+               'type': None, 'observed_types': set(), 'independent_observed_types': set(),
+               'kind': 'truck' if info['category'] == 'big_rig' else
+                       'trailer' if info['category'] in TRAILER_CATEGORIES else 'independent',
+               'eligible_as_trailer': False, 'trailer_model_ids': set(), 'truck_model_ids': set(),
+               'native_pair_valid': False}
         models[name] = row
         by_index[index] = row
     vehicles = {}
@@ -208,7 +306,8 @@ def snapshot(client, require_paused: bool = True, *, allow_editor_hook: bool = F
         if model is None or memory.u32(address + 0xB0) != model['model_pointer']:
             raise ProfileError('Um veículo ativo não corresponde à tabela de modelos carregados.')
         type_ = memory.u8(address + 0x173)
-        independent = not (memory.u32(address+0x10C) or memory.u32(address+0x110))
+        parent, child = memory.u32(address+0x10C), memory.u32(address+0x110)
+        independent = not (parent or child)
         node = memory.u32(address+0x114)
         node_index = index_for_pointer(node, NODES, NODE_STRIDE) if node else None
         anchor0, anchor1, position = (memory.xyz(address+o) for o in (0, 0x30, 0xA0))
@@ -231,17 +330,20 @@ def snapshot(client, require_paused: bool = True, *, allow_editor_hook: bool = F
                            'model_hash': model['model_hash'], 'model_pointer': model['model_pointer'],
                            'model_index': model_index, 'position': position,
                            'anchor0': anchor0, 'anchor1': anchor1, 'independent': independent,
+                           'body_forward': memory.xyz(address+0x90),
+                           'hitch_offset': memory.read(address+0x134, '<f')[0],
+                           'front_offset': memory.read(address+0x138, '<f')[0],
+                           'rear_offset': memory.read(address+0x14C, '<f')[0],
                            'initialized': initialized, 'editable': editable,
+                           'kind': model['kind'], 'path_valid': path_valid,
+                           'parent_id': index_for_pointer(parent, VEHICLES, VEHICLE_STRIDE) if parent else None,
+                           'child_id': index_for_pointer(child, VEHICLES, VEHICLE_STRIDE) if child else None,
                            'speed': speed, 'travel_speed': travel_speed,
                            'spacing_scalar': spacing_scalar}
+        model['observed_types'].add(type_)
         if independent:
-            model['observed_types'].add(type_)
-    for model in models.values():
-        observed_types = model['observed_types']
-        if model['verified'] and len(observed_types) == 1 and observed_types <= {1, 2}:
-            model['type'] = next(iter(observed_types))
-            model['eligible'] = True
-        model['observed_types'] = sorted(model['observed_types'])
+            model['independent_observed_types'].add(type_)
+    _compound_metadata(vehicles, models)
     player = _player(memory)
     final_status = client.status()
     if final_status is not start_status or (require_paused and final_status is not Status.PAUSED):
@@ -340,6 +442,8 @@ def lateral_patches(state: Snapshot, vehicle_id: int, lateral_percent: float) ->
     if type(lateral_percent) not in (int, float) or not math.isfinite(lateral_percent) or not 0 <= lateral_percent <= 100:
         raise ProfileError('A posição lateral precisa estar entre 0% e 100%.')
     row = state.vehicles[vehicle_id]
+    if row['kind'] == 'truck':
+        return compound_lateral_patches(state, vehicle_id, lateral_percent)
     if not row['editable']:
         raise ProfileError('Este veículo ainda não tem física independente pronta para edição.')
     target = lateral_percent/100.0
@@ -361,5 +465,43 @@ def lateral_patches(state: Snapshot, vehicle_id: int, lateral_percent: float) ->
                 raise ProfileError('Coordenada não finita.')
             patches.append(Patch(address, 4, state.memory.u32(address), struct.unpack('<I', packed)[0]))
     address = row['node']+0x34
+    patches.append(Patch(address, 4, state.memory.u32(address), struct.unpack('<I', struct.pack('<f', target))[0]))
+    return patches
+
+
+def compound_lateral_patches(state: Snapshot, primary_id: int, lateral_percent: float) -> list[Patch]:
+    """Prepare eleven guarded floats for a native tractor/type-11 pair.
+
+    Static reconstruction identifies the trailer rear/center and derived hitch.
+    This preserves the null first trailer anchor, all Y coordinates, linkage,
+    orientation and caches. Runtime movement/collision still need validation.
+    """
+    if type(primary_id) is not int or primary_id not in state.vehicles:
+        raise ProfileError('Selecione uma cabine ativa do conjunto.')
+    if type(lateral_percent) not in (int, float) or not math.isfinite(lateral_percent) or not 0 <= lateral_percent <= 100:
+        raise ProfileError('A posição lateral precisa estar entre 0% e 100%.')
+    primary = state.vehicles[primary_id]
+    child = state.vehicles.get(primary['child_id'])
+    if not child or not _compound_layout_ready(primary, child):
+        raise ProfileError('A cabine e a carga não têm o vínculo e os pontos físicos admitidos para mover o conjunto.')
+    target = lateral_percent/100.0
+    geometry = lane(state.memory, primary['path'], primary['progress'], primary['lateral'])
+    delta = [(target-primary['lateral'])*value for value in geometry['lane']]
+    if math.hypot(delta[0], delta[2]) > 10:
+        raise ProfileError('O deslocamento solicitado excede o limite deste protótipo.')
+    patches = []
+    for row, offsets in ((primary, (0, 0x30, 0xA0)), (child, (0x30, 0xA0))):
+        for offset in offsets:
+            for axis in (0, 2):
+                address = row['address']+offset+axis*4
+                value = state.memory.read(address, '<f')[0]+delta[axis]
+                try:
+                    packed = struct.pack('<f', value)
+                except (OverflowError, struct.error) as error:
+                    raise ProfileError('Coordenada fora do intervalo permitido.') from error
+                if not math.isfinite(struct.unpack('<f', packed)[0]):
+                    raise ProfileError('Coordenada não finita.')
+                patches.append(Patch(address, 4, state.memory.u32(address), struct.unpack('<I', packed)[0]))
+    address = primary['node']+0x34
     patches.append(Patch(address, 4, state.memory.u32(address), struct.unpack('<I', struct.pack('<f', target))[0]))
     return patches

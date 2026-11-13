@@ -1,7 +1,7 @@
 """Guarded controller for the experimental USA current-event editor.
 
-Only the loopback PINE API is used. No process handles, input injection,
-emulator configuration changes, or game files are accessed by this module.
+Game memory is accessed through loopback PINE. Optional native pause controls
+bind to that connection's emulator; state export copies a new emulator save.
 """
 from __future__ import annotations
 
@@ -60,7 +60,7 @@ def _state_digest(snapshot) -> str:
 
 
 class EditorController:
-    def __init__(self, port: int = 28011, journal_dir: Path | None = None, *, client=None):
+    def __init__(self, port: int = 28011, journal_dir: Path | None = None, *, client=None, pause_control=None):
         self.client = client or PineClient(port=port, allow_writes=True)
         self.journal_dir = Path(journal_dir) if journal_dir else None
         self.identity = None
@@ -75,6 +75,9 @@ class EditorController:
         self.recovery_digest: str | None = None
         self.baseline_refs: dict[int, tuple] = {}
         self.journal_warning = False
+        self.port = port
+        self.pause_control = pause_control
+        self.emulator_control = False
 
     def _journal(self, event: str, **fields):
         if self.journal_dir is None:
@@ -102,10 +105,49 @@ class EditorController:
         self.identity = result
         return result
 
+    def _control_available(self):
+        if self.pause_control is None:
+            from .emulator_control import WindowPauseControl
+            self.pause_control = WindowPauseControl(self.client,self.port)
+        self.emulator_control = self.pause_control.supports()
+        return self.emulator_control
+
+    def pause(self):
+        self._identity()
+        if not self._control_available():
+            raise EditorError('O botão de pausa não encontrou a janela do emulador desta conexão.')
+        self.pause_control.set_paused(True)
+        result = self.poll() if self.pending else self.refresh()
+        result.setdefault('pending', self.pending is not None)
+        result.setdefault('message','PCSX2 pausado. Pode editar o evento.')
+        result['emulator_control'] = True
+        return result
+
+    def export_state(self, destination):
+        self._ready()
+        if (self.client.read_bytes(spawncode.HOOK,8) != spawncode.ORIGINAL
+                or self.client.read_bytes(spawncode.CAVE,4096) not in (bytes(4096),spawncode.clean_batch_scratch())):
+            raise EditorError('Finalize a criação antes de salvar um estado editado.')
+        if not self._control_available():
+            raise EditorError('Não foi possível identificar a instalação portátil desta conexão.')
+        from .state_store import export_state
+        result = export_state(self.client,self.pause_control.emulator_root(),Path(destination))
+        result.update(pending=False,core_paused=self.client.status() is Status.PAUSED)
+        return result
+
+    def resume(self):
+        self._identity()
+        if not self._control_available():
+            raise EditorError('O botão de retomar não encontrou a janela do emulador desta conexão.')
+        self.pause_control.set_paused(False)
+        return {'pending':self.pending is not None,'core_paused':False,'emulator_control':True,
+                'message':'PCSX2 retomado. '+('Pause novamente para finalizar o lote antes de dirigir.'
+                                             if self.pending else 'Pode testar o evento.')}
+
     def _paused(self):
         self._identity()
         if self.client.status() is not Status.PAUSED:
-            raise EditorError('Pause o emulador com Esc. A pausa do menu do jogo não basta para editar.')
+            raise EditorError('Use Pausar PCSX2 no editor ou Sistema → Pausar no emulador antes de editar.')
         if self.unsafe:
             raise EditorError('A última escrita não pôde ser confirmada. Recarregue um estado limpo e reconecte.')
 
@@ -138,11 +180,11 @@ class EditorController:
         if self.unsafe:
             # Recovery never guesses whether an ambiguous allocation ran.
             clean = (self.client.read_bytes(spawncode.HOOK, 8) == spawncode.ORIGINAL
-                     and self.client.read_bytes(spawncode.CAVE, 4096) == bytes(4096))
+                     and self.client.read_bytes(spawncode.CAVE, 4096) in (bytes(4096),spawncode.clean_batch_scratch()))
             if not clean:
                 raise EditorError('Recarregue um estado sem edição pendente antes de reconectar.')
             if self.client.status() is not Status.PAUSED:
-                raise EditorError('Pause com Esc após recarregar o estado de referência.')
+                raise EditorError('Pause o PCSX2 após recarregar o estado de referência.')
             recovered = profile.snapshot(self.client, require_paused=True)
             if not self.recovery_digest or _state_digest(recovered) != self.recovery_digest:
                 raise EditorError('A referência anterior não foi recuperada. Recarregue-a e reabra o editor.')
@@ -157,9 +199,13 @@ class EditorController:
             self.baseline_refs.clear()
             self.replay_queue.clear()
         paused = self.client.status() is Status.PAUSED
-        result = {'status': 'Conectado. Pause com Esc para listar e editar os veículos.',
+        result = {'status': 'Conectado. Pause o PCSX2 para listar e editar os veículos.',
                   'game': 'Burnout 3 USA', 'profile': 'SLUS-21050',
                   'core_paused': paused, 'pending': self.pending is not None, **identity}
+        # Fake/in-memory clients used by offline tools never resolve native UI.
+        if self.pause_control is not None or type(self.client) is PineClient:
+            result['emulator_control'] = self._control_available()
+            result['state_export'] = result['emulator_control']
         if paused and self.pending is None:
             result.update(self.refresh())
         return result
@@ -169,7 +215,7 @@ class EditorController:
             return self.poll()
         self._identity()
         if self.client.status() is not Status.PAUSED:
-            return {'status': 'Pause o emulador com Esc para atualizar a lista.', 'core_paused': False}
+            return {'status': 'Use Pausar PCSX2 para atualizar a lista.', 'core_paused': False}
         snap = self._snapshot()
         return {**snap.public(), 'pending': False}
 
@@ -199,17 +245,21 @@ class EditorController:
             raise EditorError('Esse veículo não pertence à referência da receita. Conecte novamente para iniciar outra sessão.')
         return {'kind': 'initial', 'id': row['id'], 'model_id': row['model_id'], 'path': row['path']}
 
-    def _resolve(self, reference, snap):
+    def _resolve(self, reference, snap, *, for_creation=False):
+        if for_creation:
+            from .batch import reference as select
+        else:
+            select = lambda state, index: self._selected(state,index)
         if reference.get('kind') == 'created':
             vehicle_id = self.replay_ids.get(reference.get('key'))
         elif reference.get('kind') == 'initial':
             vehicle_id = reference.get('id')
-            row = self._selected(snap, vehicle_id)
+            row = select(snap, vehicle_id)
             if row['model_id'] != reference.get('model_id') or row['path'] != reference.get('path'):
                 raise EditorError('O veículo do preset não corresponde ao evento atual.')
         else:
             raise EditorError('Referência de veículo inválida no preset.')
-        self._selected(snap, vehicle_id)
+        select(snap, vehicle_id)
         return vehicle_id
 
     def move(self, vehicle_id: int, lateral_percent: float):
@@ -232,7 +282,11 @@ class EditorController:
                 'core_paused': True, 'pending': False}
 
     def add_behind(self, vehicle_id: int, model_id: str | None, gap: float):
-        return self._add_behind(vehicle_id, model_id, gap)
+        return self.add_many_behind(vehicle_id, model_id, gap, 1)
+
+    def add_many_behind(self, vehicle_id, model_id, gap, count, secondary_model_id=None):
+        from . import batch
+        return batch.stage(self,vehicle_id,model_id,gap,count,secondary_model_id)
 
     def _add_behind(self, vehicle_id, model_id, gap, *, created_key=None):
         snap = self._ready()
@@ -295,7 +349,7 @@ class EditorController:
     @staticmethod
     def _validate_pending_bytes(pending: Pending, live_hook: bytes, live_scratch: bytes):
         """Accept only this request's hook and immutable code/data/nonce bytes."""
-        if live_hook != pending.hook:
+        if live_hook not in getattr(pending,'allowed_hooks',(pending.hook,)):
             raise EditorError('O código mudou durante a criação. Recarregue um estado limpo antes de continuar.')
         if len(live_scratch) != len(pending.scratch):
             raise EditorError('A leitura da área de trabalho ficou incompleta. Nenhuma limpeza foi aplicada.')
@@ -303,19 +357,35 @@ class EditorController:
         probe = spawncode.DATA - spawncode.CAVE
         # The routine changes only these three publication words. The nonce,
         # signature, instructions and constructor arguments must remain exact.
-        for offset in (0, 4, 8):
-            expected[probe+offset:probe+offset+4] = live_scratch[probe+offset:probe+offset+4]
+        offsets = getattr(pending, 'probe_offsets', (probe,probe+4,probe+8))
+        for offset in offsets:
+            expected[offset:offset+4] = live_scratch[offset:offset+4]
         if bytes(expected) != live_scratch:
             raise EditorError('A área de trabalho mudou fora do esperado. Não foi limpa automaticamente.')
 
     def _check_pending(self, pending: Pending):
+        hook = self.client.read_bytes(spawncode.HOOK,8)
         self._validate_pending_bytes(pending,
-            self.client.read_bytes(spawncode.HOOK, 8),
+            hook,
             self.client.read_bytes(spawncode.CAVE, 4096))
+        if (getattr(pending,'batch',False) and (hook != spawncode.ORIGINAL
+                or self.client.read_many([(pending.completion_address,4)])[0] != 2)):
+            raise EditorError('A rotina do lote ainda não terminou. Retome brevemente e pause.')
 
     def _clean(self, pending: Pending):
         # Re-read after alignment; never clean an area changed since preflight.
         self._check_pending(pending)
+        if getattr(pending,'batch',False):
+            # DONE is published only after leaving removable code, with the
+            # original entry restored. Retain the permanent landing in case
+            # the paused EE has not executed its final jump yet.
+            if (self.client.read_bytes(spawncode.HOOK,8) != spawncode.ORIGINAL
+                    or self.client.read_many([(pending.completion_address,4)])[0] != 2):
+                raise EditorError('A rotina do lote ainda não terminou. Retome brevemente e pause.')
+            self.client.write_bytes(spawncode.CAVE,pending.clean_scratch)
+            if self.client.read_bytes(spawncode.CAVE,4096) != pending.clean_scratch:
+                raise EditorError('A limpeza da área de trabalho não conferiu.')
+            return
         self.client.apply_patch([
             Patch(spawncode.HOOK+4, 4, _word(pending.hook[4:]), _word(spawncode.ORIGINAL[4:])),
             Patch(spawncode.HOOK, 4, _word(pending.hook[:4]), _word(spawncode.ORIGINAL[:4]))])
@@ -337,6 +407,9 @@ class EditorController:
 
     def poll(self):
         pending = self.pending
+        if getattr(pending, 'batch', False):
+            from . import batch
+            return batch.poll(self)
         if pending is None:
             return {'pending': False, 'message': 'Nenhuma criação pendente.',
                     'core_paused': self.client.status() is Status.PAUSED}
@@ -430,7 +503,7 @@ class EditorController:
                    'profile': 'SLUS-21050/BEBF8793', 'baseline': self.baseline,
                    'operations': self.recipe}
         text = json.dumps(payload, indent=2, ensure_ascii=False, allow_nan=False) + '\n'
-        if len(text.encode('utf8')) > 131072 or len(self.recipe) > 32:
+        if len(text.encode('utf8')) > 131072 or len(self.recipe) > 256:
             raise EditorError('O preset ultrapassa o limite desta versão.')
         destination.write_text(text, encoding='utf8')
         return {'message': 'Preset salvo. Ele exige o mesmo estado inicial para ser reaplicado.'}
@@ -451,10 +524,11 @@ class EditorController:
         if data.get('baseline') != _fingerprint(snap):
             raise EditorError('Recarregue o mesmo estado inicial usado para criar este preset.')
         operations = data.get('operations')
-        if not isinstance(operations, list) or not 1 <= len(operations) <= 32:
+        if not isinstance(operations, list) or not 1 <= len(operations) <= 256:
             raise EditorError('Lista de operações inválida.')
         # Validate every operation before making the first mutation.
         created = set()
+        created_models = {}
         for op in operations:
             if not isinstance(op, dict) or op.get('op') not in ('move_lateral','add_behind'):
                 raise EditorError('Operação não suportada no preset.')
@@ -464,7 +538,7 @@ class EditorController:
                 if type(ref.get('key')) is not int or ref.get('key') not in created:
                     raise EditorError('Referência fora de ordem no preset.')
             else:
-                self._resolve(ref, snap)
+                self._resolve(ref, snap, for_creation=op['op']=='add_behind')
             if op['op'] == 'move_lateral':
                 value = op.get('lateral_percent')
                 if type(value) not in (int,float) or not math.isfinite(value) or not 0 <= value <= 100:
@@ -473,12 +547,20 @@ class EditorController:
                 model_id = op.get('model_id')
                 if not isinstance(model_id, str): raise EditorError('Modelo inválido no preset.')
                 model = snap.models.get(model_id)
+                from .batch import model_pair
+                _primary, secondary = model_pair(snap,model_id,op.get('secondary_model_id'))
                 gap, key = op.get('gap'), op.get('created_key')
+                reference_is_truck = (snap.models.get(created_models.get(ref.get('key')),{}).get('type') == 4
+                    if ref.get('kind') == 'created' else
+                    snap.vehicles[ref['id']].get('native_pair_valid',False))
+                if (secondary is not None or reference_is_truck) and (type(gap) not in (int,float) or gap < 30):
+                    raise EditorError('Use distância de 30 a 50 unidades para conjuntos de cabine e carga.')
                 if (not model or not model.get('eligible') or type(gap) not in (int,float)
                         or not math.isfinite(gap) or not 8 <= gap <= 50
                         or type(key) is not int or not 1 <= key <= 10000 or key in created):
                     raise EditorError('Criação inválida no preset.')
                 created.add(key)
+                created_models[key] = model_id
         self.recipe.clear()
         self.actor_keys.clear()
         self.replay_ids.clear()
@@ -491,11 +573,20 @@ class EditorController:
         while self.replay_queue:
             op = self.replay_queue.pop(0)
             snap = self._snapshot()
-            vehicle_id = self._resolve(op['target'], snap)
+            vehicle_id = self._resolve(op['target'], snap,for_creation=op['op']=='add_behind')
             if op['op'] == 'move_lateral':
                 self.move(vehicle_id, op['lateral_percent'])
             else:
-                return self._add_behind(vehicle_id, op['model_id'], op['gap'], created_key=op['created_key'])
+                group = [op]
+                while self.replay_queue and len(group) < 8:
+                    nxt = self.replay_queue[0]
+                    if (nxt.get('op') != 'add_behind' or nxt.get('target') != {'kind':'created','key':group[-1]['created_key']}
+                            or any(nxt.get(k) != op.get(k) for k in ('model_id','gap','secondary_model_id'))):
+                        break
+                    group.append(self.replay_queue.pop(0))
+                from .batch import stage
+                return stage(self,vehicle_id,op['model_id'],op['gap'],len(group),op.get('secondary_model_id'),
+                             created_keys=[r['created_key'] for r in group])
         return {'pending': False, 'core_paused': True,
                 'message': 'Preset aplicado. Retome o jogo com Esc para conferir.'}
 

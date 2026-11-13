@@ -41,16 +41,17 @@ Os metadados reproduzíveis estão em `scripts/editor/catalog.py`; dumps e
 relatórios locais não fazem parte do repositório.
 
 Conhecer a categoria não demonstra que a criação daquele modelo funcione.
-O perfil inicial oferece somente modelos carregados com associação observada
-a tipos independentes 1 ou 2. Ônibus e componentes articulados precisam de
-validação própria de tipo, vínculos e ciclo de vida. A aba **Catálogo carregado**
-permite identificá-los, com **Criação não validada**, sem incluí-los na escolha
-de novos veículos. A disponibilidade é calculada para a sessão carregada;
+O perfil inicial oferecia somente modelos carregados com associação observada
+a tipos independentes 1 ou 2. A versão seguinte também admite cabine tipo 4
+com carga tipo 11, somente nas combinações nativas observadas e carregadas.
+Uma carga elegível aparece como **Disponível com caminhão**, sem criação
+avulsa. Ônibus e combinações sem validação continuam bloqueados. A
+disponibilidade é calculada para a sessão carregada;
 a lista estática de 40 modelos não significa que todos estejam na memória.
 
 Em uma leitura posterior, o jogo também apresentou instâncias independentes
 de `HEVYCAR20` com tipo 5. Sua criação continua bloqueada: a primeira versão
-do editor admite apenas as associações independentes de tipo 1 ou 2.
+do editor não admite esse tipo 5.
 
 ## Integração real observada
 
@@ -113,15 +114,24 @@ atualizada reconectou com **Jogo pausado**, sem criação pendente.
 - Identificação dos veículos presentes e dos modelos carregados.
 - Vista de cima das posições X/Z, com seleção de veículo. Não contém malha ou
   desenho da pista e não acompanha o jogo em tempo real.
-- Reposicionamento lateral de um carro ou van independente com física inicializada.
-- Criação atrás de uma referência, usando a rotina do próprio jogo, com
-  distância admitida de 8 a 50 unidades do jogo.
+- Reposicionamento lateral de independente com física inicializada e uma
+  edição candidata do conjunto cabine/carga, protegida pelo vínculo nativo.
+- Lotes de 1 a 8, usando a rotina do próprio jogo em um único ciclo de retomar
+  e pausar; cabine e carga contam como um conjunto.
+- Distância de 8 a 50 unidades nos independentes e de 30 a 50 para caminhão
+  ou referência composta, sem equivalência estabelecida em metros.
+- Botões **Pausar PCSX2** e **Retomar**, quando a instalação Windows da
+  conexão PINE e seu menu compatível são identificados.
 - Receitas JSON para reaplicar as ações sobre exatamente o mesmo estado inicial.
+- Exportação **Salvar estado…** para `.p2s`, implementada para a instalação
+  portátil; o usuário confirmou a exportação real. O arquivo exportado ainda
+  não foi restaurado em teste.
 
-O emulador deve estar pausado com **Esc** ao listar e editar. A pausa interna
-com **Start** não suspende o núcleo da mesma forma. Para acrescentar um veículo,
-a interface prepara a operação durante a pausa; o usuário retoma com **Esc**
-para executar a criação e pausa com **Esc** novamente para a finalização.
+O emulador deve estar pausado ao listar e editar. Use **Pausar PCSX2** ou o
+menu **Sistema → Pausar** do emulador correto. A pausa interna com **Start**
+não suspende o núcleo da mesma forma. Para acrescentar um lote, a interface
+prepara a operação durante a pausa; o usuário retoma uma vez para executar
+as criações e pausa novamente para a finalização.
 Só após a confirmação deve retomar para jogar. Os detalhes estão no
 [guia de primeiro uso](editor-quickstart.md).
 
@@ -130,19 +140,50 @@ criação pendente bloqueia novas edições. Falhas de escrita ambíguas não s�
 repetidas automaticamente. As verificações de pausa e leitura de retorno não
 tornam a operação uma transação: retomar o emulador durante uma escrita pode
 interromper a edição. Uma falha que exigir referência limpa deve ser resolvida
-recarregando essa referência, pausando com Esc e conectando novamente.
+recarregando essa referência, pausando o emulador e conectando novamente.
+
+## Lotes e conjunto cabine/carga
+
+O usuário confirmou explicitamente que o lote de carros e o caminhão com carga
+apareceram e funcionaram. O registro local inclui `batch_finished` para oito
+`COMPCAR14` e para um par `HEVYCAR22` + `HEVYCAR27`. Também houve três registros
+posteriores `batch_not_finalized`, após mudança da instância ou identidade.
+Esses casos não foram alinhados como se a referência antiga ainda fosse válida.
+Sucessos específicos e bloqueios de segurança não demonstram validade universal.
+
+O movimento composto é uma implementação candidata: prepara onze valores
+protegidos para deslocar cabine/carga, sem separar o vínculo. O relato de criação
+do conjunto não comprova movimento e colisão após esse reposicionamento.
+Um quarto caminhão-tanque e seus efeitos de explosão continuam sem validação.
+Detalhes de uso e evidência em [batches-trucks-and-pause.md](batches-trucks-and-pause.md).
+
+A revisão seguinte da finalização restaura o hook no último stub e publica a
+conclusão somente numa landing fixa de doze bytes, preservada pela limpeza.
+Isso protege a retomada do EE caso a pausa ocorra enquanto ele ainda termina
+essa saída. Após reabrir o editor com esse builder, o usuário confirmou:
+**“Lote e exportação funcionaram”**. Essa rodada confirmou manualmente o novo
+fluxo e a exportação real; não incluiu restauração do arquivo exportado.
+
+Leituras posteriores do registro local mostram finalização de oito vans
+`HEVYCAR33` no caminho 53 e de dois pares `HEVYCAR22` + `HEVYCAR27` em cada
+um dos caminhos 34 e 53. Um registro ainda posterior recusou o perfil porque
+as estruturas de tráfego não passaram na verificação, mantendo uma pendência.
+Essa recusa não estabelece travamento ou falha geral; os limites de perfil
+continuam ativos mesmo após os ensaios bem-sucedidos.
 
 ## Limites e próxima validação
 
 A interface usa os modelos e caminhos já carregados pelo jogo. As alterações
 ocorrem na sessão atual, sem gravar recursos do ISO ou arquivos persistentes de
-Crash Events. **Restart**, troca de evento e carregamento de outro estado podem
+Crash Events. Um `.p2s` pretende preservar a sessão para restaurá-la no PCSX2;
+ele não transforma o layout em recurso permanente do jogo. **Restart**, troca de evento e carregamento de outro estado podem
 recriar o tráfego. Um preset JSON guarda uma receita; ele não substitui um
 save state e não resolve a persistência no evento.
 
-Os testes automatizados verificam o protocolo, o perfil, a rotina de criação
-e o fluxo da interface. Nesta revisão passaram 49 testes distribuíveis e 29
-testes locais com capturas privadas do perfil/controlador. Eles não demonstram
+Os testes automatizados verificam o protocolo, o perfil, a rotina de criação,
+o fluxo da interface e as simulações de controle de janela/exportação.
+Passaram **122 testes distribuíveis** e **35 privados**: 19 do controlador e
+16 do perfil. Eles não demonstram
 impacto, estabilidade prolongada ou funcionamento de todos os modelos e níveis.
 A integração e o relato manual acima cobrem somente os ensaios descritos.
 Edição dentro do jogo,

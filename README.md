@@ -2,8 +2,9 @@
 
 Ferramentas próprias para pesquisar e desenvolver um editor de eventos do
 Crash Mode de Burnout 3: Takedown. Há uma **interface externa experimental**
-para identificar modelos, reposicionar veículos e acrescentar um veículo atrás
-de outro no evento carregado. A integração real confirmou leitura,
+para identificar modelos, reposicionar veículos e acrescentar lotes de 1 a 8
+veículos atrás de uma referência no evento carregado. Há suporte experimental
+a cabine com carga, limitado a pares nativos já carregados. A integração real confirmou leitura,
 reposicionamento e criação pelo controlador; o usuário também relatou presença
 e colisão da van preparada pela interface no Grand Slam.
 Não existe editor dentro do jogo, gravação persistente de eventos ou criação
@@ -14,6 +15,17 @@ criação no Grand Slam. O usuário relatou ter visto e atingido o veículo
 adicional normalmente. A rodada seguinte identificou e acrescentou uma van
 `HEVYCAR33`, com confirmação manual de presença e colisão. Os detalhes e os
 limites da finalização estão em [editor-status.md](docs/editor-status.md).
+Em uma rodada posterior, o usuário confirmou explicitamente que **ambos**
+funcionaram: o lote de carros e o caminhão com carga. O registro local inclui
+finalização de oito `COMPCAR14` e de um conjunto `HEVYCAR22` + `HEVYCAR27`.
+Também houve finalizações recusadas após mudança de instância ou identidade;
+os resultados não validam todos os níveis, modelos e situações.
+
+A revisão mais recente protege a saída da rotina antes da limpeza do lote.
+Após reabrir essa versão do editor, o usuário confirmou: **“Lote e exportação
+funcionaram”**. A restauração do arquivo exportado ainda não foi testada.
+Há sucessos registrados em diferentes caminhos e bloqueios de perfil posteriores;
+isso não estabelece estabilidade geral.
 
 O repositório contém somente código e documentação. Cada usuário fornece sua
 própria cópia extraída do jogo, ferramentas e, quando necessário, save states.
@@ -41,8 +53,10 @@ Abra **Abrir Editor.cmd** na pasta do projeto, ou execute:
 python -B scripts/editor/run_editor.py
 ```
 
-Carregue o evento no PCSX2 de teste e pause o emulador com **Esc** antes de
-conectar, atualizar ou editar. A pausa do menu do jogo com **Start** não basta.
+Carregue o evento no PCSX2 de teste e conecte. Quando disponíveis, use os botões
+**Pausar PCSX2** e **Retomar** do editor; a pausa é confirmada pela conexão PINE.
+O menu **Sistema → Pausar** do emulador é a alternativa manual. Pause antes de
+atualizar ou editar. A pausa do menu do jogo com **Start** não basta.
 O editor não inicia o emulador nem dirige o veículo.
 
 - **Veículos presentes:** modelo, categoria e posição dos objetos da sessão.
@@ -51,21 +65,25 @@ O editor não inicia o emulador nem dirige o veículo.
   jogo como **Car**; `HEVYCAR33` e `HEVYCAR35`, como **Van**; `HEVYCAR20`, como **Bus**.
 - **Vista de cima:** posições dos veículos e referência do jogador, quando
   disponível; sem desenho da pista. Um clique seleciona o veículo para edição.
-- **Edição:** deslocamento na largura do caminho e criação atrás de um veículo
-  independente, com os modelos carregados e admitidos pelo perfil.
+- **Edição:** deslocamento na largura do caminho e lotes de 1 a 8 atrás de uma
+  referência, com os modelos carregados e admitidos pelo perfil. Caminhões
+  oferecem seleção de carga compatível; a quantidade conta conjuntos completos.
 
-A criação tem duas fases: preparar com o emulador pausado, retomar com **Esc**
-para o jogo criar o veículo e pausar com **Esc** novamente para finalizar.
+A criação do lote usa um ciclo: preparar com o emulador pausado, retomar
+para o jogo criar as instâncias e pausar novamente para finalizar todas.
 Depois da confirmação, retome para dirigir e testar. A interface acompanha a
 etapa; o teste de presença e colisão é feito pelo usuário.
 
 As alterações valem para a sessão atual. As configurações JSON são receitas
 para **o mesmo estado inicial**, não novos arquivos de evento. Reiniciar o
-evento ou carregar outro estado pode descartar as alterações. A criação de
-ônibus e componentes articulados permanece bloqueada nesta versão.
+evento ou carregar outro estado pode descartar as alterações. **Salvar estado…**
+exporta um `.p2s` para reabrir no PCSX2; a exportação real foi confirmada
+manualmente, e a restauração desse arquivo segue pendente. A criação de ônibus e combinações de caminhão não observadas
+permanece bloqueada. O reposicionamento conjunto de cabine/carga ainda é experimental.
 
 Consulte o [guia de primeiro uso](docs/editor-quickstart.md) e o
-[estado da implementação e evidências do catálogo](docs/editor-status.md).
+[estado da implementação e evidências do catálogo](docs/editor-status.md), além de
+[lotes, caminhões, pausa e preservação](docs/batches-trucks-and-pause.md).
 
 ## Caminhos locais
 
@@ -161,8 +179,9 @@ Consulte [docs/findings.md](docs/findings.md) e o marco de reposicionamento para
 os resultados históricos, e [docs/editor-status.md](docs/editor-status.md) para
 a interface em integração. O teste controlado ligou um objeto de RAM a uma
 mudança visual localizada e verificou atualização dos limites de colisão.
-Ainda faltam testes de física e repetição mais amplos, validar a criação pela
-nova interface e generalizar os modelos e eventos admitidos.
+Passaram **122 testes distribuíveis** e **35 testes privados**, sendo 19 do
+controlador e 16 do perfil. Ainda faltam testes de física e repetição mais
+amplos, restaurar o `.p2s` exportado e generalizar os modelos e eventos admitidos.
 O reempacotamento implementado é de save states, não de recursos do jogo.
 
 A nova referência foi confirmada como **Grand Slam**, incluindo a contagem

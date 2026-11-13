@@ -6,15 +6,26 @@ Pesquisa atualizada em 13/11/2026, para o executável USA pesquisado.
 
 O usuário relatou criação de vários veículos em níveis diferentes, inclusive
 atrás de tráfego que apareceu depois e atrás de outros veículos acrescentados.
-O registro local confirma 20 operações `spawn_finished`, em seis modelos,
+Na etapa de criação individual, o registro local examinado confirmou 20 operações `spawn_finished`, em seis modelos,
 com referências nos caminhos 2, 3, 6 e 21 e referências lógicas a atores criados.
 São ensaios específicos; isso não valida todos os eventos e situações do jogo.
 
-O editor usa recursos já carregados. Na primeira versão, só admite criação
+O editor usa recursos já carregados. A primeira versão admitia criação
 com uma associação independente e consistente a tipos 1 ou 2. A categoria
 visual não corresponde necessariamente ao byte de tipo: há modelos chamados
 Car, Van ou Motorhome com associações admitidas. Criar um modelo ausente exige
-investigar seu carregamento e dependências; não basta trocar o ID.
+investigar seu carregamento e dependências; não basta trocar o ID. A versão
+seguinte também admite lotes de 1 a 8 e pares nativos carregados de cabine
+tipo 4 com carga tipo 11; o estado atual está em
+[batches-trucks-and-pause.md](batches-trucks-and-pause.md).
+
+Após reabrir a revisão com finalização protegida, o usuário confirmou lote e
+exportação reais. O registro local também inclui oito `HEVYCAR33` finalizados
+no caminho 53 e dois pares `HEVYCAR22` + `HEVYCAR27` finalizados em cada um dos
+caminhos 34 e 53. Uma leitura posterior registrou recusa estrutural de perfil
+com uma solicitação pendente. Isso não prova travamento ou falha geral e não
+elimina as restrições de física, vínculos e caminho. A restauração do `.p2s`
+exportado e um quarto tanque continuam sem teste.
 
 Não há teste de direção relativa ao jogador no controlador. Ele exige
 pontos físicos inicializados, caminho válido e concordância entre orientação,
@@ -68,9 +79,12 @@ Para um conjunto semelhante, espera-se verificar:
 | Descritores de colisão | 2 |
 | Endpoints por eixo | 4 |
 
-A interface deverá representar o conjunto como uma unidade com seleção
-separada de cabine e carga, preservando seus dois objetos físicos. Até validar
-essa criação, os componentes continuam bloqueados no editor atual.
+A interface agora representa o conjunto como uma unidade com seleção separada
+de cabine e carga, preservando seus dois objetos físicos. Só oferece os pares
+nativos observados e carregados; a carga não é criada avulsa. O usuário confirmou
+o funcionamento de um caminhão com carga, e o registro local inclui finalização
+de um par `HEVYCAR22` + `HEVYCAR27`. Isso não valida todos os pares, o movimento
+composto candidato ou um quarto tanque.
 
 ## Existe limite de três tanques?
 

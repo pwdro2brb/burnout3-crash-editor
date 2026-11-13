@@ -21,9 +21,14 @@ class Controller(Protocol):
     def move(self, vehicle_id: int, lateral_percent: float) -> dict[str, Any]: ...
     def add_behind(self, vehicle_id: int, model_id: str | None,
                    gap: float) -> dict[str, Any]: ...
+    def add_many_behind(self, vehicle_id: int, model_id: str | None, gap: float,
+                        count: int, secondary_model_id: str | None = None) -> dict[str, Any]: ...
     def save_preset(self, path: str) -> dict[str, Any]: ...
     def load_preset(self, path: str) -> dict[str, Any]: ...
     def poll(self) -> dict[str, Any]: ...
+    def pause(self) -> dict[str, Any]: ...
+    def resume(self) -> dict[str, Any]: ...
+    def export_state(self, path: str) -> dict[str, Any]: ...
     def close(self) -> None: ...
 
 
@@ -37,6 +42,16 @@ def number(text: str, *, positive: bool = False) -> float:
         raise ValueError('Informe um número finito.')
     if positive and value <= 0:
         raise ValueError('A distância precisa ser maior que zero.')
+    return value
+
+
+def quantity(text: str) -> int:
+    try:
+        value = int(text.strip())
+    except (AttributeError, TypeError, ValueError) as exc:
+        raise ValueError('Use uma quantidade inteira entre 1 e 8.') from exc
+    if not 1 <= value <= 8:
+        raise ValueError('Use uma quantidade inteira entre 1 e 8.')
     return value
 
 
@@ -62,7 +77,9 @@ def catalog_rows(models: list[dict[str, Any]]) -> list[tuple[str, str, str]]:
     """Include restricted models for identification, without enabling creation."""
     return [(str(model.get('label') or model.get('id') or f'Modelo {index + 1}'),
              str(model.get('type_label') or 'Não identificada'),
-             'Disponível' if model.get('eligible') is True else 'Criação não validada')
+             'Disponível' if model.get('eligible') is True else
+             'Disponível com caminhão' if model.get('eligible_as_trailer') is True else
+             'Criação não validada')
             for index, model in enumerate(models)]
 
 
@@ -88,6 +105,8 @@ class EditorApp:
         self.root = root
         self.controller = controller
         self.connected = False
+        self.emulator_control = False
+        self.state_export = False
         self.busy = False
         self.pending = False
         self.pending_sized = False
@@ -97,6 +116,8 @@ class EditorApp:
         self.vehicles: dict[str, dict[str, Any]] = {}
         self.models: dict[str, dict[str, Any]] = {}
         self.model_choices: dict[str, str | None] = {}
+        self.secondary_choices: dict[str, str | None] = {}
+        self.trailer_visible = False
         self.map_view: tuple[float, float, float] | None = None
         self.map_hits: list[tuple[float, float, str]] = []
         self.player: dict[str, Any] | None = None
@@ -111,8 +132,11 @@ class EditorApp:
         self.lateral = tk.DoubleVar(value=50)
         self.lateral_text = tk.StringVar(value='50,0%')
         self.gap = tk.StringVar(value='10')
+        self.count = tk.StringVar(value='1')
         self.model_choice = tk.StringVar(value='Mesmo modelo do selecionado')
+        self.secondary_choice = tk.StringVar(value='Selecione a carga')
         self.map_notice = tk.StringVar(value='Posições dos veículos; sem desenho da pista.')
+        self.instructions_text = tk.StringVar(value='Pause com Esc no PCSX2 e atualize a lista antes de editar. As alterações valem para a sessão atual.')
         self._build()
         self.worker = threading.Thread(target=self._work, daemon=True,
                                        name='Burnout3EditorController')
@@ -151,11 +175,18 @@ class EditorApp:
                   foreground='#305d86').grid(row=0, column=0, sticky='w')
         ttk.Label(connection, textvariable=self.core_text,
                   foreground='#305d86').grid(row=0, column=1, sticky='e')
+        self.emulator_controls = ttk.Frame(connection)
+        self.emulator_controls.grid(row=0, column=2, padx=(12, 0))
+        self.pause_button = ttk.Button(self.emulator_controls, text='Pausar PCSX2', command=self.pause_emulator)
+        self.pause_button.pack(side='left')
+        self.resume_button = ttk.Button(self.emulator_controls, text='Retomar', command=self.resume_emulator)
+        self.resume_button.pack(side='left', padx=(6, 0))
+        self.emulator_controls.grid_remove()
         instructions = ttk.Frame(container)
         instructions.grid(row=2, column=0, sticky='ew', pady=(0, 12))
         instructions.columnconfigure(0, weight=1)
         ttk.Label(instructions,
-                  text='Pause com Esc no PCSX2 e atualize a lista antes de editar. As alterações valem para a sessão atual.',
+                  textvariable=self.instructions_text,
                   foreground='#5f6875').grid(row=0, column=0, sticky='w')
         self.pending_banner = tk.Label(instructions, textvariable=self.pending_text,
             background='#fff0b3', foreground='#574100', font=('Segoe UI', 10, 'bold'),
@@ -239,33 +270,48 @@ class EditorApp:
         self.move_button = ttk.Button(movement, text='Aplicar posição', command=self.move)
         self.move_button.grid(row=3, column=0, columnspan=2, sticky='ew', pady=(10, 0))
 
-        addition = ttk.LabelFrame(details, text='Adicionar um veículo atrás', padding=12)
+        addition = ttk.LabelFrame(details, text='Adicionar veículos atrás', padding=12)
         addition.grid(row=3, column=0, sticky='ew', pady=(14, 0))
         addition.columnconfigure(0, weight=1)
-        ttk.Label(addition, text='Modelo do novo veículo').grid(row=0, column=0, sticky='w')
+        ttk.Label(addition, text='Modelo dos novos veículos').grid(row=0, column=0, sticky='w')
         self.model_box = ttk.Combobox(addition, textvariable=self.model_choice,
                                       values=('Mesmo modelo do selecionado',), state='readonly', width=29)
         self.model_box.grid(row=1, column=0, sticky='ew', pady=(5, 9))
+        self.model_box.bind('<<ComboboxSelected>>', self._model_changed)
         distance = ttk.Frame(addition)
         distance.grid(row=2, column=0, sticky='ew')
         distance.columnconfigure(1, weight=1)
         ttk.Label(distance, text='Distância atrás').grid(row=0, column=0, sticky='w', padx=(0, 8))
         self.gap_entry = ttk.Entry(distance, textvariable=self.gap, width=10)
         self.gap_entry.grid(row=0, column=1, sticky='ew')
-        ttk.Label(addition, text='De 8 a 50 unidades do jogo.', foreground='#5f6875').grid(
-            row=3, column=0, sticky='w', pady=(5, 0))
-        self.add_button = ttk.Button(addition, text='Adicionar atrás', command=self.add_behind)
-        self.add_button.grid(row=4, column=0, sticky='ew', pady=(11, 0))
+        self.count_label = ttk.Label(distance, text='Quantidade')
+        self.count_label.grid(row=0, column=2, padx=(10, 8))
+        self.count_box = ttk.Spinbox(distance, from_=1, to=8, textvariable=self.count, width=4)
+        self.count_box.grid(row=0, column=3)
+        self.gap_hint = ttk.Label(addition, text='De 8 a 50 unidades do jogo.', foreground='#5f6875')
+        self.gap_hint.grid(row=3, column=0, sticky='w', pady=(5, 0))
+        self.secondary_label = ttk.Label(addition, text='Carga do caminhão')
+        self.secondary_label.grid(row=4, column=0, sticky='w', pady=(9, 0))
+        self.secondary_box = ttk.Combobox(addition, textvariable=self.secondary_choice,
+            values=('Selecione a carga',), state='disabled', width=29)
+        self.secondary_box.grid(row=5, column=0, sticky='ew', pady=(5, 0))
+        self.secondary_label.grid_remove()
+        self.secondary_box.grid_remove()
+        self.add_button = ttk.Button(addition, text='Adicionar veículos atrás', command=self.add_behind)
+        self.add_button.grid(row=6, column=0, sticky='ew', pady=(11, 0))
 
         footer = ttk.Frame(container)
         footer.grid(row=4, column=0, sticky='ew', pady=(16, 0))
-        footer.columnconfigure(2, weight=1)
+        footer.columnconfigure(3, weight=1)
         self.save_button = ttk.Button(footer, text='Salvar configuração…', command=self.save_preset)
         self.save_button.grid(row=0, column=0)
         self.load_button = ttk.Button(footer, text='Abrir configuração…', command=self.load_preset)
         self.load_button.grid(row=0, column=1, padx=8)
-        ttk.Label(footer, text='A configuração não substitui os arquivos do evento.',
-                  foreground='#5f6875', wraplength=350).grid(row=0, column=2, sticky='e')
+        self.export_button = ttk.Button(footer, text='Salvar estado…', command=self.export_state)
+        self.export_button.grid(row=0, column=2)
+        self.export_button.grid_remove()
+        ttk.Label(footer, text='A receita JSON e o estado são arquivos separados.',
+                  foreground='#5f6875', wraplength=260).grid(row=0, column=3, sticky='e', padx=(10, 0))
         self.progress = ttk.Progressbar(container, mode='indeterminate')
         self.progress.grid(row=5, column=0, sticky='ew', pady=(13, 6))
         self.status_label = ttk.Label(container, textvariable=self.status,
@@ -296,8 +342,67 @@ class EditorApp:
             except (TypeError, ValueError):
                 self.lateral.set(50)
             self._lateral_changed()
+        self._update_secondary_choices()
         self._update_controls()
         self._draw_traffic()
+
+    def _chosen_model(self) -> dict[str, Any]:
+        selected = self.selected() or {}
+        model_id = (getattr(self, 'model_choices', {}).get(self.model_choice.get())
+                    if hasattr(self, 'model_choice') else None)
+        model_id = model_id or selected.get('model_id')
+        return getattr(self, 'models', {}).get(str(model_id), {})
+
+    def _model_changed(self, _event: Any = None) -> None:
+        self._update_secondary_choices()
+        self._update_controls()
+
+    def _update_secondary_choices(self) -> None:
+        if not hasattr(self, 'secondary_box'):
+            return
+        preferred = self.secondary_choices.get(self.secondary_choice.get())
+        model = self._chosen_model()
+        truck = model.get('kind') == 'truck'
+        allowed = set(model.get('trailer_model_ids') or []) if truck else set()
+        self.secondary_choices = {'Selecione a carga': None}
+        for index, secondary in enumerate(self.models.values()):
+            if (secondary.get('kind') != 'trailer' or secondary.get('eligible_as_trailer') is not True
+                    or secondary['id'] not in allowed):
+                continue
+            label = model_label(secondary, index)
+            self.secondary_choices[label] = secondary['id']
+        if preferred not in self.secondary_choices.values():
+            preferred = None
+        selected = self.selected() or {}
+        if preferred is None and selected.get('model_id') == model.get('id') and selected.get('native_pair_valid') is True:
+            native = selected.get('secondary_model_id')
+            if native in self.secondary_choices.values():
+                preferred = native
+        self.secondary_choice.set(next((label for label, model_id in self.secondary_choices.items()
+                                         if preferred is not None and model_id == preferred), 'Selecione a carga'))
+        self.secondary_box.configure(values=tuple(self.secondary_choices))
+        self.count_label.configure(text='Conjuntos' if truck else 'Quantidade')
+        self.add_button.configure(text='Adicionar conjuntos atrás' if truck else 'Adicionar veículos atrás')
+        reference_model = self.models.get(str(selected.get('model_id')), {})
+        compound = truck or selected.get('kind') == 'truck' or reference_model.get('kind') == 'truck'
+        if hasattr(self, 'gap_hint'):
+            self.gap_hint.configure(text='Caminhão: use 30 a 50 unidades do jogo.' if compound
+                                    else 'De 8 a 50 unidades do jogo.')
+        if compound:
+            try:
+                if number(self.gap.get()) < 30:
+                    self.gap.set('30')
+            except ValueError:
+                pass
+        if truck:
+            self.secondary_label.grid()
+            self.secondary_box.grid()
+            if not self.trailer_visible:
+                self.root.after_idle(self._fit_pending_window)
+        else:
+            self.secondary_label.grid_remove()
+            self.secondary_box.grid_remove()
+        self.trailer_visible = truck
 
     def _map_reset(self) -> None:
         self.map_view = None
@@ -391,7 +496,9 @@ class EditorApp:
             self.core_text.set('Jogo pausado' if paused else 'Jogo em execução')
             if hasattr(self, 'map_notice'):
                 self.map_notice.set('Posições dos veículos; sem desenho da pista.' if paused else
-                    'Posições da última atualização; pause com Esc e atualize.')
+                    ('Posições da última atualização; clique em Pausar PCSX2 e atualize.'
+                     if getattr(self, 'emulator_control', False) else
+                     'Posições da última atualização; pause com Esc e atualize.'))
             return
         state = str(response.get('core_status') or response.get('status') or '').lower()
         if state == 'paused':
@@ -407,9 +514,11 @@ class EditorApp:
     def _update_controls(self) -> None:
         idle = not self.busy and not self.pending and not self.closed
         selected = self.selected()
-        editable = bool(idle and self.connected and selected and selected.get('active', True)
-                        and selected.get('editable', selected.get('eligible', False))
-                        and self.core_paused is True)
+        available = bool(idle and self.connected and selected and selected.get('active', True)
+                         and self.core_paused is True)
+        editable = bool(available and selected.get('editable', selected.get('eligible', False)))
+        can_reference = bool(available and selected.get('can_reference',
+                              selected.get('editable', selected.get('eligible', False))))
         # A failed finalization can require a clean-state reload and reconnect.
         # Reconnection is serialized on the same worker and never retries a mutation.
         self.connect_button.configure(state='normal' if not self.busy and not self.closed else 'disabled')
@@ -417,16 +526,46 @@ class EditorApp:
             widget.configure(state='normal' if idle and self.connected else 'disabled')
         self.load_button.configure(state='normal' if idle and self.connected
                                    and self.core_paused is True else 'disabled')
-        for widget in (self.move_button, self.add_button, self.lateral_scale, self.gap_entry):
+        if hasattr(self, 'export_button'):
+            export_available = bool(self.connected and self.state_export and not self.closed)
+            if export_available:
+                self.export_button.grid()
+            else:
+                self.export_button.grid_remove()
+            self.export_button.configure(state='normal' if export_available and idle
+                                         and self.core_paused is True else 'disabled')
+        for widget in (self.move_button, self.lateral_scale):
             widget.configure(state='normal' if editable else 'disabled')
-        self.model_box.configure(state='readonly' if editable else 'disabled')
+        for widget in (self.add_button, self.gap_entry):
+            widget.configure(state='normal' if can_reference else 'disabled')
+        if hasattr(self, 'count_box'):
+            self.count_box.configure(state='normal' if can_reference else 'disabled')
+        self.model_box.configure(state='readonly' if can_reference else 'disabled')
+        if hasattr(self, 'secondary_box'):
+            self.secondary_box.configure(state='readonly' if can_reference
+                and self._chosen_model().get('kind') == 'truck' else 'disabled')
         self.table.configure(selectmode='browse' if idle else 'none')
+        if hasattr(self, 'emulator_controls'):
+            supported = bool(self.connected and self.emulator_control and not self.closed)
+            if supported:
+                self.emulator_controls.grid()
+            else:
+                self.emulator_controls.grid_remove()
+            for widget in (self.pause_button, self.resume_button):
+                widget.configure(state='normal' if supported and not self.busy else 'disabled')
+            self.instructions_text.set(
+                'Use Pausar PCSX2 e atualize a lista antes de editar. As alterações valem para a sessão atual.'
+                if supported else
+                'Pause com Esc no PCSX2 e atualize a lista antes de editar. As alterações valem para a sessão atual.')
         if hasattr(self, 'pending_banner'):
             if self.pending:
+                steps = ('1. Clique em Retomar por um instante. 2. Clique em Pausar PCSX2 '
+                         'e aguarde a confirmação.' if getattr(self, 'emulator_control', False) else
+                         '1. Retome com Esc por um instante. 2. Pause com Esc '
+                         '(Sistema → Pausar) e aguarde a confirmação.')
                 self.pending_text.set(
                     'CRIAÇÃO PENDENTE — espere a finalização antes de dirigir.\n'
-                    '1. Retome com Esc por um instante. 2. Pause com Esc '
-                    '(Sistema → Pausar) e aguarde a confirmação.\n' + self.status.get())
+                    + steps + '\n' + self.status.get())
                 self.pending_banner.grid()
                 if not getattr(self, 'pending_sized', False) and hasattr(self, 'root'):
                     self.pending_sized = True
@@ -436,8 +575,8 @@ class EditorApp:
                 self.pending_sized = False
 
     def _fit_pending_window(self) -> None:
-        """Keep the pending instructions visible using Tk's measured request."""
-        if self.closed or not self.pending:
+        """Keep pending instructions or cargo controls within the measured window."""
+        if self.closed or not (self.pending or getattr(self, 'trailer_visible', False)):
             return
         height = min(max(820, self.root.winfo_reqheight()),
                      max(1, self.root.winfo_screenheight() - 80))
@@ -509,6 +648,10 @@ class EditorApp:
         if selected_id is None and current:
             selected_id = current['id']
         self.models = {str(model['id']): model for model in snapshot.get('models', [])}
+        if 'emulator_control' in snapshot:
+            self.emulator_control = snapshot['emulator_control'] is True
+        if 'state_export' in snapshot:
+            self.state_export = snapshot['state_export'] is True
         self.player = snapshot.get('player')
         self.map_view = None
         self._set_core_state(snapshot)
@@ -517,7 +660,7 @@ class EditorApp:
             self.catalog_table.insert('', 'end', values=row)
         self.model_choices = {'Mesmo modelo do selecionado': None}
         for index, model in enumerate(snapshot.get('models', [])):
-            if model.get('eligible') is not True:
+            if model.get('eligible') is not True or model.get('kind') == 'trailer':
                 continue
             base = model_label(model, index)
             label, suffix = base, 2
@@ -553,6 +696,8 @@ class EditorApp:
         def done(value):
             connection, snapshot = value
             self.connected = True
+            self.emulator_control = connection.get('emulator_control') is True
+            self.state_export = connection.get('state_export') is True
             self.pending = bool(snapshot.get('pending', connection.get('pending', False)))
             parts = [str(connection.get(key) or '') for key in ('game', 'profile')]
             self.connection_text.set(' · '.join(part for part in parts if part) or 'Conectado')
@@ -568,6 +713,14 @@ class EditorApp:
     def refresh(self) -> None:
         self._submit('Atualizando os veículos…', self.controller.refresh, self._snapshot)
 
+    def pause_emulator(self) -> None:
+        if self.connected and self.emulator_control:
+            self._change('Pausando o PCSX2…', self.controller.pause)
+
+    def resume_emulator(self) -> None:
+        if self.connected and self.emulator_control:
+            self._change('Retomando o PCSX2…', self.controller.resume)
+
     def _change(self, label: str, action: Callable[[], dict[str, Any]]) -> None:
         def work():
             result = action()
@@ -580,7 +733,8 @@ class EditorApp:
             return result, snapshot, None
         def done(value):
             result, snapshot, refresh_error = value
-            self.pending = bool(result.get('pending'))
+            self.pending = bool(snapshot.get('pending', result.get('pending'))
+                                if snapshot is not None else result.get('pending'))
             self._set_core_state(result)
             if snapshot is not None:
                 self._snapshot(snapshot, result.get('new_vehicle_id'))
@@ -649,13 +803,20 @@ class EditorApp:
             return
         try:
             gap = number(self.gap.get(), positive=True)
+            count = quantity(self.count.get())
+            secondary_id = None
+            if self._chosen_model().get('kind') == 'truck':
+                secondary_id = self.secondary_choices.get(self.secondary_choice.get())
+                if secondary_id is None:
+                    raise ValueError('Escolha uma carga compatível para o caminhão.')
         except ValueError as exc:
-            messagebox.showinfo('Distância', str(exc), parent=self.root)
+            messagebox.showinfo('Adicionar veículos', str(exc), parent=self.root)
             return
         vehicle_id = int(vehicle['id'])
         model_id = self.model_choices.get(self.model_choice.get())
-        self._change('Adicionando um veículo atrás…',
-                     lambda: self.controller.add_behind(vehicle_id, model_id, gap))
+        self._change('Adicionando os veículos atrás…',
+                     lambda: self.controller.add_many_behind(vehicle_id, model_id, gap, count,
+                                                              secondary_model_id=secondary_id))
 
     def save_preset(self) -> None:
         path = filedialog.asksaveasfilename(parent=self.root, title='Salvar configuração',
@@ -671,6 +832,19 @@ class EditorApp:
         if path:
             self._change('Aplicando a configuração ao evento atual…',
                          lambda: self.controller.load_preset(str(Path(path))))
+
+    def export_state(self) -> None:
+        if (self.closed or self.busy or self.pending or not self.connected
+                or not self.state_export or self.core_paused is not True):
+            return
+        path = filedialog.asksaveasfilename(parent=self.root, title='Salvar estado editado',
+                    defaultextension='.p2s', initialfile='evento-editado.p2s',
+                    filetypes=[('Estado PCSX2', '*.p2s')])
+        if path:
+            self._submit('Salvando o estado editado…',
+                         lambda: self.controller.export_state(str(Path(path))),
+                         lambda result: self._set_status(str(result.get('message') or 'Estado editado salvo.'),
+                                                         warning=bool(result.get('warning'))))
 
     def close(self) -> None:
         if self.closed:

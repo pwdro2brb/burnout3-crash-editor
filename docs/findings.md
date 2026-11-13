@@ -136,7 +136,7 @@ do ensaio anterior usa `COMPCAR14`, classificado como **Car**. `HEVYCAR33` e
 modelos carregados, inclusive aqueles cuja criação ainda está bloqueada.
 
 A interface externa lista veículos, mostra suas posições em vista de cima,
-aplica deslocamento lateral e prepara uma criação atrás de uma referência.
+aplica deslocamento lateral e prepara lotes de 1 a 8 atrás de uma referência.
 Uma integração real por PINE confirmou leitura e reposicionamento. O
 controlador também criou `HEVYCAR33` como objeto independente de tipo 2,
 com nó, pontos físicos inicializados e lateral alinhada; o hook original e
@@ -149,6 +149,20 @@ finalização técnica do ensaio separado estão distinguidos no registro abaixo
 
 O fluxo pela interface e o teste manual desta versão estão documentados em
 [editor-status.md](editor-status.md) e no [guia](editor-quickstart.md).
+
+A versão seguinte inclui cabine tipo 4 com carga tipo 11, limitada aos pares
+nativos carregados. O usuário confirmou que lote de carros e caminhão com
+carga funcionaram; o registro local inclui finalização de oito `COMPCAR14` e
+de um conjunto `HEVYCAR22` + `HEVYCAR27`, além de finalizações posteriores
+recusadas por mudança de instância/identidade. O movimento composto segue
+candidato. Após reabrir a revisão com finalização protegida, o usuário confirmou
+o lote e a exportação `.p2s` reais. Restaurar o arquivo exportado e testar um
+quarto tanque seguem pendentes. A validação passou em 122 testes distribuíveis
+e 35 privados (19 do controlador e 16 do perfil). Registros posteriores incluem
+novos lotes finalizados e uma recusa estrutural de perfil ainda pendente;
+não estabelecem estabilidade universal nem demonstram um travamento.
+Pausa por botões, lotes e preservação estão em
+[batches-trucks-and-pause.md](batches-trucks-and-pause.md).
 
 ## Próximas verificações
 

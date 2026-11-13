@@ -35,7 +35,166 @@ def app_shell(vehicle=None, *, paused=True):
     return app
 
 
+def truck_app(*, reference_is_truck=True):
+    vehicle = {'id': 7 if reference_is_truck else 9,
+               'model_id': 'truck' if reference_is_truck else 'car',
+               'editable': not reference_is_truck, 'can_reference': True,
+               'native_pair_valid': reference_is_truck,
+               'secondary_model_id': 'cargo' if reference_is_truck else None}
+    app = app_shell(vehicle)
+    app.models = {
+        'truck': {'id': 'truck', 'label': 'Cabine', 'kind': 'truck',
+                  'eligible': True, 'trailer_model_ids': ['cargo']},
+        'cargo': {'id': 'cargo', 'label': 'Carga nativa', 'kind': 'trailer',
+                  'eligible': False, 'eligible_as_trailer': True},
+        'other': {'id': 'other', 'label': 'Carga de outro caminhão', 'kind': 'trailer',
+                  'eligible': False, 'eligible_as_trailer': True},
+    }
+    app.model_choices = {'Mesmo modelo do selecionado': None, 'Cabine': 'truck'}
+    app.model_choice = Var('Mesmo modelo do selecionado' if reference_is_truck else 'Cabine')
+    app.secondary_choices, app.secondary_choice = {}, Var('Selecione a carga')
+    app.secondary_box, app.secondary_label = Mock(), Mock()
+    app.count_label, app.count_box = Widget(), Widget()
+    app.trailer_visible, app.root = False, Mock()
+    app.gap, app.count = Var('10'), Var('1')
+    return app
+
+
 class InterfaceContractTests(unittest.TestCase):
+    def test_batch_quantity_is_an_integer_between_one_and_eight(self):
+        for value in ('0', '9', '-1', '1.0', 'NaN', ''):
+            with self.subTest(value=value):
+                with self.assertRaises(ValueError): gui.quantity(value)
+        self.assertEqual(gui.quantity(' 1 '), 1)
+        self.assertEqual(gui.quantity('8'), 8)
+
+    def test_truck_reference_enables_creation_without_enabling_movement(self):
+        app = truck_app()
+        app._update_secondary_choices()
+        app._update_controls()
+        self.assertEqual(app.move_button.options['state'], 'disabled')
+        self.assertEqual(app.lateral_scale.options['state'], 'disabled')
+        self.assertEqual(app.add_button.options['state'], 'normal')
+        self.assertEqual(app.count_box.options['state'], 'normal')
+        self.assertEqual(app.count_label.options['text'], 'Conjuntos')
+        self.assertEqual(app.gap.get(), '30')
+        self.assertEqual(set(app.secondary_choices.values()), {None, 'cargo'})
+        self.assertEqual(app.secondary_choice.get(), 'Carga nativa')
+        app.secondary_box.configure.assert_called_with(state='readonly')
+
+    def test_truck_selected_on_another_reference_requires_explicit_cargo(self):
+        app = truck_app(reference_is_truck=False)
+        app._update_secondary_choices()
+        app._change = Mock()
+        with patch.object(gui.messagebox, 'showinfo') as info:
+            app.add_behind()
+        app._change.assert_not_called()
+        self.assertIn('carga compatível', info.call_args.args[1])
+
+    def test_batch_is_submitted_once_with_explicit_native_pair(self):
+        app = truck_app(reference_is_truck=False)
+        app._update_secondary_choices()
+        app.secondary_choice.set('Carga nativa')
+        app.count.set('3')
+        app.controller = types.SimpleNamespace(add_many_behind=Mock(return_value={'pending': True}))
+        actions = []
+        app._change = lambda label, action: actions.append(action)
+        app.add_behind()
+        self.assertEqual(len(actions), 1)
+        actions[0]()
+        app.controller.add_many_behind.assert_called_once_with(9, 'truck', 30.0, 3,
+                                                              secondary_model_id='cargo')
+
+    def test_pause_buttons_exist_only_for_confirmed_capability_and_work_while_pending(self):
+        app = app_shell()
+        app.emulator_controls = Mock()
+        app.pause_button, app.resume_button = Widget(), Widget()
+        app.instructions_text = Var()
+        app.emulator_control = False
+        app._update_controls()
+        app.emulator_controls.grid_remove.assert_called_once()
+        self.assertEqual(app.pause_button.options['state'], 'disabled')
+        app.emulator_control, app.pending = True, True
+        app._update_controls()
+        app.emulator_controls.grid.assert_called_once()
+        self.assertEqual(app.pause_button.options['state'], 'normal')
+        self.assertEqual(app.resume_button.options['state'], 'normal')
+        self.assertNotIn('Esc', app.instructions_text.get())
+
+    def test_pause_actions_use_the_controller_worker_path(self):
+        app = app_shell()
+        app.emulator_control = True
+        app.controller = types.SimpleNamespace(pause=Mock(), resume=Mock())
+        actions = []
+        app._change = lambda label, action: actions.append(action)
+        app.pause_emulator()
+        app.resume_emulator()
+        app.controller.pause.assert_not_called()
+        app.controller.resume.assert_not_called()
+        self.assertEqual(len(actions), 2)
+        actions[0]()
+        actions[1]()
+        app.controller.pause.assert_called_once()
+        app.controller.resume.assert_called_once()
+
+    def test_pause_action_keeps_creation_pending_when_refresh_reports_it(self):
+        app = app_shell()
+        app.pending = True
+        app.controller = types.SimpleNamespace(refresh=Mock(return_value={
+            'pending': True, 'core_paused': False}))
+        app._snapshot, app._schedule_pending_poll = Mock(), Mock()
+        jobs = []
+        app._submit = lambda label, work, done: jobs.append((work, done))
+        app._change('Retomar', lambda: {'core_paused': False, 'message': 'PCSX2 retomado.'})
+        work, done = jobs.pop()
+        done(work())
+        self.assertTrue(app.pending)
+        app._schedule_pending_poll.assert_called_once()
+
+    def test_state_export_requires_capability_idle_and_confirmed_pause(self):
+        for capability, paused, pending, busy in [(False, True, False, False),
+                                                 (True, False, False, False),
+                                                 (True, True, True, False),
+                                                 (True, True, False, True),
+                                                 (True, True, False, False)]:
+            with self.subTest(capability=capability, paused=paused, pending=pending, busy=busy):
+                app = app_shell(paused=paused)
+                app.state_export, app.pending, app.busy = capability, pending, busy
+                app.export_button = Mock()
+                app._update_controls()
+                expected = 'normal' if capability and paused and not pending and not busy else 'disabled'
+                app.export_button.configure.assert_called_with(state=expected)
+                if not capability: app.export_button.grid_remove.assert_called_once()
+
+    def test_export_dialog_submits_one_worker_action_and_preserves_result_message(self):
+        app = app_shell()
+        app.root, app.state_export = Mock(), True
+        app.controller = types.SimpleNamespace(export_state=Mock(return_value={'message': 'Estado editado salvo.'}))
+        jobs = []
+        app._submit = lambda label, work, done: jobs.append((work, done))
+        with patch.object(gui.filedialog, 'asksaveasfilename', return_value='edited.p2s') as dialog:
+            app.export_state()
+        dialog.assert_called_once()
+        self.assertEqual(dialog.call_args.kwargs['defaultextension'], '.p2s')
+        app.controller.export_state.assert_not_called()
+        work, done = jobs.pop()
+        done(work())
+        app.controller.export_state.assert_called_once_with(str(Path('edited.p2s')))
+        self.assertEqual(app.status.get(), 'Estado editado salvo.')
+
+    def test_pending_export_does_not_open_a_file_dialog(self):
+        app = app_shell()
+        app.state_export, app.pending = True, True
+        with patch.object(gui.filedialog, 'asksaveasfilename') as dialog:
+            app.export_state()
+        dialog.assert_not_called()
+
+    def test_non_reference_actor_cannot_be_used_for_creation(self):
+        app = app_shell({'id': 9, 'editable': True, 'can_reference': False})
+        app._update_controls()
+        self.assertEqual(app.move_button.options['state'], 'normal')
+        self.assertEqual(app.add_button.options['state'], 'disabled')
+
     def test_mutations_require_confirmed_core_pause(self):
         for state in (None, False, True):
             with self.subTest(state=state):
