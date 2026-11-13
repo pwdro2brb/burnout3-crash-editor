@@ -3,8 +3,10 @@
 Em 12/11/2026 foi aplicado um pequeno deslocamento a um veículo em movimento
 do Grand Slam, numa cópia isolada do PCSX2 1.7.2521.0. A comparação da RAM após
 passos configurados de 30 e 120 quadros confirmou que o corpo continuou andando
-e manteve a separação lateral. **A identificação visual desse alvo ainda está
-pendente**: as capturas ficaram na aproximação da curva do Hotel Grand.
+e manteve a separação lateral. As capturas instrumentadas ficaram na aproximação
+da curva do Hotel Grand. Depois, o usuário testou uma variante mais deslocada
+e relatou mudança visível e colisão funcionando; a associação visual ao índice
+interno ainda não foi estabelecida.
 
 ## Referência e seleção
 
@@ -71,15 +73,31 @@ Restaurar o controle e repetir 30 quadros devolveu exatamente os mesmos 32 MiB
 de EE RAM do controle anterior. Saves, capturas e relatórios de comparação
 permanecem locais e não são distribuídos neste repositório.
 
+## Variante maior e teste manual
+
+A primeira tentativa manual usou lateral 0,55; o usuário informou que o
+controle respondeu, mas o emulador fechou e a alteração não foi identificada.
+A pedido dele, uma nova cópia usou lateral 0,85, com delta XZ efetivo
+`(+0.95166015625, -2.0672607421875)`, aproximadamente 2,276 unidades.
+A versão anterior foi preservada. O fechamento não teve causa estabelecida.
+
+O usuário assumiu a direção e relatou: “Vi a mudança e a colisão funcionou”,
+indicando o primeiro carro vermelho como candidato. Esse relato é separado
+das amostras de 30/120 quadros da variante 0,55. Não houve captura instrumentada
+do impacto nem correspondência direta entre cor/modelo visual e objeto 9.
+
+Um ensaio posterior acrescentou uma instância independente atrás desse alvo;
+veja [vehicle-creation-milestone.md](vehicle-creation-milestone.md).
+
 ## Limites e próximo teste
 
 O resultado confirma um reposicionamento físico limitado de uma instância
-existente em movimento. Falta enquadrar e identificar esse veículo na tela,
-testar uma colisão real e ampliar a duração/modelos antes de generalizar.
-Segundo o usuário, deve-se avançar e entrar à direita para ver a via com
-tráfego em sentidos opostos; esse enquadramento ainda não foi concluído.
+existente em movimento, seguido de confirmação manual de mudança e colisão.
+Falta correlacionar o veículo visual ao índice de RAM, instrumentar um impacto
+e ampliar a duração/modelos antes de generalizar. O usuário realizou o percurso
+no cenário durante o teste manual.
 
-Não foi criada uma instância adicional nem alterado um recurso persistente
-do evento. Adicionar veículos, criar uma interface dentro do jogo e usar
-locais novos continuam como investigações posteriores. O ISO, o executável
-e os saves originais do usuário não foram escritos.
+Este teste de reposicionamento não criou uma instância adicional nem alterou
+um recurso persistente do evento. A criação posterior é documentada no marco
+próprio. Uma interface dentro do jogo e locais novos continuam como etapas
+posteriores. O ISO, o executável e os saves originais não foram escritos.

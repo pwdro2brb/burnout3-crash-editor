@@ -3,8 +3,10 @@
 Ferramentas próprias para investigar um futuro editor de eventos do Crash Mode
 de Burnout 3: Takedown. **Não existe editor dentro do jogo neste repositório.**
 Há um protótipo que reposiciona um veículo existente em uma nova cópia de
-save state, validado em um teste controlado. Adicionar veículos, editar eventos
-de forma persistente e usar locais novos são etapas posteriores.
+save state, validado em um teste controlado. Um ensaio local também criou uma
+instância adicional no Grand Slam, que o usuário relatou ter visto e atingido
+normalmente em um teste manual. Edição persistente de eventos e locais novos
+são etapas posteriores.
 
 O repositório contém somente código e documentação. Cada usuário fornece sua
 própria cópia extraída do jogo, ferramentas e, quando necessário, save states.
@@ -115,14 +117,25 @@ Consulte [docs/findings.md](docs/findings.md) e o marco de reposicionamento para
 fatos e limites. O teste controlado ligou um objeto de RAM a uma mudança visual
 localizada e verificou atualização dos limites de colisão. Isso não demonstra
 um editor de eventos completo. Ainda faltam testes de física e repetição mais
-amplos, criação de veículos e uma interface de
-edição. O reempacotamento implementado é de save states, não de recursos do jogo.
+amplos, generalizar a criação de veículos e uma interface de edição.
+O reempacotamento implementado é de save states, não de recursos do jogo.
 
 A nova referência foi confirmada como **Grand Slam**, incluindo a contagem
 inicial. Um veículo continuou em movimento e manteve um pequeno deslocamento
 lateral após 30 e 120 quadros configurados, com atualização automática do AABB.
-A confirmação visual do alvo e um impacto real ainda estão pendentes; veja
+Numa variante posterior com deslocamento maior, o usuário relatou mudança
+visível e colisão funcionando. A associação visual ao índice interno e um
+impacto instrumentado ainda não foram estabelecidos; veja
 [docs/moving-traffic-reference.md](docs/moving-traffic-reference.md).
+
+Um ensaio posterior chamou a rotina original do jogo para acrescentar um
+objeto independente, depois alinhado cerca de 10,85 unidades atrás do alvo.
+Pools, caminho e registros de colisão passaram nas verificações locais. No
+teste manual, o usuário relatou que o carro apareceu e a colisão funcionou;
+um impacto instrumentado e estabilidade prolongada ainda não foram validados.
+O código temporário foi removido da cópia entregue. Esse criador ainda não
+está empacotado como ferramenta portátil no repositório. Detalhes em
+[docs/vehicle-creation-milestone.md](docs/vehicle-creation-milestone.md).
 
 Os endereços conhecidos pertencem ao perfil USA pesquisado. Uma versão diferente
 do jogo exige nova validação. Pseudocódigo, nomes inferidos e valores plausíveis

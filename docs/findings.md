@@ -95,19 +95,42 @@ separação lateral persistente e atualização automática do AABB e de Y.
 Os outros registros dos pools de objetos, nós e matrizes ficaram iguais entre
 controle e variante, assim como os outros descritores ativos de colisão.
 Isso não estabelece igualdade de toda a RAM: existem diferenças fora das
-regiões classificadas. A identificação visual do alvo e um impacto real estão
-pendentes. Método, números e limites em
+regiões classificadas. Numa variante posterior com deslocamento maior, o
+usuário relatou mudança visível e colisão funcionando, identificando o candidato
+como o primeiro carro vermelho. A associação dessa cor ao índice interno e
+um impacto instrumentado ainda não foram estabelecidos. Método e limites em
 [moving-traffic-reference.md](moving-traffic-reference.md).
 
 Objetos distantes podem estar ativos com os dois pontos físicos ainda zerados.
 O protótipo recusa âncoras degeneradas; estar ativo e ter coordenadas finitas
 não basta para usar esse caso de reposicionamento.
 
+## Primeiro veículo adicional — resultado parcial
+
+Um ensaio local chamou a rotina original de criação para acrescentar uma
+instância independente ao Grand Slam. Após o passo configurado de 30 quadros,
+o retorno apontava para o novo objeto 12/nó 10. As contagens passaram de
+12/10 objetos/nós para 13/11, com um descritor de colisão adicional. Objetos
+incluem componentes articulados; isso não equivale a 13 carros independentes.
+
+Listas livres, bitmaps, backlinks, cadeia/grid do caminho e registros de
+colisão/endpoints examinados passaram. Uma cópia posterior removeu o código
+temporário, preservou a instância criada e alinhou somente o objeto novo cerca
+de 10,85 unidades atrás do alvo. Depois de assumir a direção, o usuário
+relatou que o carro adicional apareceu e a colisão funcionou. Esse resultado
+manual não constitui uma captura instrumentada do impacto. Não há prova de
+120 quadros para a criação, movimento temporal após o alinhamento ou
+persistência após reiniciar o evento.
+
+Método e limites em [vehicle-creation-milestone.md](vehicle-creation-milestone.md).
+O criador experimental permanece local, sem ferramenta portátil de criação
+ou editor dentro do jogo publicado neste repositório.
+
 ## Próximas verificações
 
-1. Enquadrar e identificar o alvo do Grand Slam no tráfego em movimento.
-2. Testar impactos reais e ampliar a duração e os modelos do reposicionamento.
-3. Investigar persistência no evento, novos veículos e edição de locais.
+1. Medir movimento após o alinhamento e registrar um impacto instrumentado.
+2. Ampliar a duração e os modelos dos ensaios de reposicionamento/criação.
+3. Investigar persistência no evento, capacidade e edição de locais.
 
 Este repositório é uma base de pesquisa experimental. Não comprova que todos os
 locais do jogo possam hospedar eventos Crash nem que um editor dentro do jogo
