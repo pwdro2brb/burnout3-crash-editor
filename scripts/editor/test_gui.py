@@ -274,7 +274,7 @@ class InterfaceContractTests(unittest.TestCase):
         self.assertEqual(app.catalog_table.insert.call_count, 3)
         self.assertEqual(set(app.model_choices.values()), {None, 'car', 'van'})
         self.assertEqual(app.table.insert.call_args.kwargs['values'],
-                         ('Veículo 9', 'Carro', 'car'))
+                         ('Veículo 9', 'Carro', 'car','—'))
 
     def test_reconnect_clears_finished_pending_state_without_mutation(self):
         app = app_shell()
@@ -940,6 +940,235 @@ class ExperimentalPlacementTests(unittest.TestCase):
         self.assertIn('Nós livres: 191', summary)
         self.assertIn('Na fila: 13', summary)
         self.assertIn('Alguns veículos não estão prontos.', summary)
+
+
+class RouteAndSpeedTests(unittest.TestCase):
+    @staticmethod
+    def map_app(vehicle=None):
+        app=app_shell(vehicle)
+        app.map_canvas,app.table=Mock(),Mock()
+        app.map_canvas.winfo_width.return_value=500
+        app.map_canvas.winfo_height.return_value=400
+        app.table.selection.return_value=()
+        app.map_view,app.player=None,None
+        app.map_hits=[]
+        app.point_x,app.point_z=Var(''),Var('')
+        app.show_routes,app.map_notice=Var(True),Var()
+        app.vehicles={}
+        app.routes={'paths':[dict(id=3,left=[[-100,0,-5],[100,0,-5]],
+            center=[[-100,0,0],[100,0,0]],right=[[-100,0,5],[100,0,5]],
+            arrows=[{'from':[-20,0,0],'to':[20,0,0]}],traffic_direction_verified=True)]}
+        return app
+
+    def test_route_only_snapshot_fits_and_draws_loaded_ribbon_without_actors(self):
+        app=self.map_app()
+        app._draw_traffic()
+        self.assertEqual(app.map_view,(0,0,240))
+        app.map_canvas.create_polygon.assert_called_once()
+        self.assertEqual(app.map_canvas.create_oval.call_count,0)
+        coordinates=app.map_canvas.create_polygon.call_args.args
+        self.assertTrue(all(isinstance(value,(float,int)) for value in coordinates))
+        self.assertAlmostEqual(coordinates[0],250-100*350/240)
+        self.assertEqual(app.map_hits,[])
+
+    def test_route_arrow_uses_increasing_world_x_and_not_an_inverted_screen_direction(self):
+        app=self.map_app()
+        app._draw_traffic()
+        arrow=next(call for call in app.map_canvas.create_line.call_args_list
+                   if call.kwargs.get('arrow')==gui.tk.LAST)
+        self.assertLess(arrow.args[0],arrow.args[2])
+        self.assertEqual(arrow.args[1],arrow.args[3])
+        self.assertNotIn('dash',arrow.kwargs)
+
+    def test_unverified_flow_arrows_are_dashed_and_labelled_as_path_progression(self):
+        app=self.map_app()
+        app.routes['paths'][0]['traffic_direction_verified']=False
+        app._draw_traffic()
+        arrow=next(call for call in app.map_canvas.create_line.call_args_list
+                   if call.kwargs.get('arrow')==gui.tk.LAST)
+        self.assertEqual(arrow.kwargs['dash'],(3,3))
+        labels=[call.kwargs.get('text','') for call in app.map_canvas.create_text.call_args_list]
+        self.assertTrue(any('progressão do caminho' in label for label in labels))
+
+    def test_selected_vehicle_path_is_highlighted_below_the_actor(self):
+        vehicle={'id':9,'path':3,'initialized':True,'position':[0,0,0]}
+        app=self.map_app(vehicle)
+        app.vehicles={'car':vehicle}
+        app._draw_traffic()
+        self.assertEqual(app.map_canvas.create_polygon.call_args.kwargs['fill'],'#fff0bd')
+        names=[call[0] for call in app.map_canvas.mock_calls]
+        self.assertLess(names.index('create_polygon'),names.index('create_oval'))
+
+    def test_hiding_routes_refits_to_actors_and_preserves_world_click_axes(self):
+        app=self.map_app()
+        app.vehicles={'car':{'initialized':True,'position':[1000,0,2000]}}
+        app._draw_traffic()
+        app.map_canvas.reset_mock()
+        app.show_routes.set(False)
+        app._routes_changed()
+        app.map_canvas.create_polygon.assert_not_called()
+        self.assertEqual(app.map_view[:2],(1000,2000))
+        self.assertEqual(gui.map_to_world(app.map_view,500,400,250,200),(1000,2000))
+
+    def test_bad_route_vertex_breaks_the_line_instead_of_joining_unknown_geometry(self):
+        app=self.map_app()
+        app.routes={'paths':[dict(id=3,center=[[0,0,0],[10,0,0],[float('nan'),0,0],[30,0,0]],
+                                 arrows=[{'from':None,'to':[2,0,0]}])]}
+        app._draw_traffic()
+        lines=[call for call in app.map_canvas.create_line.call_args_list if call.kwargs.get('dash')==(5,4)]
+        self.assertEqual(len(lines),1)
+        self.assertEqual(len(lines[0].args),4)
+        app.map_canvas.create_polygon.assert_not_called()
+
+    def test_rejected_profile_clears_cached_route_geometry(self):
+        app=self.map_app()
+        app._invalidate_profile()
+        self.assertEqual(app.routes,{})
+        self.assertEqual(app._map_routes(),[])
+
+    def test_nominal_and_internal_speeds_distinguish_zero_from_missing(self):
+        nominal={'speed_info':dict(control_value=0,travel_value=0,nominal_target_kmh=0,
+                                   nominal_travel_kmh=0)}
+        self.assertEqual(gui.speed_summary(nominal),'0,000 / 0,000')
+        self.assertIn('nominal',gui.speed_summary(nominal,detailed=True))
+        legacy={'speed_info':dict(control_value=0,travel_value=None,units='unidades internas')}
+        self.assertEqual(gui.speed_summary(legacy),'0,000 / —')
+        self.assertIn('unidades internas',gui.speed_summary(legacy,detailed=True))
+        self.assertEqual(gui.speed_summary({}),'—')
+
+    def test_speed_action_converts_nominal_kmh_once_and_runs_on_worker(self):
+        vehicle={'id':9,'can_set_speed':True,'editable':True,'can_reference':False}
+        app=app_shell(vehicle)
+        app.speed_target_kmh,app.root=Var('80,4672'),Mock()
+        app.controller=types.SimpleNamespace(set_speed=Mock())
+        jobs=[]
+        app._change=lambda _label,action:jobs.append(action)
+        app.set_speed()
+        app.controller.set_speed.assert_not_called()
+        self.assertEqual(len(jobs),1)
+        jobs[0]()
+        self.assertEqual(app.controller.set_speed.call_args.args[0],9)
+        self.assertAlmostEqual(app.controller.set_speed.call_args.args[1],50)
+        self.assertEqual(app.controller.set_speed.call_args.kwargs,{})
+        app.experimental=Var(True)
+        app.speed_target_kmh.set('0')
+        app.set_speed()
+        jobs[1]()
+        app.controller.set_speed.assert_called_with(9,0.0,experimental=True)
+
+    def test_speed_controls_allow_stopped_actor_but_require_verified_capability_and_pause(self):
+        for can_set,paused,pending,profile_valid in [(True,True,False,True),(False,True,False,True),
+                    (True,False,False,True),(True,True,True,True),(True,True,False,False)]:
+            with self.subTest(can_set=can_set,paused=paused,pending=pending,profile_valid=profile_valid):
+                app=app_shell({'id':9,'can_set_speed':can_set,'can_reference':False,'editable':True},paused=paused)
+                app.profile_valid,app.pending=profile_valid,pending
+                app.speed_controls,app.speed_entry,app.speed_button=Mock(),Widget(),Widget()
+                app._update_controls()
+                allowed=can_set and paused and not pending and profile_valid
+                self.assertEqual(app.speed_button.options['state'],'normal' if allowed else 'disabled')
+                self.assertEqual(app.add_button.options['state'],'disabled')
+
+    def test_invalid_or_out_of_normal_range_speed_never_submits_a_write(self):
+        app=app_shell({'id':9,'can_set_speed':True})
+        app.root,app._change=Mock(),Mock()
+        app.speed_target_kmh=Var()
+        with patch.object(gui.messagebox,'showinfo'):
+            for text in ('-1','NaN','Inf','400','1e300'):
+                app.speed_target_kmh.set(text)
+                app.set_speed()
+        app._change.assert_not_called()
+
+    def test_normal_maximum_nominal_speed_round_trips_to_exact_control_limit(self):
+        app=app_shell({'id':9,'can_set_speed':True})
+        app.root,app.speed_target_kmh=Mock(),Var('386,24256')
+        app.controller=types.SimpleNamespace(set_speed=Mock())
+        jobs=[]
+        app._change=lambda _label,action:jobs.append(action)
+        with patch.object(gui.messagebox,'showinfo') as info:
+            app.set_speed()
+        info.assert_not_called()
+        jobs[0]()
+        self.assertAlmostEqual(app.controller.set_speed.call_args.args[1],240)
+        self.assertLessEqual(app.controller.set_speed.call_args.args[1],240)
+
+    def test_full_paused_connection_snapshot_avoids_duplicate_network_read(self):
+        payload={'game':'Burnout 3 USA','profile':'SLUS-21050','core_paused':True,
+                 'profile_valid':True,'vehicles':[],'models':[],'routes':{'paths':[]}}
+        controller=types.SimpleNamespace(connect=Mock(return_value=payload),refresh=Mock())
+        app=RecoveryAndExportTests.connection_app(controller)
+        app._snapshot=Mock()
+        jobs=[]
+        app._submit=lambda _label,work,done:jobs.append((work,done))
+        app.connect()
+        work,done=jobs.pop()
+        done(work())
+        controller.refresh.assert_not_called()
+        app._snapshot.assert_called_once_with(payload)
+        self.assertTrue(app.connected)
+
+    def test_right_drag_moves_view_without_changing_world_point_or_actor(self):
+        app=self.map_app()
+        app.map_view=(100,200,100)
+        app._draw_traffic=Mock()
+        app._map_pan_start(types.SimpleNamespace(x=250,y=200))
+        app._map_pan(types.SimpleNamespace(x=285,y=235))
+        self.assertEqual(app.map_view,(90,210,100))
+        self.assertIsNone(app._target_point())
+        self.assertEqual(app.map_hits,[])
+        app._map_pan_end()
+        self.assertIsNone(app.map_pan_state)
+        before=app.map_view
+        app._map_pan(types.SimpleNamespace(x=0,y=0))
+        self.assertEqual(app.map_view,before)
+
+    def test_selected_path_fit_enables_routes_and_ignores_other_far_routes(self):
+        app=self.map_app({'id':9,'path':3})
+        app.routes['paths'].append(dict(id=4,center=[[10000,0,10000],[20000,0,20000]]))
+        app.show_routes.set(False)
+        app._map_selected_path()
+        self.assertTrue(app.show_routes.get())
+        self.assertEqual(app.map_view,(0,0,240))
+        self.assertIn('P3',app.status.get())
+
+    def test_route_budget_warning_remains_visible_in_paused_notice(self):
+        app=self.map_app()
+        app.routes['warning']='Visualização parcial: orçamento de caminhos atingido.'
+        app._set_core_state({'core_paused':True})
+        self.assertIn('Visualização parcial',app.map_notice.get())
+        self.assertIn('alturas podem se sobrepor',app.map_notice.get())
+
+    def test_unreferenced_descriptor_is_drawn_as_a_candidate_instead_of_active_road(self):
+        app=self.map_app()
+        app.routes['paths'][0].update(source='descriptor_candidate',reference_observed=False)
+        app._draw_traffic()
+        self.assertEqual(app.map_canvas.create_polygon.call_args.kwargs['fill'],'#eff2f5')
+        labels=[call.kwargs.get('text','') for call in app.map_canvas.create_text.call_args_list]
+        self.assertIn('P3?',labels)
+        self.assertTrue(any('sem veículo associado' in text for text in labels))
+
+    def test_details_canvas_tracks_full_content_height_without_changing_the_map(self):
+        app=app_shell()
+        app.details_canvas=Mock()
+        app.details_canvas.bbox.return_value=(0,0,350,1200)
+        app.map_view=(100,200,50)
+        app._details_region()
+        app.details_canvas.configure.assert_called_once_with(scrollregion=(0,0,350,1200))
+        self.assertEqual(app.map_view,(100,200,50))
+
+    def test_details_width_updates_inner_window_and_wraps_labels(self):
+        app=app_shell()
+        app.details_canvas,app.details_window=Mock(),17
+        app.details_canvas.bbox.return_value=(0,0,280,1000)
+        for name in ('selection_label','position_label','speed_label'):
+            setattr(app,name,Widget())
+        app._details_resize(types.SimpleNamespace(width=280))
+        app.details_canvas.itemconfigure.assert_called_once_with(17,width=280)
+        self.assertEqual(app.speed_label.options['wraplength'],256)
+        app.details_canvas.configure.assert_called_once_with(scrollregion=(0,0,280,1000))
+        app.closed=True
+        app.details_canvas.reset_mock()
+        app._details_resize(types.SimpleNamespace(width=100))
+        app.details_canvas.itemconfigure.assert_not_called()
 
 
 class LauncherTests(unittest.TestCase):

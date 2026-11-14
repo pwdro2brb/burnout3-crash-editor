@@ -17,6 +17,7 @@ from typing import Any, Callable, Protocol
 
 
 EXPORT_DIRECTORY = Path(__file__).resolve().parents[2] / 'outputs' / 'events'
+NOMINAL_KMH_PER_CONTROL = 1.609344
 
 
 class Controller(Protocol):
@@ -39,6 +40,8 @@ class Controller(Protocol):
     def export_state(self, path: str) -> dict[str, Any]: ...
     def finalize_pending(self) -> dict[str, Any]: ...
     def cancel_queue(self) -> dict[str, Any]: ...
+    def set_speed(self, vehicle_id: int, control_value: float,
+                  experimental: bool = False) -> dict[str, Any]: ...
     def close(self) -> None: ...
 
 
@@ -131,6 +134,40 @@ def fit_view(points: list[tuple[float, float]]) -> tuple[float, float, float]:
     return (min(xs) + max(xs)) / 2, (min(zs) + max(zs)) / 2, span
 
 
+def route_points(network: Any) -> list[tuple[float,float]]:
+    """Finite public route vertices for fitting; no geometry is inferred here."""
+    if not isinstance(network,dict) or not isinstance(network.get('paths'),list):
+        return []
+    return [point for path in network['paths'] if isinstance(path,dict)
+            for key in ('left','center','right') for raw in
+            (path.get(key) if isinstance(path.get(key),list) else [])
+            if (point := xz(raw)) is not None]
+
+
+def speed_value(value: Any) -> str:
+    if type(value) not in (int,float) or not math.isfinite(value):
+        return '—'
+    return f'{value:.3f}'.replace('.',',')
+
+
+def speed_summary(vehicle: dict[str,Any] | None, *, detailed=False) -> str:
+    info = (vehicle or {}).get('speed_info')
+    if not isinstance(info,dict):
+        return 'Velocidade: não disponível nesta leitura.' if detailed else '—'
+    control,travel = speed_value(info.get('control_value')),speed_value(info.get('travel_value'))
+    nominal_target,nominal_travel = info.get('nominal_target_kmh'),info.get('nominal_travel_kmh')
+    if type(nominal_target) in (int,float) and math.isfinite(nominal_target):
+        target_text,travel_text = speed_value(nominal_target),speed_value(nominal_travel)
+        if detailed:
+            return (f'Alvo nominal: {target_text} km/h · Seguimento nominal: {travel_text} km/h\n'
+                    'Escala nominal; o trânsito pode reduzir o avanço.')
+        return f'{target_text} / {travel_text}'
+    if detailed:
+        units = str(info.get('units') or 'unidades internas')
+        return f'Controle: {control} · Seguimento: {travel}\n{units}; valores internos não convertidos.'
+    return f'{control} / {travel}'
+
+
 def map_to_world(view: tuple[float, float, float], width: float, height: float,
                  px: float, py: float) -> tuple[float, float]:
     """Invert the displayed X/Z map without assuming a screen origin."""
@@ -184,7 +221,9 @@ class EditorApp:
         self.secondary_choices: dict[str, str | None] = {}
         self.trailer_visible = False
         self.map_view: tuple[float, float, float] | None = None
+        self.map_pan_state = None
         self.map_hits: list[tuple[float, float, str]] = []
+        self.routes: dict[str,Any] = {}
         self.marking_position = False
         self.player: dict[str, Any] | None = None
         self.jobs: queue.Queue[Any] = queue.Queue()
@@ -195,6 +234,10 @@ class EditorApp:
         self.core_text = tk.StringVar(value='')
         self.selection_text = tk.StringVar(value='Selecione um veículo na lista.')
         self.position_text = tk.StringVar(value='X: —     Y: —     Z: —')
+        self.speed_text = tk.StringVar(value='Velocidade: não disponível nesta leitura.')
+        self.speed_target_kmh = tk.StringVar(value='')
+        self.speed_controls_visible = False
+        self.show_routes = tk.BooleanVar(value=True)
         self.lateral = tk.DoubleVar(value=50)
         self.lateral_text = tk.StringVar(value='50,0%')
         self.gap = tk.StringVar(value='10')
@@ -294,10 +337,10 @@ class EditorApp:
         actors.columnconfigure(0, weight=1)
         actors.rowconfigure(0, weight=1)
         lists.add(actors, text='Veículos presentes')
-        self.table = ttk.Treeview(actors, columns=('vehicle', 'type', 'model'),
+        self.table = ttk.Treeview(actors, columns=('vehicle', 'type', 'model','speed'),
                                   show='headings', selectmode='browse', height=15)
         for key, title, width in [('vehicle', 'Veículo', 140), ('type', 'Categoria', 105),
-                                  ('model', 'Modelo', 190)]:
+                                  ('model', 'Modelo', 150),('speed','Nominal km/h A/S',150)]:
             self.table.heading(key, text=title)
             self.table.column(key, width=width, minwidth=70, stretch=True)
         self.table.grid(row=0, column=0, sticky='nsew')
@@ -317,12 +360,21 @@ class EditorApp:
         self.map_canvas.bind('<Configure>', lambda _event: self._draw_traffic())
         self.map_canvas.bind('<Button-1>', self._map_select)
         self.map_canvas.bind('<MouseWheel>', self._map_zoom)
+        self.map_canvas.bind('<ButtonPress-3>',self._map_pan_start)
+        self.map_canvas.bind('<B3-Motion>',self._map_pan)
+        self.map_canvas.bind('<ButtonRelease-3>',self._map_pan_end)
         map_footer = ttk.Frame(view)
         map_footer.grid(row=2, column=0, sticky='ew', pady=(6, 0))
+        map_footer.columnconfigure(1,weight=1)
         self.mark_button = ttk.Button(map_footer, text='Marcar posição', command=self._mark_position)
-        self.mark_button.pack(side='left')
-        ttk.Label(map_footer, text='Roda: zoom.', foreground='#5f6875').pack(side='left', padx=8)
-        ttk.Button(map_footer, text='Enquadrar', command=self._map_reset).pack(side='right')
+        self.mark_button.grid(row=0,column=0,sticky='w')
+        self.routes_check = ttk.Checkbutton(map_footer,text='Mostrar vias',variable=self.show_routes,
+                                            command=self._routes_changed)
+        self.routes_check.grid(row=0,column=1,sticky='w',padx=8)
+        ttk.Label(map_footer, text='Roda: zoom · direito: mover', foreground='#5f6875',
+                  wraplength=270).grid(row=1,column=0,columnspan=2,sticky='w',pady=(5,0))
+        ttk.Button(map_footer, text='Enquadrar', command=self._map_reset).grid(row=0,column=2,sticky='e')
+        ttk.Button(map_footer,text='Caminho',command=self._map_selected_path).grid(row=1,column=2,sticky='e',pady=(5,0))
         point_controls = ttk.LabelFrame(view, text='Adicionar no ponto X/Z', padding=8)
         point_controls.grid(row=3, column=0, sticky='ew', pady=(8, 0))
         point_controls.columnconfigure(1, weight=1)
@@ -336,7 +388,7 @@ class EditorApp:
         self.add_at_button = ttk.Button(point_controls, text='Adicionar no ponto', command=self.add_at)
         self.add_at_button.grid(row=1, column=0, columnspan=4, sticky='ew', pady=(7, 0))
         ttk.Label(point_controls,
-            text='Usa caminhos carregados e o modelo escolhido ao lado. O ponto pode ser ajustado à via.',
+            text='Usa caminhos com referência móvel verificada e o modelo escolhido ao lado. O ponto pode ser ajustado à via.',
             foreground='#5f6875', wraplength=410).grid(row=2, column=0, columnspan=4, sticky='w', pady=(5, 0))
         catalog = ttk.Frame(lists, padding=(0, 8, 0, 0))
         catalog.columnconfigure(0, weight=1)
@@ -354,13 +406,30 @@ class EditorApp:
         self.catalog_table.configure(yscrollcommand=catalog_scroll.set)
         pane.add(list_frame, weight=3)
 
-        details = ttk.Frame(pane, padding=(18, 0, 0, 0))
+        details_panel = ttk.Frame(pane)
+        details_panel.columnconfigure(0,weight=1)
+        details_panel.rowconfigure(0,weight=1)
+        self.details_canvas = tk.Canvas(details_panel,width=360,height=200,highlightthickness=0,
+            background=ttk.Style(root).lookup('TFrame','background') or root.cget('background'))
+        self.details_canvas.grid(row=0,column=0,sticky='nsew')
+        self.details_scroll = ttk.Scrollbar(details_panel,orient='vertical',command=self.details_canvas.yview)
+        self.details_scroll.grid(row=0,column=1,sticky='ns')
+        self.details_canvas.configure(yscrollcommand=self.details_scroll.set)
+        details = ttk.Frame(self.details_canvas, padding=(18,0,6,12))
+        self.details_window = self.details_canvas.create_window(0,0,window=details,anchor='nw')
+        details.bind('<Configure>',self._details_region)
+        self.details_canvas.bind('<Configure>',self._details_resize)
         details.columnconfigure(0, weight=1)
-        pane.add(details, weight=2)
-        ttk.Label(details, textvariable=self.selection_text,
-                  font=('Segoe UI', 11, 'bold'), wraplength=320).grid(row=0, column=0, sticky='w')
-        ttk.Label(details, textvariable=self.position_text,
-                  wraplength=320).grid(row=1, column=0, sticky='w', pady=(7, 14))
+        pane.add(details_panel, weight=2)
+        self.selection_label = ttk.Label(details,textvariable=self.selection_text,
+                                        font=('Segoe UI',11,'bold'),wraplength=320)
+        self.selection_label.grid(row=0,column=0,sticky='w')
+        position = ttk.Frame(details)
+        position.grid(row=1,column=0,sticky='ew',pady=(7,14))
+        self.position_label = ttk.Label(position,textvariable=self.position_text,wraplength=320)
+        self.position_label.grid(row=0,column=0,sticky='w')
+        self.speed_label = ttk.Label(position,textvariable=self.speed_text,wraplength=320,foreground='#5f6875')
+        self.speed_label.grid(row=1,column=0,sticky='w',pady=(5,0))
 
         movement = ttk.LabelFrame(details, text='Mover o veículo selecionado', padding=12)
         movement.grid(row=2, column=0, sticky='ew')
@@ -374,6 +443,15 @@ class EditorApp:
                   wraplength=280, foreground='#5f6875').grid(row=2, column=0, columnspan=2, sticky='w')
         self.move_button = ttk.Button(movement, text='Aplicar posição', command=self.move)
         self.move_button.grid(row=3, column=0, columnspan=2, sticky='ew', pady=(10, 0))
+        self.speed_controls = ttk.Frame(movement)
+        self.speed_controls.grid(row=4,column=0,columnspan=2,sticky='ew',pady=(12,0))
+        self.speed_controls.columnconfigure(1,weight=1)
+        ttk.Label(self.speed_controls,text='Alvo nominal (km/h)').grid(row=0,column=0,sticky='w',padx=(0,8))
+        self.speed_entry = ttk.Entry(self.speed_controls,textvariable=self.speed_target_kmh,width=10)
+        self.speed_entry.grid(row=0,column=1,sticky='ew')
+        self.speed_button = ttk.Button(self.speed_controls,text='Aplicar velocidade',command=self.set_speed)
+        self.speed_button.grid(row=1,column=0,columnspan=2,sticky='ew',pady=(7,0))
+        self.speed_controls.grid_remove()
 
         addition = ttk.LabelFrame(details, text='Adicionar veículos atrás', padding=12)
         addition.grid(row=3, column=0, sticky='ew', pady=(14, 0))
@@ -427,8 +505,33 @@ class EditorApp:
         selected = self.table.selection()
         return self.vehicles.get(selected[0]) if selected else None
 
+    def _details_region(self,_event: Any = None) -> None:
+        """Keep controls reachable through a local scrollbar on short windows."""
+        if hasattr(self,'details_canvas') and not self.closed:
+            self.details_canvas.configure(scrollregion=self.details_canvas.bbox('all') or (0,0,1,1))
+
+    def _details_resize(self,event: Any) -> None:
+        if self.closed or not hasattr(self,'details_canvas'):
+            return
+        width=max(1,int(event.width))
+        self.details_canvas.itemconfigure(self.details_window,width=width)
+        for name in ('selection_label','position_label','speed_label'):
+            label=getattr(self,name,None)
+            if label is not None:
+                label.configure(wraplength=max(100,width-24))
+        self._details_region()
+
     def _selection_changed(self, _event: Any = None) -> None:
         vehicle = self.selected()
+        if hasattr(self,'speed_text'):
+            self.speed_text.set(speed_summary(vehicle,detailed=True))
+        if hasattr(self,'speed_target_kmh'):
+            info = (vehicle or {}).get('speed_info') or {}
+            target = info.get('nominal_target_kmh')
+            if type(target) not in (int,float) and type(info.get('control_value')) in (int,float):
+                target = info['control_value']*NOMINAL_KMH_PER_CONTROL
+            self.speed_target_kmh.set(f'{target:.9g}'.replace('.',',')
+                if type(target) in (int,float) and math.isfinite(target) else '')
         if vehicle is None:
             self.selection_text.set('Selecione um veículo na lista.')
             self.position_text.set('X: —     Y: —     Z: —')
@@ -437,6 +540,9 @@ class EditorApp:
             xyz = vehicle.get('position') or []
             self.position_text.set('     '.join(f'{axis}: {coordinate(xyz[i] if i < len(xyz) else None)}'
                                                for i, axis in enumerate('XYZ')))
+            path = vehicle.get('path')
+            self.position_text.set(self.position_text.get()+
+                (f'\nCaminho: P{path}' if type(path) is int else '\nSem caminho de tráfego reconhecido.'))
             if vehicle.get('edit_reason'):
                 self.position_text.set(self.position_text.get() + '\n' + str(vehicle['edit_reason']))
             try:
@@ -545,12 +651,67 @@ class EditorApp:
 
     def _map_reset(self) -> None:
         self.map_view = None
+        self.map_pan_state = None
         self._draw_traffic()
+
+    def _routes_enabled(self) -> bool:
+        variable = getattr(self,'show_routes',None)
+        return variable is None or variable.get() is True
+
+    def _routes_changed(self) -> None:
+        self.map_view = None
+        self.map_pan_state = None
+        self._draw_traffic()
+
+    def _map_selected_path(self) -> None:
+        selected = self.selected() or {}
+        network = getattr(self,'routes',{})
+        paths = network.get('paths',[]) if isinstance(network,dict) else []
+        paths = paths if isinstance(paths,list) else []
+        route = next((path for path in paths if isinstance(path,dict)
+                      and type(selected.get('path')) is int and path.get('id')==selected['path']),None)
+        points = route_points({'paths':[route]}) if route is not None else []
+        if not points or not getattr(self,'profile_valid',True):
+            self._set_status('O veículo selecionado não tem geometria de caminho disponível nesta leitura.',warning=True)
+            return
+        if hasattr(self,'show_routes'):
+            self.show_routes.set(True)
+        self.map_view = fit_view(points)
+        self.map_pan_state = None
+        self._draw_traffic()
+        self._set_status(f"Caminho P{selected['path']} enquadrado. As setas mostram sua progressão.")
+
+    def _map_pan_start(self,event: Any) -> None:
+        if self.map_view is not None:
+            self.map_pan_state = event.x,event.y,self.map_view
+
+    def _map_pan(self,event: Any) -> None:
+        state = getattr(self,'map_pan_state',None)
+        if state is None:
+            return
+        px,py,(cx,cz,span) = state
+        width,height = self.map_canvas.winfo_width(),self.map_canvas.winfo_height()
+        if width <= 40 or height <= 50 or span <= 0:
+            return
+        scale = min(width-40,height-50)/span
+        self.map_view = cx-(event.x-px)/scale,cz+(event.y-py)/scale,span
+        self._draw_traffic()
+
+    def _map_pan_end(self,_event: Any = None) -> None:
+        self.map_pan_state = None
+
+    def _map_routes(self) -> list[dict[str,Any]]:
+        network = getattr(self,'routes',{})
+        if (not self._routes_enabled() or not getattr(self,'profile_valid',True)
+                or not isinstance(network,dict) or not isinstance(network.get('paths'),list)):
+            return []
+        return [path for path in network['paths'] if isinstance(path,dict)]
 
     def _map_zoom(self, event: Any) -> None:
         if self.map_view is None or not event.delta:
             return
         cx, cz, span = self.map_view
+        self.map_pan_state = None
         factor = 0.8 if event.delta > 0 else 1.25
         new_span = max(2, min(100000, span * factor))
         width, height = self.map_canvas.winfo_width(), self.map_canvas.winfo_height()
@@ -603,17 +764,65 @@ class EditorApp:
                   and (point := xz(vehicle.get('position'))) is not None}
         player = xz(self.player.get('position')) if self.player else None
         target = self._target_point()
-        if not points and player is None and target is None:
+        paths = self._map_routes()
+        path_points = route_points({'paths':paths})
+        if not points and player is None and target is None and not path_points:
             canvas.create_text(width / 2, height / 2, text='Conecte com o jogo pausado e atualize a lista.',
                                width=max(100, width - 40), fill='#5f6875')
             return
         if self.map_view is None:
-            self.map_view = fit_view([*points.values(), *([player] if player else []), *([target] if target else [])])
+            self.map_view = fit_view([*points.values(),*path_points,
+                                     *([player] if player else []),*([target] if target else [])])
         cx, cz, span = self.map_view
         scale = min(max(1, width - 40), max(1, height - 50)) / span
         def project(point):
             return width / 2 + (point[0] - cx) * scale, height / 2 - (point[1] - cz) * scale
         canvas.create_text(10, 10, anchor='nw', text='X →   Z ↑   ·   unidades do jogo', fill='#5f6875')
+        selected_vehicle = self.selected() or {}
+        selected_path = selected_vehicle.get('path')
+        for path in paths:
+            highlight = type(selected_path) is int and path.get('id') == selected_path
+            candidate = path.get('source') == 'descriptor_candidate'
+            color = '#bd871b' if highlight else '#b1bcc5' if candidate else '#9baab6'
+            fill = '#fff0bd' if highlight else '#eff2f5' if candidate else '#e5ebf0'
+            lines = {}
+            for key in ('left','center','right'):
+                raw = path.get(key)
+                lines[key] = [xz(point) for point in raw] if isinstance(raw,list) else []
+            left,right = lines['left'],lines['right']
+            if (len(left) >= 2 and len(left) == len(right)
+                    and all(point is not None for point in left+right)):
+                polygon = [coordinate for point in left+list(reversed(right)) for coordinate in project(point)]
+                canvas.create_polygon(*polygon,fill=fill,outline='')
+            for key,line in lines.items():
+                segment = []
+                for point in [*line,None]:
+                    if point is not None:
+                        segment.extend(project(point))
+                    else:
+                        if len(segment) >= 4:
+                            canvas.create_line(*segment,fill=color,width=2 if highlight else 1,
+                                               **({'dash':(5,4)} if key == 'center' else
+                                                  {'dash':(2,4)} if candidate else {}))
+                        segment = []
+            for arrow in path.get('arrows',[]) if isinstance(path.get('arrows'),list) else []:
+                if not isinstance(arrow,dict):
+                    continue
+                start,end = xz(arrow.get('from')),xz(arrow.get('to'))
+                if start is None or end is None or start == end:
+                    continue
+                canvas.create_line(*project(start),*project(end),arrow=tk.LAST,fill=color,
+                                   width=2,**({} if path.get('traffic_direction_verified') is True else {'dash':(3,3)}))
+            center = [point for point in lines['center'] if point is not None]
+            if center and (highlight or len(paths) <= 32):
+                px,py = project(center[len(center)//2])
+                canvas.create_text(px+5,py-8,anchor='sw',
+                    text=f"P{path.get('id','?')}"+('?' if candidate else ''),fill=color)
+        if paths:
+            canvas.create_text(10,28,anchor='nw',text='Vias de tráfego · setas: progressão do caminho',fill='#5f6875')
+            if any(path.get('source') == 'descriptor_candidate' for path in paths):
+                canvas.create_text(10,44,anchor='nw',width=max(100,width-20),
+                    text='P?: via candidata, sem veículo associado; uso atual não confirmado',fill='#7c8994')
         colors = {'Car': '#2c70b6', 'Van': '#7752a3', 'Bus': '#23846c'}
         selected = self.table.selection()
         for iid, point in points.items():
@@ -660,10 +869,13 @@ class EditorApp:
             self.core_paused = paused
             self.core_text.set('Jogo pausado' if paused else 'Jogo em execução')
             if hasattr(self, 'map_notice'):
-                self.map_notice.set('Posições dos veículos; sem desenho da pista.' if paused else
+                notice = (('Geometria de vias de tráfego; alturas podem se sobrepor na vista X/Z.'
+                    if getattr(self,'routes',{}).get('paths') else 'Posições dos veículos; sem desenho da pista.') if paused else
                     ('Posições da última atualização; clique em Pausar PCSX2 e atualize.'
                      if getattr(self, 'emulator_control', False) else
                      'Posições da última atualização; pause com Esc e atualize.'))
+                warning = getattr(self,'routes',{}).get('warning')
+                self.map_notice.set(notice+(' '+warning if isinstance(warning,str) and warning else ''))
             return
         state = str(response.get('core_status') or response.get('status') or '').lower()
         if state == 'paused':
@@ -686,6 +898,17 @@ class EditorApp:
                         or (self._experimental_enabled() and selected.get('experimental_editable') is True)))
         can_reference = bool(available and selected.get('can_reference',
                               selected.get('editable', selected.get('eligible', False))))
+        if hasattr(self,'speed_controls'):
+            visible = bool(selected and selected.get('can_set_speed') is True)
+            if visible:
+                self.speed_controls.grid()
+                if not getattr(self,'speed_controls_visible',False) and hasattr(self,'root'):
+                    self.root.after_idle(self._fit_pending_window)
+            else:
+                self.speed_controls.grid_remove()
+            self.speed_controls_visible = visible
+            for widget in (self.speed_entry,self.speed_button):
+                widget.configure(state='normal' if visible and available else 'disabled')
         # A failed finalization can require a clean-state reload and reconnect.
         # Reconnection is serialized on the same worker and never retries a mutation.
         self.connect_button.configure(state='normal' if not self.busy and not self.closed else 'disabled')
@@ -763,7 +986,8 @@ class EditorApp:
 
     def _fit_pending_window(self) -> None:
         """Keep pending instructions or cargo controls within the measured window."""
-        if self.closed or not (self.pending or getattr(self, 'trailer_visible', False)):
+        if self.closed or not (self.pending or getattr(self, 'trailer_visible', False)
+                               or getattr(self,'speed_controls_visible',False)):
             return
         height = min(max(820, self.root.winfo_reqheight()),
                      max(1, self.root.winfo_screenheight() - 80))
@@ -777,11 +1001,14 @@ class EditorApp:
 
     def _invalidate_profile(self) -> None:
         self.profile_valid = False
+        self.routes = {}
         if hasattr(self.table, 'selection') and hasattr(self.table, 'selection_remove'):
             self.table.selection_remove(*self.table.selection())
         if hasattr(self, 'selection_text'):
             self.selection_text.set('Atualize a lista antes de editar os veículos.')
             self.position_text.set('X: —     Y: —     Z: —')
+        if hasattr(self,'speed_text'):
+            self.speed_text.set('Velocidade: atualize a leitura para consultar.')
 
     def _submit(self, label: str, action: Callable[[], Any],
                 callback: Callable[[Any], None], *, quiet: bool = False) -> None:
@@ -851,9 +1078,11 @@ class EditorApp:
         if 'state_export' in snapshot:
             self.state_export = snapshot['state_export'] is True
         self.player = snapshot.get('player')
+        self.routes = snapshot.get('routes') if self.profile_valid and isinstance(snapshot.get('routes'),dict) else {}
         if hasattr(self, 'capacity_text'):
             self.capacity_text.set(capacity_summary(snapshot))
         self.map_view = None
+        self.map_pan_state = None
         self._set_core_state(snapshot)
         self.catalog_table.delete(*self.catalog_table.get_children())
         for row in catalog_rows(snapshot.get('models', [])):
@@ -880,7 +1109,7 @@ class EditorApp:
             self.table.insert('', 'end', iid=iid,
                               values=(f"Veículo {vehicle['id']}",
                                       vehicle.get('type_label') or 'Não identificada',
-                                      str(vehicle.get('model_id') or 'Modelo sem nome')))
+                                      str(vehicle.get('model_id') or 'Modelo sem nome'),speed_summary(vehicle)))
             if vehicle['id'] == selected_id:
                 self.table.selection_set(iid)
                 self.table.see(iid)
@@ -894,6 +1123,9 @@ class EditorApp:
             connection = self.controller.connect()
             if connection.get('profile_valid') is False:
                 return connection, connection
+            if (connection.get('core_paused') is True and isinstance(connection.get('vehicles'),list)
+                    and isinstance(connection.get('models'),list)):
+                return connection,connection
             from editor.profile import ProfileError
             try:
                 snapshot = self.controller.refresh()
@@ -1004,6 +1236,30 @@ class EditorApp:
             if self.pending:
                 self._schedule_pending_poll()
         self._submit('', work, done, quiet=True)
+
+    def set_speed(self) -> None:
+        vehicle = self.selected()
+        if (self.closed or self.busy or self.pending or not self.connected
+                or not getattr(self,'profile_valid',True) or self.core_paused is not True
+                or not vehicle or vehicle.get('can_set_speed') is not True):
+            return
+        try:
+            nominal = number(self.speed_target_kmh.get())
+            control = nominal/NOMINAL_KMH_PER_CONTROL
+            if control < 0 or control > 3.4028234663852886e38:
+                raise ValueError('Use um alvo nominal não negativo dentro do intervalo do jogo.')
+            if not self._experimental_enabled() and control > 240:
+                if math.isclose(control,240,rel_tol=1e-12):
+                    control = 240.
+                else:
+                    raise ValueError('No modo normal, use de 0 a 386,24256 km/h nominais.')
+        except (TypeError,ValueError) as exc:
+            messagebox.showinfo('Velocidade',str(exc),parent=self.root)
+            return
+        vehicle_id = int(vehicle['id'])
+        options = {'experimental':True} if self._experimental_enabled() else {}
+        self._change('Aplicando alvo nominal de velocidade…',
+                     lambda:self.controller.set_speed(vehicle_id,control,**options))
 
     def move(self) -> None:
         vehicle = self.selected()

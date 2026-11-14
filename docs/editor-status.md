@@ -1,11 +1,17 @@
 # Editor externo e identificação de modelos
 
-Na revisão de 14/11/2026 passaram **201 testes distribuíveis** e **40 testes
-locais com capturas privadas** (19 do controlador e 21 do perfil). Os testes
-incluem fila, cancelamento, projeção por ponto, preservação do caminho no replay
-e retorno lateral experimental. A interface foi verificada em testes sem janela;
-a conferência visual desta revisão e os ensaios reais dos modos novos continuam
-pendentes. Esses resultados não comprovam estabilidade com muitos veículos.
+Na revisão de 14/11/2026 passaram **241 testes distribuíveis** e **45 testes
+locais com capturas privadas**: 19 do controlador, 21 do perfil e 5 da integração
+de caminhos/velocidade. A prévia de uma referência preservada mostrou 27
+caminhos e o caminho selecionado P21; a leitura e o ajuste de alvo foram
+verificados em memória copiada, sem aplicar mudanças na sessão do jogo.
+O novo controle de velocidade ainda precisa de validação em execução real.
+
+Os testes automatizados cobrem transporte, perfil, fila, cancelamento, projeção
+por ponto, preservação do caminho no replay, retorno lateral experimental,
+visualização de vias e velocidade nominal. A conferência visual e os ensaios
+reais dos fluxos novos permanecem separados dessa validação. Esses resultados
+não comprovam estabilidade com muitos veículos.
 
 Estado documentado em 13/11/2026. A interface do evento atual está implementada
 e foi ligada a uma cópia isolada do PCSX2 real. O usuário relatou: **“A van
@@ -130,9 +136,17 @@ atualizada reconectou com **Jogo pausado**, sem criação pendente.
 - Identificação dos veículos presentes e dos modelos carregados.
 - Conexão mantida com perfil inválido após confirmar a identidade do jogo,
   mantendo **Finalizar pendência** disponível e a edição bloqueada.
-- Vista de cima das posições X/Z, com seleção de veículo, alvo por clique e
-  entrada manual de coordenadas para nova criação. Não contém malha ou desenho
-  da pista e não acompanha o jogo em tempo real.
+- Vista de cima das posições X/Z e da geometria pesquisada dos caminhos de
+  tráfego, com bordas, centro, setas de progressão e destaque da via selecionada.
+  **Mostrar vias**, **Caminho**, **Enquadrar**, roda e arrasto com botão direito
+  permitem navegar. Candidatos sem veículo associado são marcados `P?`;
+  seu uso atual não é confirmado. A vista mantém alvo por clique e entrada manual
+  para criação; não é a malha de asfalto nem acompanhamento em tempo real.
+- Consulta do alvo e do seguimento em escala nominal km/h, com edição apenas do
+  alvo quando o perfil admite o registro. Zero pode ser aplicado e alterado
+  depois; cabine e carga não recebem escritas independentes de velocidade.
+- Painel direito com barra vertical e rodapé do mapa em duas linhas para manter
+  os controles acessíveis em janelas menores, com quebra de texto ajustada à largura.
 - Reposicionamento lateral de independente com física inicializada e uma
   edição candidata do conjunto cabine/carga, protegida pelo vínculo nativo.
 - No modo normal, lotes de 1 a 8, usando a rotina do próprio jogo em um ciclo
@@ -279,6 +293,37 @@ ações; sua carga é recusada com o toggle desligado, sem ativação automátic
 Esses fluxos novos têm validação automatizada, mas não receberam ensaio real
 nesta etapa. O relato anterior de criação/colisão e o novo relato de falha com
 muitos carros não validam a implementação ampliada ou a criação por ponto.
+
+## Caminhos e velocidade nominal
+
+A rede desenhada inclui vias com referência observada e candidatos encontrados
+por descritores e geometria reconhecidos. Leituras e amostras são limitadas por
+orçamento; dados incompletos são omitidos e a interface conserva o aviso de
+visualização parcial. Bordas e centro representam o seguimento do tráfego,
+não a malha visual ou a colisão do asfalto. A projeção X/Z pode sobrepor vias em
+alturas diferentes. As setas sempre representam progressão geométrica; um sentido
+de trânsito só é corroborado quando a referência móvel e sua orientação passam
+nas verificações. Candidatos não se tornam referências de criação pelo desenho.
+
+O campo de controle desejado e o avanço de seguimento foram separados. A
+conversão exibida em km/h é nominal; não estabelece que uma unidade do mundo
+seja um metro nem mede o movimento da carroceria. **Aplicar velocidade** altera
+somente o alvo protegido pelo perfil. O seguimento continua sendo calculado
+pelo jogo, inclusive para filas e obstáculos, e a carga usa a cabine como
+referência em vez de receber um alvo avulso.
+
+O alvo zero não impede uma edição posterior de um registro que ainda conserve
+o layout admitido. Essas mudanças também podem ser registradas como ações
+`set_speed` em receitas para o mesmo estado inicial; ações experimentais continuam
+exigindo o toggle explícito ao carregar. A interface consulta uma captura
+pausada e apresenta escala nominal, sem prometer velocímetro contínuo, velocidade
+real calibrada ou estabilidade de uma cena densa. A pesquisa e os limites estão
+em [routes-and-speed.md](routes-and-speed.md).
+
+Uma conferência offline numa referência preservada produziu uma prévia de 27
+caminhos admitidos, com P21 em destaque. Os bytes da memória fornecida à leitura
+permaneceram idênticos. É uma verificação da geometria e da geração da prévia,
+separada de uma captura da interface real ou de um teste de comportamento no jogo.
 
 ## Limites e próxima validação
 

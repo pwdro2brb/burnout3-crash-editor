@@ -4,7 +4,9 @@ Ferramentas próprias para pesquisar e desenvolver um editor de eventos do
 Crash Mode de Burnout 3: Takedown. Há uma **interface externa experimental**
 para identificar modelos, reposicionar veículos e acrescentar lotes de
 veículos atrás de uma referência ou criar um veículo num ponto X/Z do evento
-carregado. Há suporte experimental
+carregado. A vista de cima também mostra a geometria pesquisada dos caminhos de
+tráfego, e os veículos habilitados oferecem um alvo de velocidade nominal.
+Há suporte experimental
 a cabine com carga, limitado a pares nativos já carregados. A integração real confirmou leitura,
 reposicionamento e criação pelo controlador; o usuário também relatou presença
 e colisão da van preparada pela interface no Grand Slam.
@@ -60,14 +62,25 @@ O menu **Sistema → Pausar** do emulador é a alternativa manual. Pause antes d
 atualizar ou editar. A pausa do menu do jogo com **Start** não basta.
 O editor não inicia o emulador nem dirige o veículo.
 
-- **Veículos presentes:** modelo, categoria e posição dos objetos da sessão.
+- **Veículos presentes:** modelo, categoria, posição e valores nominais de alvo
+  e seguimento dos objetos da sessão, quando existe um nó de tráfego reconhecido.
 - **Catálogo carregado:** todos os modelos encontrados na memória, incluindo os
   que ainda não estão liberados para criação. `COMPCAR14` é classificado pelo
   jogo como **Car**; `HEVYCAR33` e `HEVYCAR35`, como **Van**; `HEVYCAR20`, como **Bus**.
-- **Vista de cima:** posições dos veículos e referência do jogador, quando
-  disponível; sem desenho da pista. Um clique seleciona o veículo para edição.
+- **Vista de cima:** vias de tráfego pesquisadas, com bordas, centro, setas de
+  progressão e posições dos veículos. **Mostrar vias** alterna a geometria;
+  **Caminho** enquadra o caminho do veículo selecionado, **Enquadrar** mostra
+  o conjunto, a roda aproxima e arrastar com o botão direito move a vista.
+  Caminhos candidatos sem veículo associado aparecem como `P?`, com uso atual
+  não confirmado. As faixas não são a malha de asfalto, e alturas podem se
+  sobrepor na projeção X/Z. Um clique seleciona o veículo para edição.
   **Marcar posição** e os campos X/Z permitem escolher um ponto para uma nova
-  criação, aproximado a um dos caminhos carregados com referência válida.
+  criação, aproximado a um dos caminhos com referência móvel válida; a presença
+  de um candidato no desenho não o habilita para criação.
+- **Velocidade:** os detalhes distinguem **Alvo nominal** e **Seguimento nominal**
+  em km/h. **Aplicar velocidade** altera o alvo admitido pelo perfil, inclusive
+  zero; filas e obstáculos podem reduzir o avanço. Em caminhões, selecione a
+  cabine. A escala é nominal e não uma medição física calibrada em tempo real.
 - **Edição:** deslocamento na largura do caminho e, no modo normal, lotes de 1 a 8
   atrás de uma referência, com os modelos carregados e admitidos pelo perfil. Caminhões
   oferecem seleção de carga compatível; a quantidade conta conjuntos completos.
@@ -128,7 +141,8 @@ uma receita antiga. A conclusão v2 usa um token por geração para distinguir l
 
 Consulte o [guia de primeiro uso](docs/editor-quickstart.md) e o
 [estado da implementação e evidências do catálogo](docs/editor-status.md), além de
-[lotes, caminhões, pausa e preservação](docs/batches-trucks-and-pause.md).
+[lotes, caminhões, pausa e preservação](docs/batches-trucks-and-pause.md) e
+[caminhos e velocidade](docs/routes-and-speed.md).
 
 ## Caminhos locais
 

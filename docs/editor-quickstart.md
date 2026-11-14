@@ -3,7 +3,9 @@
 Esta interface externa edita o evento que está carregado no PCSX2. A interface
 permite identificar os veículos presentes, deslocar um veículo na
 largura da via, acrescentar lotes atrás de uma referência e criar um veículo
-num ponto X/Z aproximado a caminhos carregados. O modo normal usa grupos de
+num ponto X/Z aproximado a caminhos carregados. Mostra a geometria pesquisada
+das vias de tráfego e permite ajustar o alvo nominal de velocidade dos registros
+admitidos. O modo normal usa grupos de
 1 a 8; o modo experimental permite pedidos maiores sujeitos à capacidade. Caminhões
 com carga usam somente pares nativos já carregados pelo jogo.
 
@@ -31,6 +33,10 @@ teste do emulador e preserve uma referência do evento antes de editar.
 Ao selecionar um veículo bloqueado, os detalhes explicam se ele é um
 componente vinculado, um tipo ainda não habilitado ou se o jogo ainda não
 inicializou sua física. Estar listado não significa estar pronto para editar.
+
+Em janelas baixas, use a barra vertical do painel direito para alcançar os
+controles de velocidade, modelo e carga. A roda sobre o mapa continua reservada
+ao zoom; o botão direito desloca a vista.
 
 Se a identidade do jogo foi confirmada, mas o perfil de tráfego é recusado,
 o editor mantém a conexão e desabilita a edição. Com o jogo pausado, **Finalizar
@@ -86,11 +92,53 @@ e o estado da criação: **Disponível**, **Disponível com caminhão** ou
 **Criação não validada**. Assim é possível
 identificar um ônibus carregado mesmo quando ele não aparece na escolha de criação.
 
-Na aba **Vista de cima**, os pontos representam as posições X/Z da última leitura.
-Não há desenho da pista. Clique em um ponto para selecionar o veículo; use a roda
-do mouse para aproximar e **Enquadrar** para ver todos novamente. O jogador aparece
-em vermelho com uma seta de direção quando essa referência está disponível.
-Essa vista é atualizada com a lista, sem acompanhar o jogo em tempo real.
+## Visualizar os caminhos
+
+1. Pause o PCSX2 e use **Atualizar lista**. Selecione um veículo e abra
+   **Vista de cima**.
+2. Ative **Mostrar vias** para ver bordas, centro e identificadores `P0`, `P1`
+   etc. A via do veículo selecionado fica destacada; **Caminho** a enquadra.
+   **Enquadrar** ajusta a vista ao conjunto mostrado. Use a roda para aproximar
+   e arraste com o botão direito para deslocar a vista.
+3. As setas indicam a **progressão do caminho**. Uma seta tracejada não comprova
+   o sentido atual do tráfego. Caminhos candidatos sem veículo associado têm
+   rótulo `P?`, cor mais clara e uso atual não confirmado.
+4. Clique num ponto de veículo para selecioná-lo. O jogador aparece em vermelho
+   com sua direção, quando essa referência está disponível. **Marcar posição**
+   mantém o significado X/Z do mapa ao aproximar ou deslocar a vista.
+
+As faixas mostram a geometria de seguimento do tráfego pesquisada na memória;
+não são a malha de asfalto ou uma garantia de superfície dirigível. Ruas em
+alturas diferentes podem se sobrepor na vista X/Z. Um caminho candidato visível
+não libera a criação por ponto: ela continua exigindo referência móvel válida.
+Se a leitura exceder seu orçamento ou omitir dados inválidos, o aviso informa
+que a visualização é parcial. A vista corresponde à última leitura pausada,
+atualizada com a lista; não acompanha os carros continuamente.
+
+## Consultar e ajustar a velocidade
+
+1. Pause o PCSX2, atualize a lista e selecione um veículo. A coluna
+   **Nominal km/h A/S** mostra alvo e seguimento; os detalhes apresentam os
+   nomes completos. Registros sem nó reconhecido mostram indisponível.
+2. Quando o perfil admitir a alteração, preencha **Alvo nominal (km/h)** e
+   clique em **Aplicar velocidade**. Zero é aceito; um alvo positivo pode ser
+   reaplicado posteriormente. No modo normal, o máximo nominal é 386,24256 km/h,
+   correspondente ao teto de controle pesquisado; isso não significa que o carro
+   consiga atingir esse valor.
+3. Para caminhão com carga, selecione a cabine. O editor não grava velocidade
+   numa carga avulsa. Aguarde a confirmação e use **Retomar** para observar.
+
+O alvo é o pedido ao controlador de tráfego, e o seguimento é um valor
+recalculado pelo jogo. Uma fila, um obstáculo ou um veículo sobreposto pode
+reduzir o avanço, apesar de o alvo permanecer alto. A escala km/h é **nominal**,
+derivada dos campos pesquisados; não é uma medição física calibrada da carroceria.
+O editor altera o alvo e deixa o jogo recalcular o seguimento. A leitura é feita
+com o emulador pausado, não por um velocímetro contínuo.
+
+Receitas JSON também registram alterações do alvo de velocidade para o mesmo
+estado inicial. A exigência de ativar o modo experimental ao carregar ações
+experimentais permanece. Consulte [caminhos e velocidade](routes-and-speed.md)
+para a evidência e os limites dessa interpretação.
 
 ## Mover um veículo
 
@@ -200,8 +248,9 @@ largura admitida da via, e pontos muito distantes são recusados. O modo
 experimental admite lateral fora dessa largura, com risco maior de física
 inválida; ele ainda precisa de um caminho reconhecido.
 
-Não há seleção de altura Y ou busca de terreno. O mapa não desenha a pista e
-não carrega locais ausentes, por isso o resultado pode diferir do clique.
+Não há seleção de altura Y ou busca de terreno. O mapa desenha caminhos de
+tráfego pesquisados, sem malha de asfalto e sem carregar locais ausentes,
+por isso o resultado pode diferir do clique.
 Essa criação não teleporta um veículo existente. Quando um objeto fora da via
 ainda tiver física e layout admitidos, o modo experimental pode liberar
 **Aplicar posição** para tentar retorná-lo à largura de 0% a 100%. Ele continua

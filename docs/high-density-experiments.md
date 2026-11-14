@@ -27,6 +27,19 @@ perda de física. Esta etapa não alterou o emulador ou seus asserts.
 
 ## Existem vários recursos finitos
 
+Em testes posteriores, o usuário delimitou a falha instantânea a aproximadamente
+**61–65 veículos já envolvidos na batida**. Fora desse estado, relatou conseguir
+manter mais veículos na tela. Também observou redução ou desaparecimento de
+geometria do cenário e de veículos a curta distância quando concentra mais de
+cinquenta carros num lugar. São observações distintas de física de batida e
+renderização, ainda sem captura instrumentada que identifique qual recurso
+esgotou. Não se assume que cabine, carga, jogador e outros corpos consumam uma
+única posição por veículo contado visualmente.
+
+Esse intervalo torna a estrutura de 64 registros abaixo uma hipótese mais forte
+para a conversão à física de batida, mas não substitui a identificação do
+alocador e a contagem de ocupação durante a falha.
+
 O pool de tráfego é somente uma parte do problema. A pesquisa do executável
 mostra estruturas distintas, compartilhadas com outros objetos do cenário:
 
@@ -62,6 +75,14 @@ o contexto de registradores convidado necessário para atribuir esse valor ao PC
 do jogo. A coincidência é uma pista de investigação, não um diagnóstico fechado.
 
 ## O que o modo experimental pode liberar
+
+O usuário também relatou que espaçamentos menores que oito unidades para carros
+e trinta para ônibus/caminhões funcionam nos seus ensaios: os veículos se
+sobrepõem inicialmente e formam uma fila até conseguirem sair. Os valores 8/30
+são escolhas conservadoras do modo normal do editor, não mínimos comprovados
+do motor. O modo experimental já admite distâncias positivas menores. O
+congestionamento precisa ser levado em conta ao interpretar a velocidade:
+velocidade desejada e avanço atual podem diferir, inclusive com avanço zero.
 
 O editor pode afrouxar limites próprios de quantidade por pedido, distância e
 proximidade para experimentar cenas mais densas. Isso não amplia automaticamente

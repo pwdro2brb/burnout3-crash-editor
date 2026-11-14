@@ -16,7 +16,7 @@ import struct
 import time
 
 from .pine import PineClient, Status, Patch, PineError, PineNotPaused, PineTransportError, PineRemoteError
-from . import profile, spawncode
+from . import profile, spawncode, routes, speed
 
 
 class EditorError(ValueError):
@@ -239,6 +239,14 @@ class EditorController:
         if self.client.status() is not Status.PAUSED:
             return {'status': 'Use Pausar PCSX2 para atualizar a lista.', 'core_paused': False}
         snap = self._snapshot()
+        public = snap.public()
+        for row in public['vehicles']:
+            info = speed.summarize(snap.vehicles[row['id']])
+            row.update(speed_info=info,can_set_speed=info['can_set_speed'])
+        public['routes'] = routes.build_network(snap)
+        if self.client.status() is not Status.PAUSED:
+            return {'status':'O PCSX2 foi retomado durante a leitura. Pause e atualize novamente.',
+                    'core_paused':False,'pending':False}
         history = {(i,v['model_hash'],v['node'],v['type']):v['initialized'] for i,v in snap.vehicles.items()}
         lost = sum(not ready and self.physics_history.get(key,False) for key,ready in history.items())
         self.physics_history = history
@@ -246,7 +254,7 @@ class EditorController:
         capacity.update(initialized_objects=sum(v['initialized'] for v in snap.vehicles.values()),
             queued_operations=len(self.replay_queue),
             physics_warning=(f'{lost} veículo(s) deixaram de ter física inicializada nesta referência.' if lost else ''))
-        return {**snap.public(), 'pending': False,'capacity':capacity}
+        return {**public,'pending':False,'capacity':capacity}
 
     @staticmethod
     def _selected(snap, vehicle_id, *, experimental=False):
@@ -274,8 +282,10 @@ class EditorController:
             raise EditorError('Esse veículo não pertence à referência da receita. Conecte novamente para iniciar outra sessão.')
         return {'kind': 'initial', 'id': row['id'], 'model_id': row['model_id'], 'path': row['path']}
 
-    def _resolve(self, reference, snap, *, for_creation=False, experimental=False):
-        if for_creation:
+    def _resolve(self, reference, snap, *, for_creation=False, experimental=False, for_speed=False):
+        if for_speed:
+            select = self._speed_selected
+        elif for_creation:
             from .batch import reference as select
         else:
             select = lambda state, index: self._selected(state,index,experimental=experimental)
@@ -290,6 +300,36 @@ class EditorController:
             raise EditorError('Referência de veículo inválida no preset.')
         select(snap, vehicle_id)
         return vehicle_id
+
+    @staticmethod
+    def _speed_selected(snap,vehicle_id):
+        row = snap.vehicles.get(vehicle_id) if type(vehicle_id) is int else None
+        if row is None or not speed.can_set_speed(row):
+            raise EditorError('Selecione um veículo ou cabine com controle de velocidade pronto.')
+        return row
+
+    def set_speed(self,vehicle_id,value,*,experimental=False):
+        snap = self._ready()
+        patches = speed.patches(snap,vehicle_id,value,experimental=experimental)
+        row = self._speed_selected(snap,vehicle_id)
+        control = speed.validate_control(value,experimental=experimental)
+        self._start_recipe(snap)
+        target = self._reference(row)
+        self.recovery_digest = _state_digest(snap)
+        try:
+            self.client.apply_patch(patches)
+        except PineError as error:
+            self.unsafe = True
+            self._journal('speed_unconfirmed',vehicle_id=vehicle_id)
+            raise EditorError('A velocidade não pôde ser confirmada. Recarregue uma referência limpa antes de repetir.') from error
+        operation = dict(op='set_speed',target=target,control_value=control)
+        if experimental:
+            operation['experimental'] = True
+        self.recipe.append(operation)
+        self._journal('set_speed',vehicle_id=vehicle_id,operation=operation,
+            previous_control=row['speed'],previous_advance=row['travel_speed'])
+        return {'pending':False,'core_paused':True,
+            'message':'Velocidade desejada atualizada. Ao retomar, o jogo recalcula o avanço conforme o trânsito.'}
 
     def move(self, vehicle_id: int, lateral_percent: float, *, experimental=False):
         if type(experimental) is not bool:
@@ -594,7 +634,7 @@ class EditorController:
         created = set()
         created_models = {}
         for op in operations:
-            if not isinstance(op, dict) or op.get('op') not in ('move_lateral','add_behind','add_at'):
+            if not isinstance(op, dict) or op.get('op') not in ('move_lateral','add_behind','add_at','set_speed'):
                 raise EditorError('Operação não suportada no preset.')
             experimental = op.get('experimental',False)
             if type(experimental) is not bool:
@@ -607,8 +647,14 @@ class EditorController:
                 if type(ref.get('key')) is not int or ref.get('key') not in created:
                     raise EditorError('Referência fora de ordem no preset.')
             else:
-                self._resolve(ref, snap, for_creation=op['op'] in ('add_behind','add_at'),experimental=experimental)
-            if op['op'] == 'move_lateral':
+                self._resolve(ref,snap,for_creation=op['op'] in ('add_behind','add_at'),
+                    experimental=experimental,for_speed=op['op']=='set_speed')
+            if op['op'] == 'set_speed':
+                try:
+                    speed.validate_control(op.get('control_value'),experimental=experimental)
+                except profile.ProfileError as error:
+                    raise EditorError(f'Velocidade inválida no preset: {error}') from error
+            elif op['op'] == 'move_lateral':
                 value = op.get('lateral_percent')
                 if (type(value) not in (int,float) or not math.isfinite(value)
                         or (not experimental and not 0 <= value <= 100)):
@@ -666,8 +712,11 @@ class EditorController:
             snap = self._snapshot()
             experimental = op.get('experimental',False)
             vehicle_id = self._resolve(op['target'],snap,
-                for_creation=op['op'] in ('add_behind','add_at'),experimental=experimental)
-            if op['op'] == 'move_lateral':
+                for_creation=op['op'] in ('add_behind','add_at'),experimental=experimental,
+                for_speed=op['op']=='set_speed')
+            if op['op'] == 'set_speed':
+                self.set_speed(vehicle_id,op['control_value'],**({'experimental':True} if experimental else {}))
+            elif op['op'] == 'move_lateral':
                 self.move(vehicle_id,op['lateral_percent'],**({'experimental':True} if experimental else {}))
             elif op['op'] == 'add_at':
                 from .batch import stage
