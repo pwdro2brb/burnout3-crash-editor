@@ -9,7 +9,7 @@ import time
 
 from . import profile, spawncode
 from .controller import EditorError, _state_digest, _word
-from .pine import Patch, Status
+from .pine import Patch, Status, PineError
 
 
 @dataclass
@@ -32,9 +32,12 @@ class BatchPending:
     probe_offsets: tuple[int, ...]
     clean_scratch: bytes
     completion_address: int
+    completion_token: int
     allowed_hooks: tuple[bytes, ...]
     staged_at: float
     batch: bool = True
+    experimental: bool = False
+    at_point: tuple[float,float] | None = None
 
 
 def reference(snapshot, vehicle_id):
@@ -55,25 +58,50 @@ def model_pair(snapshot, model_id, secondary_model_id):
                 or secondary_model_id not in model.get('trailer_model_ids', [])
                 or model_id not in secondary.get('truck_model_ids', [])):
             raise EditorError('Escolha uma carga cuja combinação com esta cabine foi observada no jogo.')
-    elif model.get('type') not in (1, 2) or secondary_model_id is not None:
+    elif model.get('type') not in profile.SUPPORTED_SINGLE_TYPES or secondary_model_id is not None:
         raise EditorError('Uma carga deve ser criada junto de uma cabine compatível.')
     return model, secondary
 
 
-def stage(editor, vehicle_id, model_id, gap, count, secondary_model_id=None, *, created_keys=None):
+def stage(editor, vehicle_id, model_id, gap, count, secondary_model_id=None, *, created_keys=None,
+          experimental=False, reserve_count=None, at_point=None, point_reference=False):
+    if type(experimental) is not bool:
+        raise EditorError('Modo experimental inválido.')
     if type(count) is not int or not 1 <= count <= 8:
         raise EditorError('Escolha uma quantidade de 1 a 8 veículos.')
-    if type(gap) not in (int, float) or not math.isfinite(gap) or not 8 <= gap <= 50:
-        raise EditorError('Use uma distância entre 8 e 50 unidades do jogo.')
+    if (type(gap) not in (int,float) or not math.isfinite(gap)
+            or (gap <= 0 if experimental else not 8 <= gap <= 50)):
+        raise EditorError('Use uma distância positiva finita.' if experimental else
+                          'Use uma distância entre 8 e 50 unidades do jogo.')
     snap = editor._ready()
     target = reference(snap, vehicle_id)
     model_id = model_id or target['model_id']
     model, secondary = model_pair(snap, model_id, secondary_model_id)
-    if (secondary or target.get('native_pair_valid')) and gap < 30:
-        raise EditorError('Use distância de 30 a 50 unidades para conjuntos de cabine e carga.')
-    needed = count*(2 if secondary else 1)
+    projection = None
+    if at_point is not None:
+        if count != 1:
+            raise EditorError('Adicione um veículo ou conjunto por ponto escolhido.')
+        from .placement import project_target
+        projection = project_target(snap,vehicle_id if point_reference else None,*at_point,experimental=experimental)
+        if not experimental and projection['error_distance'] > 25:
+            raise EditorError('O ponto está longe dos caminhos carregados. Escolha um ponto mais próximo ou use o modo experimental.')
+        target = reference(snap,projection['reference_id'])
+        profile._lane_fraction_word(projection['lateral'])
+        if not experimental:
+            point_geometry = profile.lane(snap.memory,target['path'],projection['progression'],.5)
+            across = point_geometry['lane']
+            maximum_shift = max(abs(projection['lateral']),abs(1-projection['lateral']))*math.hypot(across[0],across[2])
+            if maximum_shift > 10:
+                raise EditorError('O ponto exige deslocamento lateral amplo. Ative o modo experimental para tentar essa posição.')
+    if (not experimental and projection is None and
+            (secondary or target.get('native_pair_valid') or model['type'] == 5 or target['type'] == 5) and gap < 30):
+        raise EditorError('Use distância de 30 a 50 unidades para ônibus ou conjuntos de cabine e carga.')
+    reserved = count if reserve_count is None else reserve_count
+    if type(reserved) is not int or not count <= reserved <= 253:
+        raise EditorError('A quantidade ultrapassa a capacidade conhecida do tráfego.')
+    needed = reserved*(2 if secondary else 1)
     counts = snap.inspection['counts']
-    if (counts['free_objects'] < needed+1 or counts['free_nodes'] < count
+    if (counts['free_objects'] < needed+1 or counts['free_nodes'] < reserved
             or counts['active_objects']+needed+1 > counts['capacity_budget_byte_0x363ab']):
         raise EditorError('O lote excede o espaço disponível nos pools de tráfego.')
     collision_count = snap.memory.u32(0x55EF70+0x1CB70)
@@ -86,23 +114,33 @@ def stage(editor, vehicle_id, model_id, gap, count, secondary_model_id=None, *, 
     if editor.client.read_bytes(spawncode.HOOK,8) != spawncode.ORIGINAL:
         raise EditorError('O código do evento mudou. Recarregue uma referência limpa.')
     if editor.client.read_bytes(spawncode.CAVE,4096) not in (bytes(4096), spawncode.clean_batch_scratch()):
-        raise EditorError('Existe uma solicitação temporária na memória. Finalize-a antes de criar outro lote.')
+        raise EditorError('Existe uma solicitação temporária na memória. Clique em Finalizar pendência antes de criar outro lote.')
     # Plan every position before the first write. No partial chain is installed
     # when the rear of the batch would cross the beginning of the path.
     progress = target['progress']
+    lateral = projection['lateral'] if projection else target['lateral']
     positions, requests = [], []
     origin = profile.lane(snap.memory,target['path'],progress,target['lateral'])['point']
     residual = [target['position'][k]-origin[k] for k in range(3)]
     for _ in range(count):
-        progress = profile.behind_progress(snap.memory, target['path'], progress,
-            target['lateral'], float(gap), node=target['node'])
-        point = profile.lane(snap.memory,target['path'],progress,target['lateral'])['point']
-        point = [point[k]+residual[k] for k in range(3)]
-        for peer in snap.vehicles.values():
-            if peer['id'] != vehicle_id and peer.get('initialized') and peer.get('path') == target['path']:
-                if math.dist(point,peer['position']) < 6:
-                    raise EditorError('O lote passaria por um veículo existente. Aumente a distância ou mude a referência.')
-        if any(math.dist(point,previous) < 6 for previous in positions):
+        if projection is None:
+            options = {'node':target['node']}
+            if experimental:
+                options['experimental'] = True
+            progress = profile.behind_progress(snap.memory,target['path'],progress,
+                target['lateral'],float(gap),**options)
+            point = profile.lane(snap.memory,target['path'],progress,target['lateral'])['point']
+            point = [point[k]+residual[k] for k in range(3)]
+        else:
+            progress,point = projection['progression'],projection['point']
+        if not experimental:
+            for peer in snap.vehicles.values():
+                if peer['id'] != target['id'] and peer.get('initialized') and peer.get('path') == target['path']:
+                    if math.dist(point,peer['position']) < 6:
+                        raise EditorError('O lote passaria por um veículo existente. Aumente a distância ou mude a referência.')
+            if projection is not None and math.dist(point,target['position']) < 6:
+                raise EditorError('O ponto está muito próximo da referência. Escolha outro ponto ou use o modo experimental.')
+        if not experimental and any(math.dist(point,previous) < 6 for previous in positions):
             raise EditorError('As posições do lote ficaram muito próximas neste caminho.')
         positions.append(point)
         requests.append(dict(manager=spawncode.MANAGER,type_code=model['type'],
@@ -113,19 +151,31 @@ def stage(editor, vehicle_id, model_id, gap, count, secondary_model_id=None, *, 
     keys = list(range(editor.next_key,editor.next_key+count)) if created_keys is None else list(created_keys)
     if len(keys) != count or len(set(keys)) != count or any(type(k) is not int or not 1 <= k <= 10000 for k in keys):
         raise EditorError('Identificadores do lote inválidos.')
-    nonce = secrets.token_bytes(16)
+    if not getattr(editor,'completion_history_loaded',False):
+        from .recovery import known_completion_tokens
+        editor.completion_tokens.update(known_completion_tokens(editor.journal_dir))
+        editor.completion_history_loaded = True
+    for _ in range(32):
+        nonce = secrets.token_bytes(16)
+        if spawncode.completion_token(nonce) not in editor.completion_tokens:
+            break
+    else:
+        raise EditorError('Não foi possível reservar uma identificação nova para o lote. Nenhuma escrita foi aplicada.')
     payload = spawncode.build_batch(requests,nonce=nonce)
+    editor.completion_tokens.add(payload['completion_token'])
     editor._start_recipe(snap)
     editor.recovery_digest = _state_digest(snap)
     editor.pending = BatchPending(payload['scratch_bytes'],payload['hook_bytes'],nonce.hex(),
         model_id,model['model_hash'],model['type'],secondary_model_id,
-        secondary['model_hash'] if secondary else 0,target['path'],target['lateral'],
+        secondary['model_hash'] if secondary else 0,target['path'],lateral,
         set(snap.vehicles),editor._reference(target),float(gap),keys,
         [p['address'] for p in payload['probes']],
         (spawncode.DATA-spawncode.CAVE,)+tuple(p['offset']+o for p in payload['probes'] for o in (0,4,8)),
-        payload['clean_scratch'],payload['completion_address'],
+        payload['clean_scratch'],payload['completion_address'],payload['completion_token'],
         (payload['hook_bytes'],payload['hook_bytes'][:4]+spawncode.ORIGINAL[4:],spawncode.ORIGINAL),
         time.monotonic())
+    editor.pending.experimental = experimental
+    editor.pending.at_point = tuple(at_point) if at_point is not None else None
     editor.next_key = max(editor.next_key,max(keys)+1)
     try:
         editor.client.write_bytes(spawncode.CAVE,payload['scratch_bytes'])
@@ -140,9 +190,16 @@ def stage(editor, vehicle_id, model_id, gap, count, secondary_model_id=None, *, 
         raise EditorError('A preparação do lote não pôde ser confirmada. Recarregue a referência limpa.')
     editor._journal('batch_staged',nonce=nonce.hex(),model_id=model_id,
         secondary_model_id=secondary_model_id,count=count,gap=float(gap),path=target['path'],
+        completion_token=payload['completion_token'],format_version=payload['format_version'],
+        experimental=experimental,requested_count=reserved,at_point=at_point,
+        capacity=dict(counts,colliders=collision_count,endpoints=endpoint_count),
         progressions=[r['progression'] for r in requests])
-    return {'pending':True,'core_paused':True,
-        'message':f'Lote de {count} preparado. Retome o PCSX2 uma vez e pause novamente para finalizar todos.'}
+    message = f'Lote de {count} preparado. Retome o PCSX2 uma vez e pause novamente para finalizar todos.'
+    if projection:
+        message += f" Ponto aproximado no caminho {target['path']}; diferença X/Z: {projection['error_distance']:.2f}."
+    if experimental:
+        message += ' Modo experimental: alto risco de travamento e perda de física.'
+    return {'pending':True,'core_paused':True,'message':message}
 
 
 def collider_valid(memory, row):
@@ -172,7 +229,7 @@ def poll(editor):
     values = editor.client.read_many([(p+o,4) for p in pending.probes for o in (0,4,8)])
     probes = [values[i:i+3] for i in range(0,len(values),3)]
     complete = sum(p[0] == 2 for p in probes)
-    retired = editor.client.read_many([(pending.completion_address,4)])[0] == 2
+    retired = editor.client.read_many([(pending.completion_address,4)])[0] == pending.completion_token
     if status is not Status.PAUSED:
         return {'pending':True,'core_paused':False,
             'message':f'{complete}/{len(probes)} solicitações executadas. '
@@ -232,7 +289,8 @@ def poll(editor):
                       'Código temporário removido; alinhamento e receita não confirmados.'}
     patches = []
     for row in selected:
-        patches.extend(profile.lateral_patches(snap,row['id'],pending.lateral*100))
+        options = {'experimental':True} if pending.experimental else {}
+        patches.extend(profile.lateral_patches(snap,row['id'],pending.lateral*100,**options))
     editor._check_pending(pending)
     try:
         editor.client.apply_patch(patches)
@@ -248,6 +306,11 @@ def poll(editor):
         editor.replay_ids[key] = row['id']
         operation = {'op':'add_behind','target':target_ref,'model_id':pending.model_id,
             'gap':pending.gap,'created_key':key}
+        if pending.at_point is not None:
+            operation.pop('gap')
+            operation.update(op='add_at',x=pending.at_point[0],z=pending.at_point[1])
+        if pending.experimental:
+            operation['experimental'] = True
         if pending.secondary_model_id is not None:
             operation['secondary_model_id'] = pending.secondary_model_id
         editor.recipe.append(operation)
@@ -256,7 +319,12 @@ def poll(editor):
         new_vehicle_ids=[row['id'] for row in selected],count=len(selected),
         model_id=pending.model_id,secondary_model_id=pending.secondary_model_id)
     if editor.replay_queue:
-        result = editor._continue_recipe()
+        try:
+            result = editor._continue_recipe()
+        except (EditorError,profile.ProfileError,PineError) as error:
+            editor.replay_queue.clear()
+            result = {'pending':editor.pending is not None,'warning':True,
+                'message':f'O lote anterior foi finalizado, mas a fila foi interrompida: {error}'}
         result.setdefault('new_vehicle_id',selected[-1]['id'])
         result.setdefault('new_vehicle_ids',[row['id'] for row in selected])
         return result

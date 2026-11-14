@@ -28,6 +28,7 @@ EPILOGUE_ORIGINAL = bytes.fromhex('0800b6c79000be7b')
 EDITOR_JUMP = struct.pack('<II', 0x08000000 | (0xB3000 >> 2), 0)
 PLAYER_TRANSFORM_POINTER = 0x64D388
 TRAILER_CATEGORIES = {'freight_container', 'flatbed', 'lumber_trailer', 'tanker', 'covered_trailer'}
+SUPPORTED_SINGLE_TYPES = frozenset((1, 2, 3, 5))
 
 
 class ProfileError(ValueError):
@@ -112,7 +113,7 @@ class Snapshot:
                 reason = 'O conjunto ainda não tem física ou formato validado para reposicionamento.'
             elif not row['independent']:
                 reason = 'Este componente vinculado não pode ser editado isoladamente.'
-            elif row['type'] not in (1, 2):
+            elif row['type'] not in SUPPORTED_SINGLE_TYPES:
                 reason = 'Este tipo de veículo ainda não está habilitado para edição.'
             elif not row['initialized']:
                 reason = 'O jogo ainda não inicializou os pontos físicos deste veículo.'
@@ -125,6 +126,7 @@ class Snapshot:
                 'progress': row['progress'],
                 'lateral_percent': None if row['lateral'] is None else 100 * row['lateral'],
                 'editable': row['editable'], 'independent': row['independent'],
+                'experimental_editable': can_move_experimental(self.vehicles,row),
                 'edit_reason': reason,
                 'initialized': row['initialized'],
                 'kind': row['kind'], 'parent_id': row['parent_id'], 'child_id': row['child_id'],
@@ -209,7 +211,7 @@ def _compound_metadata(vehicles, models):
             model['type'] = next(iter(observed))
         if model['kind'] == 'independent':
             model['eligible'] = (model['verified'] and len(observed) == 1
-                and observed <= {1, 2} and model['independent_observed_types'] == observed)
+                and observed <= SUPPORTED_SINGLE_TYPES and model['independent_observed_types'] == observed)
         else:
             model['native_pair_valid'] = bool(members[name]) and all(row['native_pair_valid'] for row in members[name])
             model['eligible'] = model['kind'] == 'truck' and observed == {4} and model['native_pair_valid']
@@ -312,6 +314,11 @@ def snapshot(client, require_paused: bool = True, *, allow_editor_hook: bool = F
         node_index = index_for_pointer(node, NODES, NODE_STRIDE) if node else None
         anchor0, anchor1, position = (memory.xyz(address+o) for o in (0, 0x30, 0xA0))
         initialized = _finite(anchor0 + anchor1 + position) and math.dist(anchor0, anchor1) > 1e-6
+        if type_ in (3, 5):
+            # Newly admitted native single-body classes require both physical
+            # points and render center, not a partial zero/real-anchor layout.
+            initialized = initialized and all(any(v != 0 for v in point)
+                for point in (anchor0, anchor1, position))
         progress = lateral = path = None
         speed = travel_speed = spacing_scalar = 0.0
         if node_index is not None:
@@ -321,9 +328,9 @@ def snapshot(client, require_paused: bool = True, *, allow_editor_hook: bool = F
             travel_speed = memory.read(node+0x2C, '<f')[0]
             spacing_scalar = memory.read(node+0x24, '<f')[0]
         path_valid = node_index is not None and path != 0xFF and _finite([progress, lateral, speed, travel_speed, spacing_scalar]) and 0 <= lateral <= 1 and progress >= 0
-        # Only constructor types observed and exercised for this release are
-        # admitted. Independent buses/other bodies need separate validation.
-        editable = type_ in (1, 2) and independent and initialized and path_valid
+        # These native independent types share the two-anchor/body layout.
+        # Special 6..10 types have separate flags, links and collider behavior.
+        editable = type_ in SUPPORTED_SINGLE_TYPES and independent and initialized and path_valid
         vehicles[index] = {'id': index, 'address': address, 'node': node,
                            'node_index': node_index, 'path': path, 'progress': progress,
                            'lateral': lateral, 'type': type_, 'model_id': model['id'],
@@ -402,14 +409,18 @@ def _arc(memory, path, lo, hi, lateral, samples=64):
     return distance
 
 
-def behind_progress(memory, path: int, progress: float, lateral: float, gap: float, *, node: int | None = None) -> float:
+def behind_progress(memory, path: int, progress: float, lateral: float, gap: float, *, node: int | None = None, experimental: bool = False) -> float:
     """Find a lower path parameter roughly `gap` game units behind.
 
     Pass the selected node to also verify observed positive travel and agreement
     between its saved path-forward axis and the increasing spline parameter.
     """
-    if not math.isfinite(gap) or not 2 <= gap <= 50:
-        raise ProfileError('A distância precisa estar entre 2 e 50 unidades do jogo.')
+    if type(experimental) is not bool:
+        raise ProfileError('Modo experimental inválido.')
+    if (type(gap) not in (int,float) or not math.isfinite(gap)
+            or (gap <= 0 if experimental else not 2 <= gap <= 50)):
+        raise ProfileError('Use uma distância positiva finita.' if experimental else
+                           'A distância precisa estar entre 2 e 50 unidades do jogo.')
     origin = lane(memory, path, progress, lateral)
     if node is not None:
         ni = index_for_pointer(node, NODES, NODE_STRIDE)
@@ -424,6 +435,8 @@ def behind_progress(memory, path: int, progress: float, lateral: float, gap: flo
         if norms <= 1e-9 or sum(a*b for a,b in zip(forward, derivative))/norms < 0.5:
             raise ProfileError('Não foi possível confirmar a direção do caminho deste veículo.')
     lo, hi = max(0.0, progress-64.0), progress
+    while experimental and lo > 0 and _arc(memory,path,lo,hi,lateral) < gap:
+        lo = max(0.0,progress-2*(progress-lo))
     if _arc(memory, path, lo, hi, lateral) < gap:
         raise ProfileError('Não há comprimento de caminho suficiente atrás do veículo.')
     for _ in range(36):
@@ -435,21 +448,47 @@ def behind_progress(memory, path: int, progress: float, lateral: float, gap: flo
     return (lo+hi)/2
 
 
-def lateral_patches(state: Snapshot, vehicle_id: int, lateral_percent: float) -> list[Patch]:
+def can_move_experimental(vehicles, row) -> bool:
+    """Allow a known physical layout to return from an extrapolated lane."""
+    if (row.get('node_index') is None or type(row.get('path')) is not int or row['path'] == 0xFF
+            or not _finite([row.get('progress',float('nan')),row.get('lateral',float('nan'))])
+            or row['progress'] < 0 or not row.get('initialized')):
+        return False
+    if row['type'] in SUPPORTED_SINGLE_TYPES and row['independent']:
+        return True
+    if row.get('kind') == 'truck':
+        child = vehicles.get(row.get('child_id'))
+        return bool(child and _compound_layout_ready(dict(row,path_valid=True),child))
+    return False
+
+
+def _lane_fraction_word(target):
+    try:
+        packed = struct.pack('<f',target)
+        if not math.isfinite(struct.unpack('<f',packed)[0]):
+            raise ValueError('nonfinite')
+    except (OverflowError,ValueError,struct.error) as error:
+        raise ProfileError('A fração lateral está fora do intervalo float32 finito.') from error
+    return struct.unpack('<I',packed)[0]
+
+
+def lateral_patches(state: Snapshot, vehicle_id: int, lateral_percent: float, *, experimental: bool = False) -> list[Patch]:
     """Prepare six X/Z changes plus the node fraction; never write memory."""
     if type(vehicle_id) is not int or vehicle_id not in state.vehicles:
         raise ProfileError('Selecione um veículo válido da lista atual.')
-    if type(lateral_percent) not in (int, float) or not math.isfinite(lateral_percent) or not 0 <= lateral_percent <= 100:
+    if (type(experimental) is not bool or type(lateral_percent) not in (int, float)
+            or not math.isfinite(lateral_percent) or (not experimental and not 0 <= lateral_percent <= 100)):
         raise ProfileError('A posição lateral precisa estar entre 0% e 100%.')
     row = state.vehicles[vehicle_id]
     if row['kind'] == 'truck':
-        return compound_lateral_patches(state, vehicle_id, lateral_percent)
-    if not row['editable']:
+        return compound_lateral_patches(state, vehicle_id, lateral_percent,experimental=experimental)
+    if not row['editable'] and not (experimental and can_move_experimental(state.vehicles,row)):
         raise ProfileError('Este veículo ainda não tem física independente pronta para edição.')
     target = lateral_percent/100.0
-    geometry = lane(state.memory, row['path'], row['progress'], row['lateral'])
+    target_word = _lane_fraction_word(target)
+    geometry = lane(state.memory, row['path'], row['progress'], .5 if experimental else row['lateral'])
     delta = [(target-row['lateral'])*value for value in geometry['lane']]
-    if math.hypot(delta[0], delta[2]) > 10:
+    if not experimental and math.hypot(delta[0], delta[2]) > 10:
         raise ProfileError('O deslocamento solicitado excede o limite deste protótipo.')
     patches = []
     for offset in (0, 0x30, 0xA0):
@@ -465,11 +504,11 @@ def lateral_patches(state: Snapshot, vehicle_id: int, lateral_percent: float) ->
                 raise ProfileError('Coordenada não finita.')
             patches.append(Patch(address, 4, state.memory.u32(address), struct.unpack('<I', packed)[0]))
     address = row['node']+0x34
-    patches.append(Patch(address, 4, state.memory.u32(address), struct.unpack('<I', struct.pack('<f', target))[0]))
+    patches.append(Patch(address, 4, state.memory.u32(address), target_word))
     return patches
 
 
-def compound_lateral_patches(state: Snapshot, primary_id: int, lateral_percent: float) -> list[Patch]:
+def compound_lateral_patches(state: Snapshot, primary_id: int, lateral_percent: float, *, experimental: bool = False) -> list[Patch]:
     """Prepare eleven guarded floats for a native tractor/type-11 pair.
 
     Static reconstruction identifies the trailer rear/center and derived hitch.
@@ -478,16 +517,19 @@ def compound_lateral_patches(state: Snapshot, primary_id: int, lateral_percent: 
     """
     if type(primary_id) is not int or primary_id not in state.vehicles:
         raise ProfileError('Selecione uma cabine ativa do conjunto.')
-    if type(lateral_percent) not in (int, float) or not math.isfinite(lateral_percent) or not 0 <= lateral_percent <= 100:
+    if (type(experimental) is not bool or type(lateral_percent) not in (int, float)
+            or not math.isfinite(lateral_percent) or (not experimental and not 0 <= lateral_percent <= 100)):
         raise ProfileError('A posição lateral precisa estar entre 0% e 100%.')
     primary = state.vehicles[primary_id]
     child = state.vehicles.get(primary['child_id'])
-    if not child or not _compound_layout_ready(primary, child):
+    checked_primary = dict(primary,path_valid=True) if experimental and can_move_experimental(state.vehicles,primary) else primary
+    if not child or not _compound_layout_ready(checked_primary, child):
         raise ProfileError('A cabine e a carga não têm o vínculo e os pontos físicos admitidos para mover o conjunto.')
     target = lateral_percent/100.0
-    geometry = lane(state.memory, primary['path'], primary['progress'], primary['lateral'])
+    target_word = _lane_fraction_word(target)
+    geometry = lane(state.memory, primary['path'], primary['progress'], .5 if experimental else primary['lateral'])
     delta = [(target-primary['lateral'])*value for value in geometry['lane']]
-    if math.hypot(delta[0], delta[2]) > 10:
+    if not experimental and math.hypot(delta[0], delta[2]) > 10:
         raise ProfileError('O deslocamento solicitado excede o limite deste protótipo.')
     patches = []
     for row, offsets in ((primary, (0, 0x30, 0xA0)), (child, (0x30, 0xA0))):
@@ -503,5 +545,5 @@ def compound_lateral_patches(state: Snapshot, primary_id: int, lateral_percent: 
                     raise ProfileError('Coordenada não finita.')
                 patches.append(Patch(address, 4, state.memory.u32(address), struct.unpack('<I', packed)[0]))
     address = primary['node']+0x34
-    patches.append(Patch(address, 4, state.memory.u32(address), struct.unpack('<I', struct.pack('<f', target))[0]))
+    patches.append(Patch(address, 4, state.memory.u32(address), target_word))
     return patches

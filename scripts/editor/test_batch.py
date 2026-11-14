@@ -93,6 +93,51 @@ def initial_snapshot():
 
 
 class BatchControllerTests(unittest.TestCase):
+    def test_observed_van_and_bus_types_reach_the_native_builder(self):
+        for type_code,gap in ((3,10),(5,30)):
+            with self.subTest(type_code=type_code):
+                editor,client,snap = self.fixture()
+                snap.models[CAR]['type'] = type_code
+                result,_planned = self.stage(editor,client,snap,count=1,
+                    action=lambda: editor.add_many_behind(9,CAR,gap,1))
+                self.assertTrue(result['pending'])
+                pending = editor.pending
+                matched = s.match_batch_scratch(pending.scratch,bytes.fromhex(pending.nonce))
+                self.assertEqual(matched['requests'][0]['type_code'],type_code)
+                self.assertEqual(matched['requests'][0]['secondary_model_hash'],0)
+
+    def test_bus_model_or_reference_requires_spacing_before_any_write(self):
+        for selected_bus in (False,True):
+            with self.subTest(selected_bus=selected_bus):
+                editor,client,snap = self.fixture()
+                if selected_bus: snap.vehicles[9]['type'] = 5
+                else: snap.models[CAR]['type'] = 5
+                with self.assertRaisesRegex(c.EditorError,'30 a 50'):
+                    self.stage(editor,client,snap,count=1)
+                self.assertEqual(client.writes,[])
+
+    def test_a_previous_generation_publication_cannot_retire_the_current_batch(self):
+        editor,client,snap = self.staged(count=1)
+        final,_ids = self.publish(editor,client,snap)
+        for old_token in (2,s.completion_token(bytes([44])*16)):
+            client.store(editor.pending.completion_address,struct.pack('<I',old_token))
+            context,snapshot,_collider,aligned,_journal = self.poll_context(editor,client,final)
+            with context:
+                result = editor.poll()
+            self.assertTrue(result['pending'])
+            self.assertEqual(client.writes,[])
+            snapshot.assert_not_called()
+            aligned.assert_not_called()
+
+    def test_staging_never_reuses_a_known_generation_token(self):
+        editor,client,snap = self.fixture()
+        old_nonce,new_nonce = bytes([31])*16,bytes([32])*16
+        editor.completion_tokens.add(s.completion_token(old_nonce))
+        with patch.object(batch.secrets,'token_bytes',side_effect=[old_nonce,new_nonce]) as nonce:
+            self.stage(editor,client,snap,count=1)
+        self.assertEqual(nonce.call_count,2)
+        self.assertEqual(editor.pending.nonce,new_nonce.hex())
+
     def test_collision_capacity_is_checked_before_installing_any_request(self):
         for field,value in [('collision_count',1224),('endpoint_count',2448)]:
             with self.subTest(field=field):
@@ -145,7 +190,7 @@ class BatchControllerTests(unittest.TestCase):
 
         def lane(_memory, _path, progress, _lateral):
             self.assertEqual(client.writes, [], 'Geometry planning must precede installation')
-            return {'point': [progress, 10.0, 0.0]}
+            return {'point': [progress, 10.0, 0.0],'lane':[0.,0.,10.]}
 
         with patch.object(profile, 'snapshot', return_value=snap), \
              patch.object(batch, '_state_digest', return_value='synthetic-recovery-digest'), \
@@ -162,12 +207,12 @@ class BatchControllerTests(unittest.TestCase):
         self.assertTrue(result['pending'])
         return editor, client, snap
 
-    def publish(self, editor, client, snap, *, paired=False):
+    def publish(self, editor, client, snap, *, paired=False, first_index=12):
         finished = copy.copy(snap)
         finished.vehicles = dict(snap.vehicles)
         primaries = []
         for number, probe in enumerate(editor.pending.probes):
-            index = 12 + number * (2 if paired else 1)
+            index = first_index + number * (2 if paired else 1)
             primary = vehicle(index, TRUCK if paired else CAR,
                               child=index + 1 if paired else None, node_index=10 + number)
             primary['progress'] = 200.0 - (number + 1) * editor.pending.gap
@@ -177,7 +222,7 @@ class BatchControllerTests(unittest.TestCase):
                 finished.vehicles[index + 1] = vehicle(index + 1, TRAILER, parent=index)
             primaries.append(index)
             client.store(probe, struct.pack('<3I', 2, primary['address'], primary['node']))
-        client.store(editor.pending.completion_address,struct.pack('<I',2))
+        client.store(editor.pending.completion_address,struct.pack('<I',editor.pending.completion_token))
         client.store(s.HOOK,s.ORIGINAL)
         for row in finished.vehicles.values():
             client.store(row['address'], b'actor-sentinel')

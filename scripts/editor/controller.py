@@ -78,6 +78,21 @@ class EditorController:
         self.port = port
         self.pause_control = pause_control
         self.emulator_control = False
+        self.completion_tokens: set[int] = set()
+        self.physics_history = {}
+
+    def finalize_pending(self):
+        self._paused()
+        if self.pending:
+            try:
+                return self.poll()
+            except profile.ProfileError:
+                # Explicit user action may release completed owned code even
+                # when traffic structures no longer permit alignment.
+                if not getattr(self.pending,'batch',False):
+                    raise
+        from .recovery import finalize_restored
+        return finalize_restored(self)
 
     def _journal(self, event: str, **fields):
         if self.journal_dir is None:
@@ -133,6 +148,7 @@ class EditorController:
         from .state_store import export_state
         result = export_state(self.client,self.pause_control.emulator_root(),Path(destination))
         result.update(pending=False,core_paused=self.client.status() is Status.PAUSED)
+        self._journal('state_export_finished',path=result['path'],sha256=result['sha256'])
         return result
 
     def resume(self):
@@ -192,6 +208,7 @@ class EditorController:
             self.replay_queue.clear()
             self.unsafe = False
         if self.pending is None:
+            self.physics_history.clear()
             self.baseline = None
             self.recipe.clear()
             self.actor_keys.clear()
@@ -207,7 +224,12 @@ class EditorController:
             result['emulator_control'] = self._control_available()
             result['state_export'] = result['emulator_control']
         if paused and self.pending is None:
-            result.update(self.refresh())
+            try:
+                result.update(self.refresh())
+            except profile.ProfileError as error:
+                result.update(profile_valid=False,vehicles=[],models=[],warning=True,
+                    message=f'{error} Use Finalizar pendência para conferir uma solicitação antiga; '
+                            'se não for reconhecida, recarregue um estado limpo.')
         return result
 
     def refresh(self):
@@ -217,14 +239,21 @@ class EditorController:
         if self.client.status() is not Status.PAUSED:
             return {'status': 'Use Pausar PCSX2 para atualizar a lista.', 'core_paused': False}
         snap = self._snapshot()
-        return {**snap.public(), 'pending': False}
+        history = {(i,v['model_hash'],v['node'],v['type']):v['initialized'] for i,v in snap.vehicles.items()}
+        lost = sum(not ready and self.physics_history.get(key,False) for key,ready in history.items())
+        self.physics_history = history
+        capacity = dict(snap.inspection['counts'])
+        capacity.update(initialized_objects=sum(v['initialized'] for v in snap.vehicles.values()),
+            queued_operations=len(self.replay_queue),
+            physics_warning=(f'{lost} veículo(s) deixaram de ter física inicializada nesta referência.' if lost else ''))
+        return {**snap.public(), 'pending': False,'capacity':capacity}
 
     @staticmethod
-    def _selected(snap, vehicle_id):
+    def _selected(snap, vehicle_id, *, experimental=False):
         if type(vehicle_id) is not int or vehicle_id not in snap.vehicles:
             raise EditorError('Selecione um veículo ativo na lista atualizada.')
         row = snap.vehicles[vehicle_id]
-        if not row.get('editable', False):
+        if not row.get('editable', False) and not (experimental and profile.can_move_experimental(snap.vehicles,row)):
             raise EditorError('Escolha um carro ou van independente com a física já inicializada.')
         return row
 
@@ -245,11 +274,11 @@ class EditorController:
             raise EditorError('Esse veículo não pertence à referência da receita. Conecte novamente para iniciar outra sessão.')
         return {'kind': 'initial', 'id': row['id'], 'model_id': row['model_id'], 'path': row['path']}
 
-    def _resolve(self, reference, snap, *, for_creation=False):
+    def _resolve(self, reference, snap, *, for_creation=False, experimental=False):
         if for_creation:
             from .batch import reference as select
         else:
-            select = lambda state, index: self._selected(state,index)
+            select = lambda state, index: self._selected(state,index,experimental=experimental)
         if reference.get('kind') == 'created':
             vehicle_id = self.replay_ids.get(reference.get('key'))
         elif reference.get('kind') == 'initial':
@@ -262,10 +291,12 @@ class EditorController:
         select(snap, vehicle_id)
         return vehicle_id
 
-    def move(self, vehicle_id: int, lateral_percent: float):
+    def move(self, vehicle_id: int, lateral_percent: float, *, experimental=False):
+        if type(experimental) is not bool:
+            raise EditorError('Modo experimental inválido.')
         snap = self._ready()
-        row = self._selected(snap, vehicle_id)
-        patches = profile.lateral_patches(snap, vehicle_id, lateral_percent)
+        row = self._selected(snap, vehicle_id,experimental=experimental)
+        patches = profile.lateral_patches(snap, vehicle_id, lateral_percent,**({'experimental':True} if experimental else {}))
         self._start_recipe(snap)
         reference = self._reference(row)
         self.recovery_digest = _state_digest(snap)
@@ -276,6 +307,8 @@ class EditorController:
             raise EditorError('A posição não pôde ser confirmada. Recarregue um estado limpo antes de repetir.')
         operation = {'op': 'move_lateral', 'target': reference,
                      'lateral_percent': float(lateral_percent)}
+        if experimental:
+            operation['experimental'] = True
         self.recipe.append(operation)
         self._journal('move', vehicle_id=vehicle_id, operation=operation)
         return {'message': 'Posição aplicada. Retome o jogo com Esc para conferir.',
@@ -284,9 +317,37 @@ class EditorController:
     def add_behind(self, vehicle_id: int, model_id: str | None, gap: float):
         return self.add_many_behind(vehicle_id, model_id, gap, 1)
 
-    def add_many_behind(self, vehicle_id, model_id, gap, count, secondary_model_id=None):
+    def add_many_behind(self, vehicle_id, model_id, gap, count, secondary_model_id=None, *, experimental=False):
+        if (type(experimental) is not bool or type(count) is not int
+                or not 1 <= count <= (253 if experimental else 8)):
+            raise EditorError('Use quantidade de 1 a 8, ou ative o experimental para pedir até a capacidade do tráfego.')
         from . import batch
-        return batch.stage(self,vehicle_id,model_id,gap,count,secondary_model_id)
+        options = {'experimental':True} if experimental else {}
+        if count > 8:
+            options['reserve_count'] = count
+        result = batch.stage(self,vehicle_id,model_id,gap,min(count,8),secondary_model_id,**options)
+        if count > 8:
+            pending = self.pending
+            first_key = pending.created_keys[-1]
+            self.replay_queue.extend(dict(op='add_behind',target={'kind':'created','key':first_key+i},
+                model_id=pending.model_id,gap=float(gap),created_key=first_key+i+1,experimental=True,
+                **({'secondary_model_id':secondary_model_id} if secondary_model_id is not None else {}))
+                for i in range(count-8))
+            result['message'] += f' Fila: {count-8} restantes, em grupos de até oito; retome e pause a cada grupo.'
+        return result
+
+    def add_at(self, vehicle_id, model_id, x, z, secondary_model_id=None, *, experimental=False):
+        from . import batch
+        return batch.stage(self,vehicle_id,model_id,10,1,secondary_model_id,
+                           experimental=experimental,at_point=(x,z))
+
+    def cancel_queue(self):
+        count = len(self.replay_queue)
+        self.replay_queue.clear()
+        self._journal('queue_cancelled',remaining=count)
+        return {'pending':self.pending is not None,'core_paused':self.client.status() is Status.PAUSED,
+                'message':f'Fila cancelada ({count} operações). '+
+                    ('Finalize o lote já preparado; ele não será repetido.' if self.pending else 'Nenhuma criação foi repetida.')}
 
     def _add_behind(self, vehicle_id, model_id, gap, *, created_key=None):
         snap = self._ready()
@@ -369,7 +430,7 @@ class EditorController:
             hook,
             self.client.read_bytes(spawncode.CAVE, 4096))
         if (getattr(pending,'batch',False) and (hook != spawncode.ORIGINAL
-                or self.client.read_many([(pending.completion_address,4)])[0] != 2)):
+                or self.client.read_many([(pending.completion_address,4)])[0] != pending.completion_token)):
             raise EditorError('A rotina do lote ainda não terminou. Retome brevemente e pause.')
 
     def _clean(self, pending: Pending):
@@ -380,7 +441,7 @@ class EditorController:
             # original entry restored. Retain the permanent landing in case
             # the paused EE has not executed its final jump yet.
             if (self.client.read_bytes(spawncode.HOOK,8) != spawncode.ORIGINAL
-                    or self.client.read_many([(pending.completion_address,4)])[0] != 2):
+                    or self.client.read_many([(pending.completion_address,4)])[0] != pending.completion_token):
                 raise EditorError('A rotina do lote ainda não terminou. Retome brevemente e pause.')
             self.client.write_bytes(spawncode.CAVE,pending.clean_scratch)
             if self.client.read_bytes(spawncode.CAVE,4096) != pending.clean_scratch:
@@ -508,7 +569,10 @@ class EditorController:
         destination.write_text(text, encoding='utf8')
         return {'message': 'Preset salvo. Ele exige o mesmo estado inicial para ser reaplicado.'}
 
-    def load_preset(self, path: str):
+    def load_preset(self, path: str, *, experimental=False):
+        if type(experimental) is not bool:
+            raise EditorError('Modo experimental inválido.')
+        allow_experimental = experimental
         snap = self._ready()
         source = Path(path)
         if source.stat().st_size > 131072:
@@ -530,19 +594,29 @@ class EditorController:
         created = set()
         created_models = {}
         for op in operations:
-            if not isinstance(op, dict) or op.get('op') not in ('move_lateral','add_behind'):
+            if not isinstance(op, dict) or op.get('op') not in ('move_lateral','add_behind','add_at'):
                 raise EditorError('Operação não suportada no preset.')
+            experimental = op.get('experimental',False)
+            if type(experimental) is not bool:
+                raise EditorError('Modo experimental inválido no preset.')
+            if experimental and not allow_experimental:
+                raise EditorError('Esta receita usa o modo experimental. Ative o modo e leia o aviso antes de carregá-la.')
             ref = op.get('target')
             if not isinstance(ref, dict): raise EditorError('Alvo inválido no preset.')
             if ref.get('kind') == 'created':
                 if type(ref.get('key')) is not int or ref.get('key') not in created:
                     raise EditorError('Referência fora de ordem no preset.')
             else:
-                self._resolve(ref, snap, for_creation=op['op']=='add_behind')
+                self._resolve(ref, snap, for_creation=op['op'] in ('add_behind','add_at'),experimental=experimental)
             if op['op'] == 'move_lateral':
                 value = op.get('lateral_percent')
-                if type(value) not in (int,float) or not math.isfinite(value) or not 0 <= value <= 100:
+                if (type(value) not in (int,float) or not math.isfinite(value)
+                        or (not experimental and not 0 <= value <= 100)):
                     raise EditorError('Posição inválida no preset.')
+                try:
+                    profile._lane_fraction_word(value/100)
+                except profile.ProfileError as error:
+                    raise EditorError('Posição fora do intervalo float32 no preset.') from error
             else:
                 model_id = op.get('model_id')
                 if not isinstance(model_id, str): raise EditorError('Modelo inválido no preset.')
@@ -550,15 +624,32 @@ class EditorController:
                 from .batch import model_pair
                 _primary, secondary = model_pair(snap,model_id,op.get('secondary_model_id'))
                 gap, key = op.get('gap'), op.get('created_key')
-                reference_is_truck = (snap.models.get(created_models.get(ref.get('key')),{}).get('type') == 4
+                reference_is_truck = (snap.models.get(created_models.get(ref.get('key')),{}).get('type') in (4,5)
                     if ref.get('kind') == 'created' else
-                    snap.vehicles[ref['id']].get('native_pair_valid',False))
-                if (secondary is not None or reference_is_truck) and (type(gap) not in (int,float) or gap < 30):
-                    raise EditorError('Use distância de 30 a 50 unidades para conjuntos de cabine e carga.')
-                if (not model or not model.get('eligible') or type(gap) not in (int,float)
-                        or not math.isfinite(gap) or not 8 <= gap <= 50
-                        or type(key) is not int or not 1 <= key <= 10000 or key in created):
+                    (snap.vehicles[ref['id']].get('native_pair_valid',False)
+                     or snap.vehicles[ref['id']].get('type') == 5))
+                if (op['op'] == 'add_behind' and not experimental and
+                        (secondary is not None or reference_is_truck or model.get('type') == 5)
+                        and (type(gap) not in (int,float) or gap < 30)):
+                    raise EditorError('Use distância de 30 a 50 unidades para ônibus ou conjuntos de cabine e carga.')
+                if (not model or not model.get('eligible') or type(key) is not int
+                        or not 1 <= key <= 10000 or key in created):
                     raise EditorError('Criação inválida no preset.')
+                if op['op'] == 'add_behind':
+                    if (type(gap) not in (int,float) or not math.isfinite(gap)
+                            or (gap <= 0 if experimental else not 8 <= gap <= 50)):
+                        raise EditorError('Distância inválida no preset.')
+                else:
+                    for axis in ('x','z'):
+                        coordinate = op.get(axis)
+                        if type(coordinate) not in (int,float) or not math.isfinite(coordinate):
+                            raise EditorError('Ponto inválido no preset.')
+                        try:
+                            valid = math.isfinite(struct.unpack('<f',struct.pack('<f',coordinate))[0])
+                        except (OverflowError,struct.error):
+                            valid = False
+                        if not valid:
+                            raise EditorError('Ponto fora do intervalo float32 no preset.')
                 created.add(key)
                 created_models[key] = model_id
         self.recipe.clear()
@@ -573,20 +664,31 @@ class EditorController:
         while self.replay_queue:
             op = self.replay_queue.pop(0)
             snap = self._snapshot()
-            vehicle_id = self._resolve(op['target'], snap,for_creation=op['op']=='add_behind')
+            experimental = op.get('experimental',False)
+            vehicle_id = self._resolve(op['target'],snap,
+                for_creation=op['op'] in ('add_behind','add_at'),experimental=experimental)
             if op['op'] == 'move_lateral':
-                self.move(vehicle_id, op['lateral_percent'])
+                self.move(vehicle_id,op['lateral_percent'],**({'experimental':True} if experimental else {}))
+            elif op['op'] == 'add_at':
+                from .batch import stage
+                return stage(self,vehicle_id,op['model_id'],10,1,op.get('secondary_model_id'),
+                    created_keys=[op['created_key']],experimental=experimental,at_point=(op['x'],op['z']),
+                    point_reference=True)
             else:
                 group = [op]
                 while self.replay_queue and len(group) < 8:
                     nxt = self.replay_queue[0]
                     if (nxt.get('op') != 'add_behind' or nxt.get('target') != {'kind':'created','key':group[-1]['created_key']}
-                            or any(nxt.get(k) != op.get(k) for k in ('model_id','gap','secondary_model_id'))):
+                            or any(nxt.get(k) != op.get(k) for k in ('model_id','gap','secondary_model_id'))
+                            or nxt.get('experimental',False) != experimental):
                         break
                     group.append(self.replay_queue.pop(0))
                 from .batch import stage
-                return stage(self,vehicle_id,op['model_id'],op['gap'],len(group),op.get('secondary_model_id'),
-                             created_keys=[r['created_key'] for r in group])
+                result = stage(self,vehicle_id,op['model_id'],op['gap'],len(group),op.get('secondary_model_id'),
+                             created_keys=[r['created_key'] for r in group],**({'experimental':True} if experimental else {}))
+                if self.replay_queue:
+                    result['message'] += f' Fila: {len(self.replay_queue)} restantes; retome e pause para o próximo grupo.'
+                return result
         return {'pending': False, 'core_paused': True,
                 'message': 'Preset aplicado. Retome o jogo com Esc para conferir.'}
 

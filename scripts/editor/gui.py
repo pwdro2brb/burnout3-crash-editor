@@ -6,6 +6,7 @@ main thread. See Controller for the small interface expected by EditorApp.
 """
 from __future__ import annotations
 
+from datetime import datetime
 import math
 from pathlib import Path
 import queue
@@ -15,6 +16,9 @@ from tkinter import filedialog, messagebox, ttk
 from typing import Any, Callable, Protocol
 
 
+EXPORT_DIRECTORY = Path(__file__).resolve().parents[2] / 'outputs' / 'events'
+
+
 class Controller(Protocol):
     def connect(self) -> dict[str, Any]: ...
     def refresh(self) -> dict[str, Any]: ...
@@ -22,13 +26,19 @@ class Controller(Protocol):
     def add_behind(self, vehicle_id: int, model_id: str | None,
                    gap: float) -> dict[str, Any]: ...
     def add_many_behind(self, vehicle_id: int, model_id: str | None, gap: float,
-                        count: int, secondary_model_id: str | None = None) -> dict[str, Any]: ...
+                        count: int, secondary_model_id: str | None = None,
+                        experimental: bool = False) -> dict[str, Any]: ...
+    def add_at(self, vehicle_id: int, model_id: str | None, x: float, z: float,
+               secondary_model_id: str | None = None,
+               experimental: bool = False) -> dict[str, Any]: ...
     def save_preset(self, path: str) -> dict[str, Any]: ...
-    def load_preset(self, path: str) -> dict[str, Any]: ...
+    def load_preset(self, path: str, *, experimental: bool = False) -> dict[str, Any]: ...
     def poll(self) -> dict[str, Any]: ...
     def pause(self) -> dict[str, Any]: ...
     def resume(self) -> dict[str, Any]: ...
     def export_state(self, path: str) -> dict[str, Any]: ...
+    def finalize_pending(self) -> dict[str, Any]: ...
+    def cancel_queue(self) -> dict[str, Any]: ...
     def close(self) -> None: ...
 
 
@@ -45,14 +55,35 @@ def number(text: str, *, positive: bool = False) -> float:
     return value
 
 
-def quantity(text: str) -> int:
+def quantity(text: str, experimental: bool = False) -> int:
+    maximum = 253 if experimental else 8
+    message = f'Use uma quantidade inteira entre 1 e {maximum}.'
     try:
         value = int(text.strip())
     except (AttributeError, TypeError, ValueError) as exc:
-        raise ValueError('Use uma quantidade inteira entre 1 e 8.') from exc
-    if not 1 <= value <= 8:
-        raise ValueError('Use uma quantidade inteira entre 1 e 8.')
+        raise ValueError(message) from exc
+    if not 1 <= value <= maximum:
+        raise ValueError(message)
     return value
+
+
+def world_coordinate(text: str) -> float:
+    value = number(text)
+    if abs(value) > 3.402823466e38:
+        raise ValueError('A coordenada excede o intervalo numérico do jogo.')
+    return value
+
+
+def export_suggestion(directory: Path | None = None) -> Path:
+    """Suggest a local name without replacing an existing file or link."""
+    folder = Path(directory) if directory is not None else EXPORT_DIRECTORY
+    stem = 'evento-editado-' + datetime.now().strftime('%Y%m%d-%H%M%S')
+    candidate = folder / (stem + '.p2s')
+    index = 1
+    while candidate.exists() or candidate.is_symlink():
+        candidate = folder / f'{stem}-{index:03d}.p2s'
+        index += 1
+    return candidate
 
 
 def coordinate(value: Any) -> str:
@@ -100,11 +131,45 @@ def fit_view(points: list[tuple[float, float]]) -> tuple[float, float, float]:
     return (min(xs) + max(xs)) / 2, (min(zs) + max(zs)) / 2, span
 
 
+def map_to_world(view: tuple[float, float, float], width: float, height: float,
+                 px: float, py: float) -> tuple[float, float]:
+    """Invert the displayed X/Z map without assuming a screen origin."""
+    cx, cz, span = view
+    if (not all(math.isfinite(value) for value in (cx, cz, span, width, height, px, py))
+            or span <= 0 or width <= 40 or height <= 50):
+        raise ValueError('A vista de cima ainda não está pronta para marcar uma posição.')
+    scale = min(width - 40, height - 50) / span
+    result = cx + (px - width / 2) / scale, cz + (height / 2 - py) / scale
+    if not all(math.isfinite(value) for value in result):
+        raise ValueError('A posição marcada não é finita.')
+    return result
+
+
+def capacity_summary(snapshot: dict[str, Any]) -> str:
+    vehicles = snapshot.get('vehicles') or []
+    counts = snapshot.get('capacity') or snapshot.get('counts') or {}
+    active = counts.get('active_objects', len(vehicles))
+    ready = counts.get('initialized_objects', sum(v.get('initialized') is True for v in vehicles))
+    parts = [f'Objetos ativos: {active}', f'Física pronta: {ready}']
+    for key, label in (('free_objects', 'Objetos livres'), ('free_nodes', 'Nós livres')):
+        value = counts.get(key)
+        if type(value) is int:
+            parts.append(f'{label}: {value}')
+    queued = counts.get('queued_operations')
+    if type(queued) is int:
+        parts.append(f'Na fila: {queued}')
+    warning = counts.get('physics_warning')
+    if isinstance(warning, str) and warning:
+        parts.append(warning)
+    return ' · '.join(parts)
+
+
 class EditorApp:
     def __init__(self, root: tk.Tk, controller: Controller):
         self.root = root
         self.controller = controller
         self.connected = False
+        self.profile_valid = False
         self.emulator_control = False
         self.state_export = False
         self.busy = False
@@ -120,6 +185,7 @@ class EditorApp:
         self.trailer_visible = False
         self.map_view: tuple[float, float, float] | None = None
         self.map_hits: list[tuple[float, float, str]] = []
+        self.marking_position = False
         self.player: dict[str, Any] | None = None
         self.jobs: queue.Queue[Any] = queue.Queue()
         self.results: queue.Queue[Any] = queue.Queue()
@@ -133,11 +199,17 @@ class EditorApp:
         self.lateral_text = tk.StringVar(value='50,0%')
         self.gap = tk.StringVar(value='10')
         self.count = tk.StringVar(value='1')
+        self.experimental = tk.BooleanVar(value=False)
+        self.point_x = tk.StringVar(value='')
+        self.point_z = tk.StringVar(value='')
+        self.capacity_text = tk.StringVar(value='')
         self.model_choice = tk.StringVar(value='Mesmo modelo do selecionado')
         self.secondary_choice = tk.StringVar(value='Selecione a carga')
         self.map_notice = tk.StringVar(value='Posições dos veículos; sem desenho da pista.')
         self.instructions_text = tk.StringVar(value='Pause com Esc no PCSX2 e atualize a lista antes de editar. As alterações valem para a sessão atual.')
         self._build()
+        for variable in (self.point_x, self.point_z):
+            variable.trace_add('write', self._point_changed)
         self.worker = threading.Thread(target=self._work, daemon=True,
                                        name='Burnout3EditorController')
         self.worker.start()
@@ -182,16 +254,33 @@ class EditorApp:
         self.resume_button = ttk.Button(self.emulator_controls, text='Retomar', command=self.resume_emulator)
         self.resume_button.pack(side='left', padx=(6, 0))
         self.emulator_controls.grid_remove()
+        self.finalize_button = ttk.Button(connection, text='Finalizar pendência',
+                                          command=self.finalize_pending)
+        self.finalize_button.grid(row=0, column=3, padx=(8, 0))
+        self.cancel_queue_button = ttk.Button(connection, text='Cancelar fila', command=self.cancel_queue)
+        self.cancel_queue_button.grid(row=0, column=4, padx=(6, 0))
+        ttk.Label(connection, textvariable=self.capacity_text,
+                  foreground='#5f6875', wraplength=920).grid(row=1, column=0, columnspan=5, sticky='w', pady=(5, 0))
         instructions = ttk.Frame(container)
         instructions.grid(row=2, column=0, sticky='ew', pady=(0, 12))
         instructions.columnconfigure(0, weight=1)
         ttk.Label(instructions,
                   textvariable=self.instructions_text,
                   foreground='#5f6875').grid(row=0, column=0, sticky='w')
+        self.experimental_check = ttk.Checkbutton(instructions,
+            text='Modo experimental: ampliar quantidade e distância',
+            variable=self.experimental, command=self._experimental_changed)
+        self.experimental_check.grid(row=1, column=0, sticky='w', pady=(6, 0))
+        self.experimental_warning = ttk.Label(instructions,
+            text='Alto risco de travamento/perda de física. Salve um estado antes de testar. '
+                 'A fila usa grupos de até 8; retome e pause para concluir cada grupo.',
+            foreground='#a33922', wraplength=850)
+        self.experimental_warning.grid(row=2, column=0, sticky='w', pady=(4, 0))
+        self.experimental_warning.grid_remove()
         self.pending_banner = tk.Label(instructions, textvariable=self.pending_text,
             background='#fff0b3', foreground='#574100', font=('Segoe UI', 10, 'bold'),
             anchor='w', justify='left', padx=12, pady=10, wraplength=780)
-        self.pending_banner.grid(row=1, column=0, sticky='ew', pady=(10, 0))
+        self.pending_banner.grid(row=3, column=0, sticky='ew', pady=(10, 0))
         self.pending_banner.grid_remove()
 
         pane = ttk.Panedwindow(container, orient=tk.HORIZONTAL)
@@ -230,9 +319,25 @@ class EditorApp:
         self.map_canvas.bind('<MouseWheel>', self._map_zoom)
         map_footer = ttk.Frame(view)
         map_footer.grid(row=2, column=0, sticky='ew', pady=(6, 0))
-        ttk.Label(map_footer, text='Clique em um ponto para selecionar. Roda: zoom.',
-                  foreground='#5f6875').pack(side='left')
+        self.mark_button = ttk.Button(map_footer, text='Marcar posição', command=self._mark_position)
+        self.mark_button.pack(side='left')
+        ttk.Label(map_footer, text='Roda: zoom.', foreground='#5f6875').pack(side='left', padx=8)
         ttk.Button(map_footer, text='Enquadrar', command=self._map_reset).pack(side='right')
+        point_controls = ttk.LabelFrame(view, text='Adicionar no ponto X/Z', padding=8)
+        point_controls.grid(row=3, column=0, sticky='ew', pady=(8, 0))
+        point_controls.columnconfigure(1, weight=1)
+        point_controls.columnconfigure(3, weight=1)
+        ttk.Label(point_controls, text='X').grid(row=0, column=0, padx=(0, 5))
+        self.point_x_entry = ttk.Entry(point_controls, textvariable=self.point_x, width=12)
+        self.point_x_entry.grid(row=0, column=1, sticky='ew')
+        ttk.Label(point_controls, text='Z').grid(row=0, column=2, padx=(10, 5))
+        self.point_z_entry = ttk.Entry(point_controls, textvariable=self.point_z, width=12)
+        self.point_z_entry.grid(row=0, column=3, sticky='ew')
+        self.add_at_button = ttk.Button(point_controls, text='Adicionar no ponto', command=self.add_at)
+        self.add_at_button.grid(row=1, column=0, columnspan=4, sticky='ew', pady=(7, 0))
+        ttk.Label(point_controls,
+            text='Usa caminhos carregados e o modelo escolhido ao lado. O ponto pode ser ajustado à via.',
+            foreground='#5f6875', wraplength=410).grid(row=2, column=0, columnspan=4, sticky='w', pady=(5, 0))
         catalog = ttk.Frame(lists, padding=(0, 8, 0, 0))
         catalog.columnconfigure(0, weight=1)
         catalog.rowconfigure(0, weight=1)
@@ -357,6 +462,36 @@ class EditorApp:
         self._update_secondary_choices()
         self._update_controls()
 
+    def _experimental_enabled(self) -> bool:
+        variable = getattr(self, 'experimental', None)
+        return variable is not None and variable.get() is True
+
+    def _experimental_changed(self) -> None:
+        if hasattr(self, 'count_box'):
+            self.count_box.configure(to=253 if self._experimental_enabled() else 8)
+        self._update_secondary_choices()
+        self._update_controls()
+
+    def _target_point(self) -> tuple[float, float] | None:
+        try:
+            return world_coordinate(self.point_x.get()), world_coordinate(self.point_z.get())
+        except (AttributeError, TypeError, ValueError):
+            return None
+
+    def _point_changed(self, *_args: Any) -> None:
+        self._update_controls()
+        self._draw_traffic()
+
+    def _mark_position(self) -> None:
+        if (self.closed or self.busy or self.pending or not self.connected
+                or not getattr(self, 'profile_valid', True) or self.core_paused is not True):
+            return
+        self.marking_position = not getattr(self, 'marking_position', False)
+        if hasattr(self, 'mark_button'):
+            self.mark_button.configure(text='Clique no mapa…' if self.marking_position else 'Marcar posição')
+        self._set_status('Clique na vista de cima para marcar o ponto de criação.' if self.marking_position
+                         else 'Marcação cancelada.')
+
     def _update_secondary_choices(self) -> None:
         if not hasattr(self, 'secondary_box'):
             return
@@ -384,11 +519,15 @@ class EditorApp:
         self.count_label.configure(text='Conjuntos' if truck else 'Quantidade')
         self.add_button.configure(text='Adicionar conjuntos atrás' if truck else 'Adicionar veículos atrás')
         reference_model = self.models.get(str(selected.get('model_id')), {})
-        compound = truck or selected.get('kind') == 'truck' or reference_model.get('kind') == 'truck'
+        compound = (truck or selected.get('kind') == 'truck' or reference_model.get('kind') == 'truck'
+                    or model.get('type') == 5 or reference_model.get('type') == 5)
         if hasattr(self, 'gap_hint'):
-            self.gap_hint.configure(text='Caminhão: use 30 a 50 unidades do jogo.' if compound
-                                    else 'De 8 a 50 unidades do jogo.')
-        if compound:
+            hint = ('Experimental: distância positiva, sujeita ao caminho e à capacidade.'
+                    if self._experimental_enabled() else
+                    'Ônibus/caminhão: 30 a 50 unidades do jogo.' if compound
+                    else 'De 8 a 50 unidades do jogo.')
+            self.gap_hint.configure(text=hint)
+        if compound and not self._experimental_enabled():
             try:
                 if number(self.gap.get()) < 30:
                     self.gap.set('30')
@@ -422,7 +561,26 @@ class EditorApp:
         self._draw_traffic()
 
     def _map_select(self, event: Any) -> None:
-        if self.busy or self.pending or not self.map_hits:
+        if self.busy or self.pending or not getattr(self, 'profile_valid', True):
+            return
+        if getattr(self, 'marking_position', False):
+            if not self.connected or self.core_paused is not True or self.map_view is None:
+                return
+            try:
+                x, z = map_to_world(self.map_view, self.map_canvas.winfo_width(),
+                                   self.map_canvas.winfo_height(), event.x, event.y)
+            except ValueError as exc:
+                self._set_status(str(exc), warning=True)
+                return
+            self.point_x.set(f'{x:.6f}')
+            self.point_z.set(f'{z:.6f}')
+            self.marking_position = False
+            if hasattr(self, 'mark_button'):
+                self.mark_button.configure(text='Marcar posição')
+            self._point_changed()
+            self._set_status(f'Ponto marcado: X {coordinate(x)} · Z {coordinate(z)}. Confira o modelo e adicione.')
+            return
+        if not self.map_hits:
             return
         px, py, iid = min(self.map_hits, key=lambda point:
                           (point[0] - event.x) ** 2 + (point[1] - event.y) ** 2)
@@ -444,12 +602,13 @@ class EditorApp:
                   if vehicle.get('initialized') is True
                   and (point := xz(vehicle.get('position'))) is not None}
         player = xz(self.player.get('position')) if self.player else None
-        if not points and player is None:
+        target = self._target_point()
+        if not points and player is None and target is None:
             canvas.create_text(width / 2, height / 2, text='Conecte com o jogo pausado e atualize a lista.',
                                width=max(100, width - 40), fill='#5f6875')
             return
         if self.map_view is None:
-            self.map_view = fit_view([*points.values(), *([player] if player else [])])
+            self.map_view = fit_view([*points.values(), *([player] if player else []), *([target] if target else [])])
         cx, cz, span = self.map_view
         scale = min(max(1, width - 40), max(1, height - 50)) / span
         def project(point):
@@ -482,6 +641,12 @@ class EditorApp:
             canvas.create_oval(px - 5, py - 5, px + 5, py + 5,
                                fill='#b43c39', outline='#ffffff', width=1)
             canvas.create_text(px + 9, py + 10, anchor='nw', text='Jogador', fill='#b43c39')
+        if target is not None:
+            px, py = project(target)
+            if -8 <= px <= width + 8 and -8 <= py <= height + 8:
+                canvas.create_line(px - 8, py, px + 8, py, fill='#a33922', width=2)
+                canvas.create_line(px, py - 8, px, py + 8, fill='#a33922', width=2)
+                canvas.create_text(px + 10, py - 9, anchor='sw', text='Criar aqui', fill='#a33922')
         marker = min(80, width / 4)
         canvas.create_line(15, height - 20, 15 + marker, height - 20, fill='#5f6875', width=2)
         canvas.create_text(15, height - 25, anchor='sw', text=f'{marker / scale:.1f} un.', fill='#5f6875')
@@ -513,10 +678,12 @@ class EditorApp:
 
     def _update_controls(self) -> None:
         idle = not self.busy and not self.pending and not self.closed
+        profile_valid = getattr(self, 'profile_valid', True)
         selected = self.selected()
-        available = bool(idle and self.connected and selected and selected.get('active', True)
+        available = bool(idle and self.connected and profile_valid and selected and selected.get('active', True)
                          and self.core_paused is True)
-        editable = bool(available and selected.get('editable', selected.get('eligible', False)))
+        editable = bool(available and (selected.get('editable', selected.get('eligible', False))
+                        or (self._experimental_enabled() and selected.get('experimental_editable') is True)))
         can_reference = bool(available and selected.get('can_reference',
                               selected.get('editable', selected.get('eligible', False))))
         # A failed finalization can require a clean-state reload and reconnect.
@@ -525,14 +692,20 @@ class EditorApp:
         for widget in (self.refresh_button, self.save_button):
             widget.configure(state='normal' if idle and self.connected else 'disabled')
         self.load_button.configure(state='normal' if idle and self.connected
-                                   and self.core_paused is True else 'disabled')
+                                   and profile_valid and self.core_paused is True else 'disabled')
+        if hasattr(self, 'finalize_button'):
+            self.finalize_button.configure(state='normal' if self.connected and not self.busy
+                and not self.closed and self.core_paused is True else 'disabled')
+        if hasattr(self, 'cancel_queue_button'):
+            self.cancel_queue_button.configure(state='normal' if self.connected and not self.busy
+                and not self.closed else 'disabled')
         if hasattr(self, 'export_button'):
             export_available = bool(self.connected and self.state_export and not self.closed)
             if export_available:
                 self.export_button.grid()
             else:
                 self.export_button.grid_remove()
-            self.export_button.configure(state='normal' if export_available and idle
+            self.export_button.configure(state='normal' if export_available and idle and profile_valid
                                          and self.core_paused is True else 'disabled')
         for widget in (self.move_button, self.lateral_scale):
             widget.configure(state='normal' if editable else 'disabled')
@@ -540,11 +713,25 @@ class EditorApp:
             widget.configure(state='normal' if can_reference else 'disabled')
         if hasattr(self, 'count_box'):
             self.count_box.configure(state='normal' if can_reference else 'disabled')
+        for name in ('point_x_entry', 'point_z_entry', 'mark_button'):
+            widget = getattr(self, name, None)
+            if widget is not None:
+                widget.configure(state='normal' if can_reference else 'disabled')
+        if hasattr(self, 'add_at_button'):
+            self.add_at_button.configure(state='normal' if can_reference and self._target_point() is not None
+                                          else 'disabled')
+        if hasattr(self, 'experimental_check'):
+            self.experimental_check.configure(state='normal' if idle else 'disabled')
+        if hasattr(self, 'experimental_warning'):
+            if self._experimental_enabled():
+                self.experimental_warning.grid()
+            else:
+                self.experimental_warning.grid_remove()
         self.model_box.configure(state='readonly' if can_reference else 'disabled')
         if hasattr(self, 'secondary_box'):
             self.secondary_box.configure(state='readonly' if can_reference
                 and self._chosen_model().get('kind') == 'truck' else 'disabled')
-        self.table.configure(selectmode='browse' if idle else 'none')
+        self.table.configure(selectmode='browse' if idle and profile_valid else 'none')
         if hasattr(self, 'emulator_controls'):
             supported = bool(self.connected and self.emulator_control and not self.closed)
             if supported:
@@ -587,6 +774,14 @@ class EditorApp:
         self.status.set(f'Atenção: {message}' if warning else message)
         if hasattr(self, 'status_label'):
             self.status_label.configure(foreground='#8a5200' if warning else '#273444')
+
+    def _invalidate_profile(self) -> None:
+        self.profile_valid = False
+        if hasattr(self.table, 'selection') and hasattr(self.table, 'selection_remove'):
+            self.table.selection_remove(*self.table.selection())
+        if hasattr(self, 'selection_text'):
+            self.selection_text.set('Atualize a lista antes de editar os veículos.')
+            self.position_text.set('X: —     Y: —     Z: —')
 
     def _submit(self, label: str, action: Callable[[], Any],
                 callback: Callable[[Any], None], *, quiet: bool = False) -> None:
@@ -648,11 +843,16 @@ class EditorApp:
         if selected_id is None and current:
             selected_id = current['id']
         self.models = {str(model['id']): model for model in snapshot.get('models', [])}
+        self.profile_valid = (snapshot.get('profile_valid') is not False
+                              and isinstance(snapshot.get('vehicles'), list)
+                              and isinstance(snapshot.get('models'), list))
         if 'emulator_control' in snapshot:
             self.emulator_control = snapshot['emulator_control'] is True
         if 'state_export' in snapshot:
             self.state_export = snapshot['state_export'] is True
         self.player = snapshot.get('player')
+        if hasattr(self, 'capacity_text'):
+            self.capacity_text.set(capacity_summary(snapshot))
         self.map_view = None
         self._set_core_state(snapshot)
         self.catalog_table.delete(*self.catalog_table.get_children())
@@ -692,7 +892,18 @@ class EditorApp:
         self.connection_text.set('Conectando…')
         def work():
             connection = self.controller.connect()
-            return connection, self.controller.refresh()
+            if connection.get('profile_valid') is False:
+                return connection, connection
+            from editor.profile import ProfileError
+            try:
+                snapshot = self.controller.refresh()
+            except ProfileError as exc:
+                # Identity/transport errors remain connection failures. Only a
+                # rejected traffic profile permits the explicit recovery action.
+                message = f'Conectado ao PCSX2, mas a lista não pôde ser validada: {exc}'
+                snapshot = {**connection, 'profile_valid': False, 'warning': True,
+                            'models': [], 'vehicles': [], 'status': message, 'message': message}
+            return connection, snapshot
         def done(value):
             connection, snapshot = value
             self.connected = True
@@ -721,6 +932,16 @@ class EditorApp:
         if self.connected and self.emulator_control:
             self._change('Retomando o PCSX2…', self.controller.resume)
 
+    def finalize_pending(self) -> None:
+        if (self.closed or self.busy or not self.connected or self.core_paused is not True):
+            return
+        self._change('Finalizando pendência…', self.controller.finalize_pending)
+
+    def cancel_queue(self) -> None:
+        if self.closed or self.busy or not self.connected:
+            return
+        self._change('Cancelando a fila restante…', self.controller.cancel_queue)
+
     def _change(self, label: str, action: Callable[[], dict[str, Any]]) -> None:
         def work():
             result = action()
@@ -740,6 +961,7 @@ class EditorApp:
                 self._snapshot(snapshot, result.get('new_vehicle_id'))
             message = str(result.get('message') or 'Alteração aplicada.')
             if refresh_error:
+                self._invalidate_profile()
                 message += f' A lista não pôde ser atualizada: {refresh_error}. Use Atualizar lista.'
             self._set_status(message, warning=bool(result.get('warning') or refresh_error))
             if self.pending:
@@ -775,6 +997,7 @@ class EditorApp:
                 self._snapshot(snapshot, result.get('new_vehicle_id'))
             message = str(result.get('message') or '')
             if refresh_error:
+                self._invalidate_profile()
                 message += f' Use Atualizar lista: {refresh_error}'
             if message:
                 self._set_status(message, warning=bool(result.get('warning') or refresh_error))
@@ -794,8 +1017,9 @@ class EditorApp:
             messagebox.showinfo('Posição', str(exc), parent=self.root)
             return
         vehicle_id = int(vehicle['id'])
+        options = {'experimental': True} if self._experimental_enabled() else {}
         self._change('Aplicando a posição…',
-                     lambda: self.controller.move(vehicle_id, lateral_percent))
+                     lambda: self.controller.move(vehicle_id, lateral_percent, **options))
 
     def add_behind(self) -> None:
         vehicle = self.selected()
@@ -803,9 +1027,16 @@ class EditorApp:
             return
         try:
             gap = number(self.gap.get(), positive=True)
-            count = quantity(self.count.get())
+            experimental = self._experimental_enabled()
+            count = quantity(self.count.get(), experimental=experimental)
+            chosen = self._chosen_model()
+            reference = getattr(self, 'models', {}).get(str(vehicle.get('model_id')), {})
+            minimum = 30 if (chosen.get('kind') == 'truck' or reference.get('kind') == 'truck'
+                             or chosen.get('type') == 5 or reference.get('type') == 5) else 8
+            if not experimental and not minimum <= gap <= 50:
+                raise ValueError(f'Use uma distância entre {minimum} e 50 unidades do jogo.')
             secondary_id = None
-            if self._chosen_model().get('kind') == 'truck':
+            if chosen.get('kind') == 'truck':
                 secondary_id = self.secondary_choices.get(self.secondary_choice.get())
                 if secondary_id is None:
                     raise ValueError('Escolha uma carga compatível para o caminhão.')
@@ -814,9 +1045,36 @@ class EditorApp:
             return
         vehicle_id = int(vehicle['id'])
         model_id = self.model_choices.get(self.model_choice.get())
+        options = {'secondary_model_id': secondary_id}
+        if experimental:
+            options['experimental'] = True
         self._change('Adicionando os veículos atrás…',
                      lambda: self.controller.add_many_behind(vehicle_id, model_id, gap, count,
-                                                              secondary_model_id=secondary_id))
+                                                              **options))
+
+    def add_at(self) -> None:
+        if (self.closed or self.busy or self.pending or not self.connected
+                or not getattr(self, 'profile_valid', True) or self.core_paused is not True):
+            return
+        vehicle = self.selected()
+        if not vehicle or not vehicle.get('can_reference', vehicle.get('editable', False)):
+            return
+        try:
+            x, z = world_coordinate(self.point_x.get()), world_coordinate(self.point_z.get())
+            secondary_id = None
+            if self._chosen_model().get('kind') == 'truck':
+                secondary_id = self.secondary_choices.get(self.secondary_choice.get())
+                if secondary_id is None:
+                    raise ValueError('Escolha uma carga compatível para o caminhão.')
+        except (AttributeError, ValueError) as exc:
+            messagebox.showinfo('Adicionar no ponto', str(exc), parent=self.root)
+            return
+        vehicle_id = int(vehicle['id'])
+        model_id = self.model_choices.get(self.model_choice.get())
+        experimental = self._experimental_enabled()
+        self._change('Preparando o veículo no ponto marcado…',
+                     lambda: self.controller.add_at(vehicle_id, model_id, x, z,
+                         secondary_model_id=secondary_id, experimental=experimental))
 
     def save_preset(self) -> None:
         path = filedialog.asksaveasfilename(parent=self.root, title='Salvar configuração',
@@ -830,21 +1088,34 @@ class EditorApp:
         path = filedialog.askopenfilename(parent=self.root, title='Abrir configuração',
                     filetypes=[('Configuração JSON', '*.json')])
         if path:
+            options = {'experimental': True} if self._experimental_enabled() else {}
             self._change('Aplicando a configuração ao evento atual…',
-                         lambda: self.controller.load_preset(str(Path(path))))
+                         lambda: self.controller.load_preset(str(Path(path)), **options))
 
     def export_state(self) -> None:
         if (self.closed or self.busy or self.pending or not self.connected
-                or not self.state_export or self.core_paused is not True):
+                or not self.state_export or not getattr(self, 'profile_valid', True)
+                or self.core_paused is not True):
+            return
+        try:
+            EXPORT_DIRECTORY.mkdir(parents=True, exist_ok=True)
+            suggested = export_suggestion()
+        except OSError as exc:
+            messagebox.showerror('Salvar estado', f'Não foi possível preparar a pasta de eventos: {exc}',
+                                 parent=self.root)
             return
         path = filedialog.asksaveasfilename(parent=self.root, title='Salvar estado editado',
-                    defaultextension='.p2s', initialfile='evento-editado.p2s',
+                    defaultextension='.p2s', initialdir=str(suggested.parent), initialfile=suggested.name,
                     filetypes=[('Estado PCSX2', '*.p2s')])
         if path:
+            def done(result):
+                message = str(result.get('message') or 'Estado editado salvo.')
+                if result.get('path'):
+                    message += '\nArquivo: ' + str(result['path'])
+                self._set_status(message, warning=bool(result.get('warning')))
             self._submit('Salvando o estado editado…',
                          lambda: self.controller.export_state(str(Path(path))),
-                         lambda result: self._set_status(str(result.get('message') or 'Estado editado salvo.'),
-                                                         warning=bool(result.get('warning'))))
+                         done)
 
     def close(self) -> None:
         if self.closed:

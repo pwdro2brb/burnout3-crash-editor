@@ -47,10 +47,19 @@ def _states_directory(emulator_root: Path) -> Path:
     raw = (root/'inis'/'PCSX2_ui.ini').read_bytes()
     encoding = 'utf-16' if raw.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)) else 'utf-8-sig'
     try:
+        text = raw.decode(encoding)
+        first_nul = text.find('\0')
+        if first_nul >= 0:
+            # Some wx INIs retain a zero-filled tail after complete text lines.
+            # Never repair a NUL inside a key/value or followed by more config.
+            if ((first_nul > 0 and text[first_nul-1] not in '\r\n')
+                    or any(char not in '\0\r\n' for char in text[first_nul:])):
+                raise StateStoreError('O INI contém um caractere nulo dentro da configuração.')
+            text = text[:first_nul]
         parser = configparser.ConfigParser(interpolation=None)
         # wxFileConfig permits root keys before the first named section.
         # Keep them separate from [Folders] instead of treating them as defaults.
-        parser.read_string('[__PCSX2_ROOT__]\n'+raw.decode(encoding))
+        parser.read_string('[__PCSX2_ROOT__]\n'+text)
         folders = parser['Folders']
         default = folders.get('UseDefaultSavestates', 'enabled').strip().lower()
         if default in ('enabled', 'true', 'yes', '1'):
@@ -180,7 +189,8 @@ def export_state(client, emulator_root: Path, destination: Path, timeout: float 
                 selected = slot, candidates
                 break
         if selected is None:
-            raise StateStoreError('Todos os dez slots já têm arquivos. Nenhum estado existente será substituído.')
+            raise StateStoreError('Todos os dez slots já têm arquivos. Nenhum estado existente será substituído. '
+                'No PCSX2, use Sistema → Salvar estado → Arquivo… e escolha um arquivo .p2s novo.')
         slot, candidates = selected
         if destination in candidates:
             raise StateStoreError('Escolha um destino diferente do slot temporário do PCSX2.')

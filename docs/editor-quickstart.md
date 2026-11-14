@@ -1,8 +1,10 @@
 # Editor do evento atual — primeiro uso
 
-Esta interface externa edita o evento que está carregado no PCSX2. A primeira
-versão permite identificar os veículos presentes, deslocar um veículo na
-largura da via e acrescentar lotes de 1 a 8 atrás de uma referência. Caminhões
+Esta interface externa edita o evento que está carregado no PCSX2. A interface
+permite identificar os veículos presentes, deslocar um veículo na
+largura da via, acrescentar lotes atrás de uma referência e criar um veículo
+num ponto X/Z aproximado a caminhos carregados. O modo normal usa grupos de
+1 a 8; o modo experimental permite pedidos maiores sujeitos à capacidade. Caminhões
 com carga usam somente pares nativos já carregados pelo jogo.
 
 O perfil pesquisado é Burnout 3 USA, `SLUS_210.50`, no PCSX2 1.7.2521. Outros
@@ -29,6 +31,12 @@ teste do emulador e preserve uma referência do evento antes de editar.
 Ao selecionar um veículo bloqueado, os detalhes explicam se ele é um
 componente vinculado, um tipo ainda não habilitado ou se o jogo ainda não
 inicializou sua física. Estar listado não significa estar pronto para editar.
+
+Se a identidade do jogo foi confirmada, mas o perfil de tráfego é recusado,
+o editor mantém a conexão e desabilita a edição. Com o jogo pausado, **Finalizar
+pendência** continua disponível, sem exigir seleção de veículo. Uma limpeza
+bem-sucedida permanece informada mesmo se a leitura seguinte ainda falhar;
+use **Atualizar lista** para liberar a edição somente após uma leitura válida.
 
 Uma nova conexão limpa a receita de ações que ainda está no editor. Salve a
 configuração antes de iniciar outra sessão, caso queira conservar essa receita.
@@ -60,11 +68,18 @@ categorias como Van, Bus, táxi e carretas; isso não identifica um fabricante
 ou um modelo real de automóvel.
 
 A lista de criação oferece **Mesmo modelo do selecionado** e os modelos
-carregados e admitidos pelo perfil. Há tipos independentes 1/2 e conjuntos
+carregados e admitidos pelo perfil. Há tipos independentes 1/2/3/5 e conjuntos
 nativos de cabine tipo 4 com carga tipo 11. Ao escolher uma cabine, a interface
 mostra **Carga do caminhão** e somente combinações observadas e carregadas.
-A carga não é oferecida como veículo avulso. Ônibus e combinações sem validação
-continuam fora da criação.
+A carga não é oferecida como veículo avulso. Vans `HEVYCAR17/18` de tipo 3 e
+ônibus `HEVYCAR19/21` de tipo 5 são admitidos quando há associação nativa
+consistente e física pronta. `HEVYCAR20` apenas carregado, sem essa associação,
+continua bloqueado. Tipos especiais 6 a 10 não estão habilitados. O teste real
+de criação de ônibus ainda está pendente.
+
+Nos independentes, o perfil exige dois pontos físicos inicializados e não
+degenerados, coerência com a posição renderizada e o collider, além de caminho
+e ocupação válidos. Um veículo distante com pontos zerados continua bloqueado.
 
 A aba **Catálogo carregado** mostra todos os modelos encontrados, sua categoria
 e o estado da criação: **Disponível**, **Disponível com caminhão** ou
@@ -98,12 +113,14 @@ caminho estiverem inicializados; a direção relativa ao jogador não é o bloqu
 
 ## Adicionar um lote ou caminhão com carga
 
+Os intervalos abaixo são do modo normal, com o toggle experimental desligado.
+
 1. Com o emulador pausado, selecione o veículo de referência.
 2. Escolha o modelo, **Quantidade** de 1 a 8 e **Distância atrás**. Para os
-   independentes, o valor inicial é 10 e o intervalo é de 8 a 50 unidades do jogo.
+   independentes 1/2/3, o valor inicial é 10 e o intervalo é de 8 a 50 unidades do jogo.
 3. Para uma cabine, escolha também a carga compatível. **Conjuntos** conta
    pares completos, não componentes. A carga nativa do alvo só é preselecionada
-   quando seu vínculo foi validado. Para caminhão ou referência composta,
+   quando seu vínculo foi validado. Para ônibus tipo 5, caminhão ou referência desses tipos,
    a distância mínima é 30; a interface ajusta o valor menor para 30.
 4. Clique em **Adicionar veículos atrás** ou **Adicionar conjuntos atrás**.
    Use **Retomar** uma vez para executar o lote. Não repita o clique de criação.
@@ -135,6 +152,77 @@ a referência anterior, pause o emulador e clique em **Conectar / nova sessão**
 A criação anterior não é repetida automaticamente. Repetir uma ação sem saber
 seu resultado pode acrescentar outra instância.
 
+## Modo experimental e pedidos maiores
+
+1. Preserve um estado de controle antes de testar. Ative **Modo experimental:
+   ampliar quantidade e distância** e leia o aviso persistente de alto risco de
+   travamento, congelamento e perda de física.
+2. Informe uma distância positiva e finita. O teto de 50 e os mínimos de 8/30
+   deixam de ser restrições do editor nesse modo; o fim do caminho continua
+   sendo respeitado. Distâncias pequenas podem sobrepor veículos.
+3. A quantidade aceita pedidos de até 253, mas o pedido precisa caber nos
+   objetos, nós e registros de colisão disponíveis. Não são 253 carros
+   garantidos; um conjunto cabine/carga consome dois objetos.
+4. Pedidos maiores usam uma fila em grupos de até oito. Faça **Retomar →
+   Pausar PCSX2** e aguarde a confirmação de cada grupo. O rodapé informa o
+   próximo grupo e a fila restante. Não repita o clique de criação.
+5. **Cancelar fila** descarta as operações restantes. Ele não remove veículos
+   já criados nem desfaz o grupo que já foi preparado; finalize esse grupo
+   conforme a mensagem antes de voltar a editar.
+
+O aviso permanece visível enquanto o modo estiver ativo. O editor mostra
+contagens de objetos ativos, física pronta, objetos/nós livres e fila; pode
+avisar quando objetos de uma referência deixam de ter física inicializada.
+Esses dados não estabelecem uma capacidade segura de impacto. Se um objeto
+perder física, não trate a quantidade livre no pool como prova de que ele
+continuará funcionando; restaure a referência de controle para comparar.
+
+Este modo não corrige o assert VIF relatado e não amplia estruturas do motor.
+O erro e a observação de falhas após mais de cinquenta carros estão descritos em
+[muitos veículos e testes experimentais](high-density-experiments.md). O relato
+não demonstra um limite universal de cinquenta.
+
+## Criar no ponto marcado
+
+1. Pause o PCSX2, atualize a lista e selecione uma referência com caminho e
+   física válidos. Escolha o modelo carregado e, se for caminhão, a carga compatível.
+2. Abra **Vista de cima**. Clique em **Marcar posição** e depois no mapa; o alvo
+   aparece com X/Z. Também é possível digitar X e Z diretamente nos campos.
+3. Clique em **Adicionar no ponto**. Essa ação prepara um veículo ou conjunto,
+   usando o modelo escolhido no painel lateral; a quantidade do lote atrás
+   não multiplica a criação no ponto.
+4. Siga **Retomar → Pausar PCSX2**, aguarde a finalização e só então retome para
+   observar presença, movimento e colisão.
+
+O ponto X/Z é projetado de forma aproximada no melhor caminho entre aqueles
+que têm referências prontas na sessão. No modo normal a posição é ajustada à
+largura admitida da via, e pontos muito distantes são recusados. O modo
+experimental admite lateral fora dessa largura, com risco maior de física
+inválida; ele ainda precisa de um caminho reconhecido.
+
+Não há seleção de altura Y ou busca de terreno. O mapa não desenha a pista e
+não carrega locais ausentes, por isso o resultado pode diferir do clique.
+Essa criação não teleporta um veículo existente. Quando um objeto fora da via
+ainda tiver física e layout admitidos, o modo experimental pode liberar
+**Aplicar posição** para tentar retorná-lo à largura de 0% a 100%. Ele continua
+sem servir de referência para novas criações enquanto estiver fora do perfil normal.
+
+## Finalizar uma pendência antiga
+
+1. Pause o PCSX2 e confira **Jogo pausado**.
+2. Clique em **Finalizar pendência**, mesmo se a lista estiver bloqueada ou vazia.
+3. Leia o resultado no rodapé. Se a solicitação for reconhecida e já tiver
+   devolvido o controle ao jogo, o editor limpa somente a área temporária admitida.
+4. Clique em **Atualizar lista**. Se o perfil continuar inválido, restaure uma
+   referência limpa pelo PCSX2 antes de editar.
+
+Um estado feito antes da limpeza pode restaurar a rotina temporária antiga.
+Para removê-la, o editor exige o registro local correspondente e o payload
+canônico de um formato reconhecido, com prova de conclusão. Código desconhecido
+ou sem prova continua bloqueado. A ação não alinha veículos nem recupera a
+receita daquela solicitação. A recuperação de solicitações antigas é explícita;
+o auto-poll não repete o comando de criação nem faz essa limpeza por conta própria.
+
 ## Guardar a configuração
 
 **Salvar configuração** gera um JSON local com os dados usados pelo editor.
@@ -144,14 +232,35 @@ usado para preparar a receita. Recarregue essa referência e pause o emulador,
 inicie uma nova sessão no editor e abra o JSON. Uma receita que cria veículos
 exige as mesmas etapas de retomar e pausar descritas acima.
 
+Se a receita contiver ações experimentais, ative o toggle e leia o aviso antes
+de abri-la. Com o modo desligado, o controlador recusa essas ações; um JSON
+não pode ativar o risco por conta própria. A receita ainda exige os mesmos
+modelos carregados, referências válidas e estado inicial.
+
 **Salvar estado…** exporta um arquivo `.p2s` da sessão editada, com o emulador
 pausado e nenhuma criação pendente. Escolha um nome novo. O botão só aparece
 quando a instalação portátil pode ser identificada. A implementação usa um slot
 livre, verifica o arquivo gerado e recusa substituir estados e destinos existentes.
+O diálogo sugere `outputs/events/` na pasta do projeto e um nome com data/hora,
+sem colisão com arquivos locais. O rodapé mostra **Arquivo:** com o caminho
+retornado após exportar.
 **O usuário confirmou a exportação real; o arquivo exportado ainda não foi
-restaurado em teste.** Para
-reabrir, carregue o jogo correspondente e use a opção do PCSX2 de carregar um
-estado a partir de arquivo. O editor não carrega esse arquivo automaticamente.
+restaurado em teste.** Na sessão atual, os dez slots estão ocupados: o botão
+recusa a exportação para preservar esses arquivos. Nesse caso, salve pelo próprio
+PCSX2 em **Sistema → Salvar estado → Arquivo…**, escolhendo um destino **novo**
+com extensão `.p2s`, por exemplo dentro de `outputs/events/`. Uma cópia de
+controle salva por essa rota manual passou na verificação de ZIP e memória EE.
+Isso não é um teste do botão de exportação nessa sessão com todos os slots cheios.
+
+Para reabrir:
+
+1. Deixe o jogo correspondente aberto no PCSX2.
+2. Na janela principal do PCSX2, escolha **Sistema → Carregar estado → Arquivo…**.
+3. Selecione o `.p2s` onde foi salvo e clique em **Abrir**. Isso restaura o instante salvo.
+4. Pause o emulador e conecte o editor como nova sessão antes de editar.
+
+O editor não carrega esse arquivo automaticamente. Se ele trouxer uma pendência
+antiga, siga a seção **Finalizar uma pendência antiga** acima.
 
 O JSON não contém os recursos do jogo e não substitui um save state. A edição
 vale para os dados da sessão atual: **Restart** do jogo, troca de evento ou
@@ -165,9 +274,10 @@ O protocolo e a pausa exigida foram conferidos no
 [PINE oficial do PCSX2 v1.7.2521](https://github.com/PCSX2/pcsx2/blob/v1.7.2521/pcsx2/PINE.cpp).
 As mensagens de sucesso da interface não substituem a observação no jogo.
 
-Após reabrir a revisão com a saída protegida do lote, o usuário confirmou que
-lote e exportação funcionaram. A validação automatizada passou em 122 testes
-distribuíveis e 35 privados (19 do controlador e 16 do perfil). Bloqueios de
+Na rodada anterior, após reabrir a revisão com a saída protegida do lote, o usuário confirmou que
+lote e exportação funcionaram. A validação automatizada cobre também recuperação
+e os tipos admitidos, sem substituir o teste real de ônibus ou dos novos modos
+ampliados e de criação por ponto. Bloqueios de
 perfil ainda podem impedir uma operação; o relato não valida todos os cenários.
 
 O fluxo de lotes, caminhões, pausa e arquivos está em

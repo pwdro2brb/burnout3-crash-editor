@@ -19,6 +19,19 @@ seguinte também admite lotes de 1 a 8 e pares nativos carregados de cabine
 tipo 4 com carga tipo 11; o estado atual está em
 [batches-trucks-and-pause.md](batches-trucks-and-pause.md).
 
+O perfil desta etapa também admite independentes 3/5 com associação nativa
+consistente: vans `HEVYCAR17/18` de tipo 3 e ônibus `HEVYCAR19/21` de tipo 5.
+Exige dois pontos físicos não degenerados, coerência do render e collider,
+caminho e ocupação válidos. `HEVYCAR20` apenas carregado continua bloqueado sem
+associação ativa consistente ao tipo 5. Tipos especiais 6 a 10 não foram
+habilitados. O teste real de criação de ônibus ainda está pendente; a distância
+admitida para ônibus escolhido ou usado como referência é de 30 a 50 unidades.
+
+Um lote de ônibus tipo 5 em formato v2 foi preparado e aguardava o usuário
+retomar o tráfego; a etapa não comprova presença, movimento, colisão ou finalização.
+Na rodada de validação passaram 157 testes distribuíveis e 40 privados
+(19 do controlador e 21 do perfil).
+
 Após reabrir a revisão com finalização protegida, o usuário confirmou lote e
 exportação reais. O registro local também inclui oito `HEVYCAR33` finalizados
 no caminho 53 e dois pares `HEVYCAR22` + `HEVYCAR27` finalizados em cada um dos
@@ -26,6 +39,12 @@ caminhos 34 e 53. Uma leitura posterior registrou recusa estrutural de perfil
 com uma solicitação pendente. Isso não prova travamento ou falha geral e não
 elimina as restrições de física, vínculos e caminho. A restauração do `.p2s`
 exportado e um quarto tanque continuam sem teste.
+
+Com os dez slots ocupados na sessão atual, a exportação PINE pelo editor é
+recusada sem substituir saves. A alternativa **Sistema → Salvar estado → Arquivo…**
+com destino novo gerou uma cópia de controle validada como ZIP/EE de 32 MiB.
+A restauração usa **Sistema → Carregar estado → Arquivo…** e ainda precisa
+de validação do arquivo exportado.
 
 Não há teste de direção relativa ao jogador no controlador. Ele exige
 pontos físicos inicializados, caminho válido e concordância entre orientação,
@@ -56,6 +75,19 @@ Isso permitirá distinguir uma solicitação antiga de outra alteração se o er
 reaparecer. Uma solicitação reconhecida de outra sessão recebe orientação
 específica; código desconhecido continua bloqueado. O editor não tenta
 restaurá-lo por adivinhação. Esses diagnósticos ficam fora do repositório.
+
+Uma pendência investigada depois veio do recarregamento de um estado feito
+antes da limpeza. O botão **Finalizar pendência** passou a conferir o registro
+local e o payload canônico v1/v2 com landing, exigindo conclusão e devolução
+de controle antes de limpar. Uma recuperação real mudou somente a área
+temporária de 4 KiB; objetos, nós e matrizes permaneceram idênticos byte a byte,
+sem reposicionar veículos. A receita antiga e seu alinhamento não foram recuperados.
+O token v2 por geração impede aceitar a conclusão de outra solicitação.
+
+Com a identidade do jogo confirmada e o perfil inválido, a conexão é mantida
+para essa recuperação explícita. Listagem e mutações continuam bloqueadas até
+uma leitura válida. Se o código ou registro não conferir, o editor exige uma
+referência limpa e não tenta remover bytes desconhecidos.
 
 ## Cabine e carga são um conjunto
 

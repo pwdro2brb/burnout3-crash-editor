@@ -1,14 +1,18 @@
 """Control-flow/ABI tests for emitted bytes; no emulator or game assets needed."""
 import hashlib
+import base64
 import struct
 import unittest
+import zlib
+from unittest.mock import Mock, patch
 
 from spawncode import (ALLOCATOR, BATCH_CODE_STRIDE, BATCH_MAX_REQUESTS,
                        BATCH_RECORD_BASE, BATCH_RECORD_STRIDE,
                        CAVE, DATA, END, HOOK, LANDING, LANDING_SIZE, MAGIC,
                        MAGIC_ADDRESS, MANAGER, NONCE_ADDRESS, ORIGINAL,
                        PROBE_SIZE, RETURN, SECONDARY_MODEL_OFFSET,
-                       build_batch, build_spawn, clean_batch_scratch)
+                       build_batch, build_spawn, clean_batch_scratch,
+                       completion_token, match_batch_scratch)
 
 
 PARAMS = dict(manager=MANAGER, type_code=2, model_hash=0x5B55839B95F21600,
@@ -18,6 +22,17 @@ PAIR_PARAMS = {**PARAMS, 'type_code': 4,
                'model_hash': 0xFEDCBA9887654321,
                'secondary_type_code': 11,
                'secondary_model_hash': 0x8BADF00D01234567}
+
+# Frozen own-code fixture from the Landing-based v1 format, with three
+# synthetic completed records. It contains no game data or emulator snapshot.
+V1_FIXTURE_B85 = (
+    'c${nazgJy>VNtyS!{T}eh6T@E7#2SFU|93qhhgpW0ETtXxfvvF7_2PK85k`3r5G5*8GwM1K|%${UoXI*($B=esv^Olc3;'
+    'tgfkDv$h$BEMxKtDvH2WDC7OdA`&^fNdpnKeaLGSpKNvu2|S(uqD3`*;n85{&aVj_&rJsb?m>zSZt1Kn~Q=$7L^w;'
+    'Tt$<v7qS$ARvw2D-Dlfnl%u0*3wfIT*GbpTMxM+Tjcn2LqX)fe8OM;PF2T)c@QJ>?#%v8uvl|XC%V^4OH}h1C9O9V2#'
+    '`Vj9B8IiJ17erk?-Bfac}oTAJ^xmav(?AOSSjV*R$`5;hz_HpncnefE~-AhSQ5CqJx4!6+C7qhJ(_g5d&~fLLH%FoS_i'
+    'D46e15(JSD`!scSb7=GlJqW)?vA~&u;e#Wo<~td?x|A6*Fc=sb8Jn1znOj&UCMBn&rXkxuVSO+|1DgGc&Z+G)cHQ|0w?'
+    'DBEX#Wqm{pqgCjJzM#c2mQCfsMfo7YO-(VUaV)IBNTU6pVsVFmQkgiOoy{^J$;|E!M}*W+l5%0{~`Y<ev'
+)
 
 
 class RoutineMachine:
@@ -256,6 +271,17 @@ class SpawnCodeTests(unittest.TestCase):
             with self.subTest(returned=returned):
                 self.check_execution(returned, PAIR_PARAMS)
 
+    def test_single_constructor_types_three_and_five_preserve_independent_abi(self):
+        for type_code in (3, 5):
+            with self.subTest(type_code=type_code):
+                self.check_execution(0x53AE10, {**PARAMS, 'type_code': type_code})
+                with self.assertRaises(ValueError):
+                    build_spawn(**{**PAIR_PARAMS, 'type_code': type_code})
+        for type_code in (0, 6, 7, 8, 9, 10, 11):
+            with self.subTest(rejected_type=type_code):
+                with self.assertRaises(ValueError):
+                    build_spawn(**{**PARAMS, 'type_code': type_code})
+
     def test_allocator_success_and_one_shot(self):
         self.check_execution(0x53AE10)
 
@@ -263,7 +289,7 @@ class SpawnCodeTests(unittest.TestCase):
         self.check_execution(0)
 
     def test_invalid_requests_rejected_before_emitting_bytes(self):
-        invalid = dict(manager=MANAGER + 4, type_code=3, model_hash=0,
+        invalid = dict(manager=MANAGER + 4, type_code=6, model_hash=0,
                        path_descriptor=0x522EC9, progression=float('nan'),
                        speed=-1, spacing=float('inf'), variant=8, nonce=b'short')
         for key, value in invalid.items():
@@ -317,6 +343,9 @@ class SpawnCodeTests(unittest.TestCase):
         self.assertEqual(batch['request_count'], 8)
         self.assertEqual(batch['completion_address'], DATA)
         self.assertEqual(batch['landing_address'], LANDING)
+        self.assertEqual(batch['format_version'], 2)
+        self.assertEqual(batch['completion_token'], completion_token(PARAMS['nonce']))
+        self.assertEqual(struct.unpack_from('<I', scratch, DATA - CAVE + 4)[0], batch['completion_token'])
         self.assertEqual(struct.unpack_from('<I', scratch, DATA - CAVE + 0x0C)[0], 8)
         self.assertEqual(scratch[MAGIC_ADDRESS - CAVE:NONCE_ADDRESS - CAVE], MAGIC)
         self.assertEqual(scratch[NONCE_ADDRESS - CAVE:NONCE_ADDRESS - CAVE + 16], PARAMS['nonce'])
@@ -330,7 +359,7 @@ class SpawnCodeTests(unittest.TestCase):
             with self.subTest(index=index):
                 start = CAVE + index * BATCH_CODE_STRIDE
                 rows = [row for row in batch['rows'] if start <= row['address'] < start + BATCH_CODE_STRIDE]
-                code_size = 204 if index < 7 else 248
+                code_size = 204 if index < 7 else 252
                 self.assertEqual(len(rows) * 4, code_size)
                 self.assertLessEqual(code_size, BATCH_CODE_STRIDE)
                 target = start + BATCH_CODE_STRIDE if index < 7 else LANDING
@@ -386,9 +415,9 @@ class SpawnCodeTests(unittest.TestCase):
         completion_offset = batch['completion_address'] - CAVE
         immutable[completion_offset:completion_offset + 4] = bytes(4)
         self.assertEqual(bytes(immutable), batch['scratch_bytes'])
-        self.assertEqual(machine.integer(DATA, 4), 2)
+        self.assertEqual(machine.integer(DATA, 4), batch['completion_token'])
         self.assertEqual(machine.load(HOOK, 8), ORIGINAL)
-        self.assertEqual(machine.master_publications, [{'pc': LANDING, 'state': 2, 'hook': ORIGINAL}])
+        self.assertEqual(machine.master_publications, [{'pc': LANDING, 'state': batch['completion_token'], 'hook': ORIGINAL}])
         machine.run()
         self.assertEqual(machine.calls, count)
         self.assertEqual(len(machine.completions), count)
@@ -416,7 +445,7 @@ class SpawnCodeTests(unittest.TestCase):
         self.assertEqual(machine.integer(first + 8, 4), 0x551A50)
         self.assertEqual(machine.integer(second, 4), 1)
         self.assertEqual(machine.integer(second + 4, 4), 0)
-        self.assertEqual(machine.integer(DATA, 4), 2)  # Global DONE does not replace per-record checks.
+        self.assertEqual(machine.integer(DATA, 4), batch['completion_token'])  # Token does not replace record checks.
         machine.run()
         self.assertEqual(machine.calls, 1)
 
@@ -434,6 +463,122 @@ class SpawnCodeTests(unittest.TestCase):
         landing_rows = [row for row in batch['rows'] if LANDING <= row['address'] < LANDING + 12]
         self.assertEqual([row['address'] for row in landing_rows], [LANDING, LANDING + 4, LANDING + 8])
         self.assertEqual(b''.join(struct.pack('<I', row['word']) for row in landing_rows), baseline[0xFC0:0xFCC])
+
+    def test_completion_tokens_are_nonce_bound_and_do_not_reuse_the_predecessor(self):
+        requests = self.batch_requests(1)
+        token = completion_token(PARAMS['nonce'])
+        self.assertNotIn(token, (0, 1, 2))
+        self.assertEqual(completion_token(PARAMS['nonce']), token)
+        other = completion_token(bytes(range(16)))
+        self.assertNotEqual(other, token)
+        with self.assertRaises(ValueError):
+            build_batch(requests, PARAMS['nonce'], previous_completion_token=token)
+        self.assertEqual(build_batch(requests, PARAMS['nonce'],
+                                     previous_completion_token=other)['completion_token'], token)
+        for previous in (True, -1, 1 << 32):
+            with self.subTest(previous=previous), self.assertRaises(ValueError):
+                build_batch(requests, PARAMS['nonce'], previous_completion_token=previous)
+        digests = [Mock(digest=Mock(return_value=n.to_bytes(4, 'little') + bytes(28)))
+                   for n in (0, 2, 0x89ABCDEF)]
+        with patch('spawncode.hashlib.sha256', side_effect=digests):
+            self.assertEqual(completion_token(PARAMS['nonce']), 0x89ABCDEF)
+
+    def test_old_landing_publication_cannot_retire_the_next_generation(self):
+        old_token = completion_token(bytes(range(16)))
+        batch = build_batch(self.batch_requests(1), PARAMS['nonce'],
+                            previous_completion_token=old_token)
+        machine = RoutineMachine([0x53AE10], request=batch)
+        # Model resuming the previous generation at the permanent SW after a
+        # new payload was installed. Its carried T8 publishes an old token.
+        machine.gpr[24], machine.gpr[25] = old_token, DATA
+        continuation = machine.run(continuation=(LANDING, None), stop_after=LANDING)
+        self.assertEqual(machine.integer(DATA, 4), old_token)
+        self.assertNotEqual(machine.integer(DATA, 4), batch['completion_token'])
+        machine.run(continuation=continuation)
+        hook_restore = [row['address'] for row in batch['rows']
+                        if row['address'] < LANDING and row['instruction'] == 'sw t8,0(t9)'][-1]
+        continuation = machine.run(stop_after=hook_restore)
+        self.assertEqual(machine.load(HOOK, 8), ORIGINAL)
+        self.assertTrue(all(machine.integer(probe['address'], 4) == 2 for probe in batch['probes']))
+        self.assertEqual(machine.integer(DATA, 4), old_token)
+        self.assertNotEqual(machine.integer(DATA, 4), batch['completion_token'])
+        machine.run(continuation=continuation)
+        self.assertEqual(machine.integer(DATA, 4), batch['completion_token'])
+        self.assertEqual(machine.calls, 1)
+
+    def test_matcher_reconstructs_v2_parameters_and_frozen_publications(self):
+        batch = build_batch(self.batch_requests(3), PARAMS['nonce'])
+        machine = RoutineMachine([0x53AE10, 0, 0x53B110], request=batch)
+        machine.run()
+        scratch = machine.load(CAVE, END - CAVE)
+        matched = match_batch_scratch(scratch, PARAMS['nonce'])
+        self.assertIsNotNone(matched)
+        self.assertEqual(matched['format_version'], 2)
+        self.assertEqual(matched['payload']['scratch_bytes'], batch['scratch_bytes'])
+        self.assertEqual(matched['payload']['completion_token'], batch['completion_token'])
+        self.assertEqual(matched['master_value'], batch['completion_token'])
+        self.assertEqual(matched['publications'], [[2, 0x53AE10, 0x551C30],
+                                                  [2, 0, 0], [2, 0x53B110, 0x551CD0]])
+        for actual, expected in zip(matched['requests'], self.batch_requests(3)):
+            for key in ('manager', 'type_code', 'model_hash', 'path_descriptor', 'variant'):
+                self.assertEqual(actual[key], expected[key])
+            for key in ('progression', 'speed', 'spacing'):
+                self.assertEqual(actual[key], struct.unpack('<f', struct.pack('<f', expected[key]))[0])
+        # A matching code/nonce template is not retirement: the caller still
+        # must compare the master value with this payload's completion token.
+        stale = bytearray(scratch)
+        struct.pack_into('<I', stale, DATA - CAVE, 0xDEADBEEF)
+        matched = match_batch_scratch(bytes(stale), PARAMS['nonce'])
+        self.assertIsNotNone(matched)
+        self.assertNotEqual(matched['master_value'], matched['payload']['completion_token'])
+
+    def test_matcher_recognizes_frozen_landing_v1_but_not_prelanding_code(self):
+        scratch = zlib.decompress(base64.b85decode(V1_FIXTURE_B85))
+        self.assertEqual(hashlib.sha256(scratch).hexdigest(),
+                         '35ee75156c8bd298adeafdbd8e4a9ef1723c56302ffcc566a67eea956aabd74b')
+        matched = match_batch_scratch(scratch, PARAMS['nonce'])
+        self.assertIsNotNone(matched)
+        self.assertEqual(matched['format_version'], 1)
+        self.assertEqual(matched['payload']['completion_token'], 2)
+        self.assertEqual(matched['master_value'], 2)
+        self.assertEqual(matched['publications'], [[2, 0x53AE10, 0x551C30],
+                                                  [2, 0x53AF90, 0x551C80],
+                                                  [2, 0x53B110, 0x551CD0]])
+        self.assertEqual([r['type_code'] for r in matched['requests']], [2, 4, 1])
+        old = bytearray(scratch)
+        old[LANDING - CAVE:LANDING - CAVE + LANDING_SIZE] = bytes(LANDING_SIZE)
+        last = 2 * BATCH_CODE_STRIDE
+        struct.pack_into('<2I', old, last + 0xC4, 0x08000000 | (RETURN >> 2), 0)
+        old[last + 0xCC:last + 0xF8] = bytes(0xF8 - 0xCC)
+        self.assertIsNone(match_batch_scratch(bytes(old), PARAMS['nonce']))
+
+    def test_matcher_rejects_unknown_code_nonce_layout_and_invalid_publications(self):
+        batch = build_batch(self.batch_requests(3), PARAMS['nonce'])
+        scratch = batch['scratch_bytes']
+        addresses = [0x10, LANDING - CAVE, NONCE_ADDRESS - CAVE, DATA - CAVE + 4,
+                     DATA - CAVE + 0x0C]
+        for index in range(3):
+            record = BATCH_RECORD_BASE - CAVE + index * BATCH_RECORD_STRIDE
+            addresses += [record + 0x14, record + 0x20, record + 0x68]
+        for offset in addresses:
+            with self.subTest(offset=hex(offset)):
+                altered = bytearray(scratch)
+                altered[offset] ^= 1
+                self.assertIsNone(match_batch_scratch(bytes(altered), PARAMS['nonce']))
+        record = batch['probes'][0]['offset']
+        for publication in ((3, 0, 0), (0, 0x53AE10, 0), (2, 0, 0x551C30),
+                            (2, 0x53AE11, 0x551C30), (2, 0x53AE10, 0),
+                            (2, 0x53AE10, 0x551C31), (2, 0x100, 0x200)):
+            with self.subTest(publication=publication):
+                altered = bytearray(scratch)
+                struct.pack_into('<3I', altered, record, *publication)
+                self.assertIsNone(match_batch_scratch(bytes(altered), PARAMS['nonce']))
+        altered = bytearray(scratch)
+        struct.pack_into('<3I', altered, record, 1, 0x53AE10, 0)
+        self.assertIsNotNone(match_batch_scratch(bytes(altered), PARAMS['nonce']))
+        self.assertIsNone(match_batch_scratch(scratch, bytes(range(16))))
+        self.assertIsNone(match_batch_scratch(scratch[:-1], PARAMS['nonce']))
+        self.assertIsNone(match_batch_scratch(build_spawn(**PARAMS)['scratch_bytes'], PARAMS['nonce']))
 
     def test_batch_publishes_outside_removable_code_and_resumes_after_cleanup(self):
         for count in (1, 3, 8):
@@ -454,7 +599,7 @@ class SpawnCodeTests(unittest.TestCase):
                 self.assertFalse(machine.returned)
                 continuation = machine.run(continuation=continuation, stop_after=LANDING)
                 self.assertEqual(continuation, (LANDING + 4, None))
-                self.assertEqual(machine.master_publications, [{'pc': LANDING, 'state': 2, 'hook': ORIGINAL}])
+                self.assertEqual(machine.master_publications, [{'pc': LANDING, 'state': batch['completion_token'], 'hook': ORIGINAL}])
                 hook_events = [(address, value) for _pc, address, value in machine.events
                                if address in (HOOK, HOOK + 4)]
                 self.assertEqual(hook_events, [(HOOK + 4, 0x7BBE0090), (HOOK, 0xC7B60008)])

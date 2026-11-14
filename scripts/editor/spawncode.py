@@ -9,6 +9,7 @@ not atomic with a running EE. The routine uses the common epilogue join at
 from __future__ import annotations
 
 import math
+import hashlib
 import secrets
 import struct
 
@@ -31,6 +32,7 @@ PROBE_STATE_EXECUTING = 1
 PROBE_STATE_DONE = 2
 PROBE_SIZE = 12
 SECONDARY_MODEL_OFFSET = 0x38
+SINGLE_TYPES = (1, 2, 3, 5)
 BATCH_MAX_REQUESTS = 8
 BATCH_CODE_STRIDE = 0x100
 BATCH_RECORD_BASE = CAVE + 0xA00
@@ -81,6 +83,19 @@ def clean_batch_scratch() -> bytes:
     return bytes(scratch)
 
 
+def completion_token(nonce: bytes) -> int:
+    """Derive a deterministic non-reserved publication value for one nonce."""
+    if not isinstance(nonce, bytes) or len(nonce) != 16:
+        raise ValueError('Request nonce must contain exactly 16 bytes')
+    counter = 0
+    while True:
+        digest = hashlib.sha256(b'B3ED completion v2\0' + nonce + counter.to_bytes(4, 'little')).digest()
+        token = int.from_bytes(digest[:4], 'little')
+        if token not in (0, 1, 2):
+            return token
+        counter += 1
+
+
 def build_spawn(manager: int, type_code: int, model_hash: int,
                 path_descriptor: int, progression: float, speed: float,
                 spacing: float, variant: int = 0, *,
@@ -88,7 +103,7 @@ def build_spawn(manager: int, type_code: int, model_hash: int,
                 nonce: bytes | None = None) -> dict:
     """Construct one independent vehicle or a linked tractor/trailer request.
 
-    Types 1 and 2 admit no secondary component. Type 4 requires a type-11
+    Independent types 1/2/3/5 admit no secondary. Type 4 requires a type-11
     secondary and its own loaded model identifier. Model compatibility and
     capacity checks are the controller's job; the stock creator owns the
     linked objects, path node, model initialization and collision registration.
@@ -115,13 +130,14 @@ def _build_spawn(manager: int, type_code: int, model_hash: int,
                  spacing: float, variant: int = 0, *,
                  secondary_type_code: int = 0, secondary_model_hash: int = 0,
                  nonce: bytes | None = None, code_address: int,
-                 data_address: int, return_address: int, finish_batch: bool = False) -> dict:
+                 data_address: int, return_address: int, finish_batch: bool = False,
+                 finish_token: int | None = None) -> dict:
     """Render a validated request at private, caller-selected scratch offsets."""
     if manager != MANAGER or type(manager) is not int:
         raise ValueError('Only the researched USA traffic manager is admitted')
-    _integer(type_code, 1, 4, 'Constructor type')
-    if type_code not in (1, 2, 4):
-        raise ValueError('Only independent types 1/2 or a linked type-4 pair are admitted')
+    _integer(type_code, 1, 5, 'Constructor type')
+    if type_code not in SINGLE_TYPES and type_code != 4:
+        raise ValueError('Only independent types 1/2/3/5 or a linked type-4 pair are admitted')
     _integer(model_hash, 1, (1 << 64) - 1, 'Model identifier')
     _integer(secondary_type_code, 0, 11, 'Secondary constructor type')
     _integer(secondary_model_hash, 0, (1 << 64) - 1, 'Secondary model identifier')
@@ -129,7 +145,7 @@ def _build_spawn(manager: int, type_code: int, model_hash: int,
         if secondary_type_code != 11 or secondary_model_hash == 0:
             raise ValueError('A type-4 tractor requires a type-11 secondary and model identifier')
     elif secondary_type_code != 0 or secondary_model_hash != 0:
-        raise ValueError('Independent types 1/2 do not admit a secondary component')
+        raise ValueError('Independent types 1/2/3/5 do not admit a secondary component')
     _integer(path_descriptor, PATHS, MANAGER - 1, 'Path descriptor')
     if (path_descriptor - PATHS) % PATH_STRIDE:
         raise ValueError('Path descriptor is not an aligned USA path record')
@@ -228,7 +244,11 @@ def _build_spawn(manager: int, type_code: int, model_hash: int,
             ins(43, 25, 24, offset, f'sw t8,{offset}(t9)')
         ins(15, 0, 25, DATA >> 16, f'lui t9,{DATA >> 16:#x}')
         ins(13, 25, 25, DATA & 0xFFFF, f'ori t9,t9,{DATA & 0xFFFF:#x}')
-        ins(9, 0, 24, PROBE_STATE_DONE, 'addiu t8,zero,2')
+        if finish_token is None:  # Historical v1, recognized only by the matcher.
+            ins(9, 0, 24, PROBE_STATE_DONE, 'addiu t8,zero,2')
+        else:
+            ins(15, 0, 24, finish_token >> 16, f'lui t8,{finish_token >> 16:#x}')
+            ins(13, 24, 24, finish_token & 0xFFFF, f'ori t8,t8,{finish_token & 0xFFFF:#x}')
         emit(_j(2, LANDING), f'j {LANDING:#x}')
         emit(0, 'nop')
     else:
@@ -275,28 +295,44 @@ def _build_spawn(manager: int, type_code: int, model_hash: int,
 
 
 def build_batch(requests: list[dict] | tuple[dict, ...],
-                nonce: bytes | None = None) -> dict:
+                nonce: bytes | None = None, *, previous_completion_token: int | None = None) -> dict:
     """Chain one to eight stock allocations during one traffic-update return.
 
     Each mapping uses ``build_spawn`` parameters except ``nonce``. Requests
     have independent one-shot probes: a failed allocation records DONE with
     null pointers and continues to the next request. Any nonzero state skips
     that allocation on later traversals, including an interrupted EXECUTING
-    request. Cleanup requires every probe AND the global completion word to be
-    DONE. The final stub restores the hook before jumping to a permanent landing;
-    only that landing publishes global completion, outside the removable code.
+    request. Cleanup requires every probe to be DONE AND the global completion
+    word to match this nonce's token. The final stub restores the hook before
+    jumping to a permanent landing; only that landing publishes the token,
+    outside the removable code. A predecessor's token must never be reused.
 
     ``probes`` exposes each probe's absolute address and its scratch-relative
     offset. Only its first twelve bytes and the global DATA completion word may
     change. Per-request records and the global DATA header share one nonce;
-    DATA+0x0c holds the count. Cleanup uses ``clean_scratch``, retaining LANDING.
+    DATA+4 holds the immutable expected token, DATA+0x0c holds the count.
+    Cleanup uses ``clean_scratch``, retaining LANDING.
     """
+    return _build_batch(requests, nonce, format_version=2,
+                        previous_completion_token=previous_completion_token)
+
+
+def _build_batch(requests: list[dict] | tuple[dict, ...], nonce: bytes | None,
+                 *, format_version: int, previous_completion_token: int | None = None) -> dict:
+    """Private v1 reconstruction exists only for strict recovery matching."""
     if not isinstance(requests, (list, tuple)) or not 1 <= len(requests) <= BATCH_MAX_REQUESTS:
         raise ValueError('A batch requires between one and eight request mappings')
     if nonce is None:
         nonce = secrets.token_bytes(16)
     if not isinstance(nonce, bytes) or len(nonce) != 16:
         raise ValueError('Request nonce must contain exactly 16 bytes')
+    if format_version not in (1, 2):
+        raise ValueError('Unsupported batch format')
+    token = PROBE_STATE_DONE if format_version == 1 else completion_token(nonce)
+    if previous_completion_token is not None:
+        _integer(previous_completion_token, 0, (1 << 32) - 1, 'Previous completion token')
+        if previous_completion_token == token:
+            raise ValueError('The nonce must produce a different completion token from its predecessor')
 
     clean_scratch = clean_batch_scratch()
     scratch = bytearray(clean_scratch)
@@ -312,7 +348,8 @@ def build_batch(requests: list[dict] | tuple[dict, ...],
         try:
             item = _build_spawn(**request, nonce=nonce, code_address=code_address,
                                 data_address=data_address, return_address=return_address,
-                                finish_batch=index + 1 == len(requests))
+                                finish_batch=index + 1 == len(requests),
+                                finish_token=token if format_version == 2 else None)
         except TypeError as exc:
             raise ValueError('Batch request parameters must match build_spawn') from exc
         if len(item['code_bytes']) > BATCH_CODE_STRIDE:
@@ -330,6 +367,8 @@ def build_batch(requests: list[dict] | tuple[dict, ...],
     if CAVE + code_end > BATCH_RECORD_BASE:
         raise ValueError('Batch code overlaps its request records')
     header_offset = DATA - CAVE
+    if format_version == 2:
+        struct.pack_into('<I', scratch, header_offset + 4, token)
     struct.pack_into('<I', scratch, header_offset + 0x0C, len(requests))
     scratch[MAGIC_ADDRESS - CAVE:NONCE_ADDRESS - CAVE] = MAGIC
     scratch[NONCE_ADDRESS - CAVE:NONCE_ADDRESS - CAVE + 16] = nonce
@@ -347,8 +386,78 @@ def build_batch(requests: list[dict] | tuple[dict, ...],
         'request_count': len(requests),
         'header_address': DATA,
         'completion_address': DATA,
+        'completion_token': token,
+        'format_version': format_version,
         'landing_address': LANDING,
         'magic_address': MAGIC_ADDRESS,
         'nonce_address': NONCE_ADDRESS,
         'nonce': nonce,
     }
+
+
+def match_batch_scratch(scratch: bytes, nonce: bytes) -> dict | None:
+    """Match an exact Landing-based v1/v2 request without claiming ownership.
+
+    The caller must independently match the full nonce and request metadata to
+    its journal. This parser never runs an allocation, aligns actors or writes
+    memory. It reconstructs known instruction/data templates and masks only the
+    master publication word and each three-word record publication. A matching
+    payload is not permission to clean: all records and the generation-specific
+    master value, original hook and paused state still need confirmation.
+    """
+    if (not isinstance(scratch, bytes) or len(scratch) != END - CAVE
+            or not isinstance(nonce, bytes) or len(nonce) != 16):
+        return None
+    header = DATA - CAVE
+    if (scratch[MAGIC_ADDRESS - CAVE:NONCE_ADDRESS - CAVE] != MAGIC
+            or scratch[NONCE_ADDRESS - CAVE:NONCE_ADDRESS - CAVE + 16] != nonce):
+        return None
+    count = struct.unpack_from('<I', scratch, header + 0x0C)[0]
+    if not 1 <= count <= BATCH_MAX_REQUESTS:
+        return None
+    expected_token = struct.unpack_from('<I', scratch, header + 4)[0]
+    if expected_token == 0:
+        format_version = 1
+    elif expected_token == completion_token(nonce):
+        format_version = 2
+    else:
+        return None
+    requests, publications = [], []
+    for index in range(count):
+        code = index * BATCH_CODE_STRIDE
+        record = BATCH_RECORD_BASE - CAVE + index * BATCH_RECORD_STRIDE
+        type_word = struct.unpack_from('<I', scratch, code + 0x40)[0]
+        variant_word = struct.unpack_from('<I', scratch, code + 0x54)[0]
+        if type_word & 0xFFFF0000 != 0x24050000 or variant_word & 0xFFFF0000 != 0x240A0000:
+            return None
+        type_code, variant = type_word & 0xFFFF, variant_word & 0xFFFF
+        progression, speed, spacing = struct.unpack_from('<3f', scratch, record + 0x28)
+        requests.append(dict(manager=struct.unpack_from('<I', scratch, record + 0x10)[0],
+            type_code=type_code, model_hash=struct.unpack_from('<Q', scratch, record + 0x18)[0],
+            path_descriptor=struct.unpack_from('<I', scratch, record + 0x20)[0],
+            progression=progression, speed=speed, spacing=spacing, variant=variant,
+            secondary_type_code=11 if type_code == 4 else 0,
+            secondary_model_hash=struct.unpack_from('<Q', scratch, record + 0x38)[0]))
+        state, obj, node = struct.unpack_from('<3I', scratch, record)
+        if state not in (0, 1, 2):
+            return None
+        if obj and not (0x539C10 <= obj < 0x539C10 + 254 * 0x180 and (obj - 0x539C10) % 0x180 == 0):
+            return None
+        if node and not (0x551910 <= node < 0x551910 + 254 * 0x50 and (node - 0x551910) % 0x50 == 0):
+            return None
+        if (state == 0 and (obj or node)) or (node and not obj) or (state == 2 and bool(obj) != bool(node)):
+            return None
+        publications.append([state, obj, node])
+    try:
+        payload = _build_batch(requests, nonce, format_version=format_version)
+    except (ValueError, TypeError, struct.error):
+        return None
+    masked = bytearray(scratch)
+    masked[header:header + 4] = bytes(4)
+    for probe in payload['probes']:
+        masked[probe['offset']:probe['offset'] + PROBE_SIZE] = bytes(PROBE_SIZE)
+    if bytes(masked) != payload['scratch_bytes']:
+        return None
+    return {'format_version': format_version, 'requests': requests, 'payload': payload,
+            'publications': publications,
+            'master_value': struct.unpack_from('<I', scratch, header)[0]}

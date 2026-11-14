@@ -2,8 +2,9 @@
 
 Ferramentas próprias para pesquisar e desenvolver um editor de eventos do
 Crash Mode de Burnout 3: Takedown. Há uma **interface externa experimental**
-para identificar modelos, reposicionar veículos e acrescentar lotes de 1 a 8
-veículos atrás de uma referência no evento carregado. Há suporte experimental
+para identificar modelos, reposicionar veículos e acrescentar lotes de
+veículos atrás de uma referência ou criar um veículo num ponto X/Z do evento
+carregado. Há suporte experimental
 a cabine com carga, limitado a pares nativos já carregados. A integração real confirmou leitura,
 reposicionamento e criação pelo controlador; o usuário também relatou presença
 e colisão da van preparada pela interface no Grand Slam.
@@ -21,8 +22,8 @@ finalização de oito `COMPCAR14` e de um conjunto `HEVYCAR22` + `HEVYCAR27`.
 Também houve finalizações recusadas após mudança de instância ou identidade;
 os resultados não validam todos os níveis, modelos e situações.
 
-A revisão mais recente protege a saída da rotina antes da limpeza do lote.
-Após reabrir essa versão do editor, o usuário confirmou: **“Lote e exportação
+A revisão que introduziu a saída protegida foi testada antes da etapa atual.
+Após reabrir aquela versão do editor, o usuário confirmou: **“Lote e exportação
 funcionaram”**. A restauração do arquivo exportado ainda não foi testada.
 Há sucessos registrados em diferentes caminhos e bloqueios de perfil posteriores;
 isso não estabelece estabilidade geral.
@@ -65,21 +66,65 @@ O editor não inicia o emulador nem dirige o veículo.
   jogo como **Car**; `HEVYCAR33` e `HEVYCAR35`, como **Van**; `HEVYCAR20`, como **Bus**.
 - **Vista de cima:** posições dos veículos e referência do jogador, quando
   disponível; sem desenho da pista. Um clique seleciona o veículo para edição.
-- **Edição:** deslocamento na largura do caminho e lotes de 1 a 8 atrás de uma
-  referência, com os modelos carregados e admitidos pelo perfil. Caminhões
+  **Marcar posição** e os campos X/Z permitem escolher um ponto para uma nova
+  criação, aproximado a um dos caminhos carregados com referência válida.
+- **Edição:** deslocamento na largura do caminho e, no modo normal, lotes de 1 a 8
+  atrás de uma referência, com os modelos carregados e admitidos pelo perfil. Caminhões
   oferecem seleção de carga compatível; a quantidade conta conjuntos completos.
+- **Modo experimental:** aviso persistente de alto risco de travamento e perda
+  de física; permite pedidos maiores e distância positiva sem o teto de 50.
+  Pedidos de até 253 são sujeitos à capacidade real disponível e executados
+  em grupos de até oito, com um ciclo de retomar/pausar por grupo. **Cancelar
+  fila** descarta o restante; o grupo já preparado ainda precisa finalizar.
+- **Estatísticas:** objetos ativos, física inicializada, recursos livres e
+  operações na fila. Componentes de caminhões contam como objetos separados;
+  essas contagens não estabelecem a capacidade segura de uma batida.
+- **Recuperação:** **Finalizar pendência** confere e limpa uma solicitação
+  reconhecida, inclusive quando o perfil impede listar os veículos. A conexão
+  fica disponível e a edição permanece bloqueada até uma leitura válida.
 
-A criação do lote usa um ciclo: preparar com o emulador pausado, retomar
+O perfil também admite associações nativas consistentes de tipo 3 nas vans
+`HEVYCAR17/18` e tipo 5 nos ônibus `HEVYCAR19/21`. Exige dois pontos físicos,
+render e colisão coerentes. Ônibus carregado sem associação ativa consistente,
+como `HEVYCAR20` na referência examinada, continua bloqueado. Tipos especiais
+6 a 10 não foram habilitados; o teste real de ônibus ainda está pendente.
+
+A criação de cada grupo de até oito usa um ciclo: preparar com o emulador pausado, retomar
 para o jogo criar as instâncias e pausar novamente para finalizar todas.
 Depois da confirmação, retome para dirigir e testar. A interface acompanha a
 etapa; o teste de presença e colisão é feito pelo usuário.
 
+O modo experimental libera restrições do editor, sem ampliar os pools fixos do
+jogo. O fim do caminho, modelos compatíveis, pausa confirmada e verificações de
+memória continuam exigidos. A criação por ponto não permite definir Y, carregar
+mapas ausentes ou teleportar um corpo existente. Uma posição fora da largura
+normal da via pode perder física; quando o perfil ainda admitir a edição, o
+controle lateral de 0% a 100% permite tentar devolvê-la à via com o modo ligado.
+Receitas com ações experimentais só são carregadas com o toggle explicitamente
+ativo; abrir um JSON não ativa esse modo automaticamente.
+
+O assert `FQC = 0 on VIF FIFO READ!` relatado após cenas muito densas não prova
+um limite geral de cinquenta carros. Esta revisão não corrige o crash nem
+desativa asserts do emulador. A investigação e seus limites estão em
+[muitos veículos e testes experimentais](docs/high-density-experiments.md).
+
 As alterações valem para a sessão atual. As configurações JSON são receitas
 para **o mesmo estado inicial**, não novos arquivos de evento. Reiniciar o
 evento ou carregar outro estado pode descartar as alterações. **Salvar estado…**
-exporta um `.p2s` para reabrir no PCSX2; a exportação real foi confirmada
-manualmente, e a restauração desse arquivo segue pendente. A criação de ônibus e combinações de caminhão não observadas
-permanece bloqueada. O reposicionamento conjunto de cabine/carga ainda é experimental.
+exporta um `.p2s` para reabrir no PCSX2 quando há um slot temporário livre.
+Na sessão atual, os dez slots já estão ocupados e o botão recusa substituir
+qualquer um deles. Use **Sistema → Salvar estado → Arquivo…** no PCSX2 com um
+destino novo; uma cópia de controle foi salva e validada por essa rota manual.
+A restauração do arquivo ainda não foi testada. A sugestão de destino do editor
+é `outputs/events/`, com nome único; o rodapé mostra o caminho exportado. Para
+restaurar, use **Sistema → Carregar estado → Arquivo…** no PCSX2. Combinações de
+caminhão não observadas continuam bloqueadas. O reposicionamento conjunto de
+cabine/carga ainda é experimental.
+
+Recarregar um estado salvo antes da limpeza pode recolocar código temporário
+antigo na memória. A recuperação explícita exige correspondência com o registro
+local, payload canônico e conclusão válida; não reposiciona veículos nem recupera
+uma receita antiga. A conclusão v2 usa um token por geração para distinguir lotes.
 
 Consulte o [guia de primeiro uso](docs/editor-quickstart.md) e o
 [estado da implementação e evidências do catálogo](docs/editor-status.md), além de
@@ -179,8 +224,9 @@ Consulte [docs/findings.md](docs/findings.md) e o marco de reposicionamento para
 os resultados históricos, e [docs/editor-status.md](docs/editor-status.md) para
 a interface em integração. O teste controlado ligou um objeto de RAM a uma
 mudança visual localizada e verificou atualização dos limites de colisão.
-Passaram **122 testes distribuíveis** e **35 testes privados**, sendo 19 do
-controlador e 16 do perfil. Ainda faltam testes de física e repetição mais
+Os testes automatizados cobrem transporte, perfil, criação, recuperação,
+interface e exportação. A implementação do modo ampliado e da criação por ponto
+não constitui validação real de cenas densas. Ainda faltam testes de física e repetição mais
 amplos, restaurar o `.p2s` exportado e generalizar os modelos e eventos admitidos.
 O reempacotamento implementado é de save states, não de recursos do jogo.
 

@@ -129,6 +129,33 @@ class StateExportTests(unittest.TestCase):
                 self.assertFalse((root/'wrong-root-folder').exists())
                 self.assertFalse((root/'sstates').exists())
 
+    def test_trailing_nul_newline_padding_is_read_only_in_utf8_and_utf16(self):
+        for encoding in ('utf-8-sig', 'utf-16'):
+            with self.subTest(encoding=encoding), tempfile.TemporaryDirectory() as temporary:
+                root = Path(temporary)/'emulator'
+                config = portable(root, folder='padded-states', encoding=encoding,
+                                  root_keys='MainGuiPosition=421,186\n')
+                text = config.read_text(encoding=encoding)
+                config.write_text(text+'\0'*4096+'\r\n\0\n', encoding=encoding)
+                original = config.read_bytes()
+                self.assertEqual(store._states_directory(root), (root/'padded-states').resolve())
+                self.assertEqual(config.read_bytes(), original)
+
+    def test_embedded_nul_is_rejected_instead_of_repairing_paths_or_keys(self):
+        cases = ('Save\0states=sstates\n', 'Savestates=bad\0folder\n',
+                 'Savestates=bad\0\n', '\0\n[More]\nKey=Value\n', '\0\n  ')
+        for encoding in ('utf-8-sig', 'utf-16'):
+            for invalid in cases:
+                with self.subTest(encoding=encoding, invalid=repr(invalid)), tempfile.TemporaryDirectory() as temporary:
+                    root = Path(temporary)/'emulator'
+                    config = portable(root, encoding=encoding)
+                    text = '[Folders]\nUseDefaultSavestates=disabled\n'+invalid
+                    config.write_text(text, encoding=encoding)
+                    original = config.read_bytes()
+                    with self.assertRaisesRegex(store.StateStoreError, 'nulo'):
+                        store._states_directory(root)
+                    self.assertEqual(config.read_bytes(), original)
+
     def test_all_slots_occupied_in_either_layout_refuses_without_queue(self):
         with tempfile.TemporaryDirectory() as temporary:
             base, root = Path(temporary), Path(temporary)/'emulator'

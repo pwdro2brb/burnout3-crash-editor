@@ -1,5 +1,12 @@
 # Editor externo e identificação de modelos
 
+Na revisão de 14/11/2026 passaram **201 testes distribuíveis** e **40 testes
+locais com capturas privadas** (19 do controlador e 21 do perfil). Os testes
+incluem fila, cancelamento, projeção por ponto, preservação do caminho no replay
+e retorno lateral experimental. A interface foi verificada em testes sem janela;
+a conferência visual desta revisão e os ensaios reais dos modos novos continuam
+pendentes. Esses resultados não comprovam estabilidade com muitos veículos.
+
 Estado documentado em 13/11/2026. A interface do evento atual está implementada
 e foi ligada a uma cópia isolada do PCSX2 real. O usuário relatou: **“A van
 apareceu e a colisão funcionou”**, na rodada preparada pela interface no Grand
@@ -30,6 +37,8 @@ Os arquivos examinados mantiveram os hashes de origem.
 | `COMPCAR14` | Car | 1897 | Objetos independentes de tipo 1; inclui a instância criada anteriormente |
 | `HEVYCAR33` | Van | 1925 | Objeto independente de tipo 2 |
 | `HEVYCAR35` | Van | 1927 | Objeto independente de tipo 2 |
+| `HEVYCAR17/18` | Van | 1909/1910 | Associação nativa consistente a tipo 3 nas referências desta etapa |
+| `HEVYCAR19/21` | Bus | 1911/1913 | Associação nativa consistente a tipo 5 nas referências desta etapa |
 | `HEVYCAR20` | Bus | 1912 | Modelo carregado, sem instância independente ativa na referência; criação bloqueada |
 
 Para reproduzir a associação estática, a tabela de 40 IDs começa em
@@ -49,9 +58,16 @@ avulsa. Ônibus e combinações sem validação continuam bloqueados. A
 disponibilidade é calculada para a sessão carregada;
 a lista estática de 40 modelos não significa que todos estejam na memória.
 
-Em uma leitura posterior, o jogo também apresentou instâncias independentes
-de `HEVYCAR20` com tipo 5. Sua criação continua bloqueada: a primeira versão
-do editor não admite esse tipo 5.
+O perfil atual também admite tipos independentes 3 e 5, quando a captura contém
+associação nativa consistente: `HEVYCAR17/18` nas vans de tipo 3 e
+`HEVYCAR19/21` nos ônibus de tipo 5. Na referência desta etapa, `HEVYCAR20`
+está somente carregado e continua inelegível sem essa associação. A habilitação
+não é inferida apenas pelo nome da categoria. Tipos especiais 6 a 10 continuam
+bloqueados; o teste real de criação de ônibus ainda está pendente.
+
+Os independentes 1/2/3/5 exigem dois pontos físicos inicializados e não
+degenerados, caminho admitido e coerência com render e collider. Um modelo
+elegível para criação não torna editável uma instância ainda sem física pronta.
 
 ## Integração real observada
 
@@ -112,20 +128,39 @@ atualizada reconectou com **Jogo pausado**, sem criação pendente.
 - Conexão PINE local, com validação de PCSX2 1.7.2521 e Burnout 3 USA,
   `SLUS-21050` / CRC `BEBF8793`.
 - Identificação dos veículos presentes e dos modelos carregados.
-- Vista de cima das posições X/Z, com seleção de veículo. Não contém malha ou
-  desenho da pista e não acompanha o jogo em tempo real.
+- Conexão mantida com perfil inválido após confirmar a identidade do jogo,
+  mantendo **Finalizar pendência** disponível e a edição bloqueada.
+- Vista de cima das posições X/Z, com seleção de veículo, alvo por clique e
+  entrada manual de coordenadas para nova criação. Não contém malha ou desenho
+  da pista e não acompanha o jogo em tempo real.
 - Reposicionamento lateral de independente com física inicializada e uma
   edição candidata do conjunto cabine/carga, protegida pelo vínculo nativo.
-- Lotes de 1 a 8, usando a rotina do próprio jogo em um único ciclo de retomar
-  e pausar; cabine e carga contam como um conjunto.
-- Distância de 8 a 50 unidades nos independentes e de 30 a 50 para caminhão
-  ou referência composta, sem equivalência estabelecida em metros.
+- No modo normal, lotes de 1 a 8, usando a rotina do próprio jogo em um ciclo
+  de retomar e pausar; cabine e carga contam como um conjunto.
+- No modo normal, distância de 8 a 50 unidades nos independentes e de 30 a 50 para caminhão
+  ou referência composta e ônibus tipo 5, sem equivalência estabelecida em metros.
+- Modo experimental explícito, com aviso persistente de alto risco de
+  travamento/perda de física, distância positiva sem o teto de 50 e pedidos
+  maiores sujeitos aos recursos disponíveis. A fila é executada em grupos
+  de até oito; **Cancelar fila** remove só o que ainda não foi preparado.
+- Estatísticas de objetos ativos e inicializados, objetos/nós livres e fila,
+  com aviso quando objetos conhecidos deixam de ter física inicializada.
 - Botões **Pausar PCSX2** e **Retomar**, quando a instalação Windows da
   conexão PINE e seu menu compatível são identificados.
 - Receitas JSON para reaplicar as ações sobre exatamente o mesmo estado inicial.
 - Exportação **Salvar estado…** para `.p2s`, implementada para a instalação
   portátil; o usuário confirmou a exportação real. O arquivo exportado ainda
-  não foi restaurado em teste.
+  não foi restaurado em teste. A sugestão fica em `outputs/events/`, com nome
+  único e caminho retornado no rodapé. A restauração usa
+  **Sistema → Carregar estado → Arquivo…** no PCSX2.
+
+Na sessão atual, os dez slots de Burnout 3 já estavam ocupados e a exportação
+por PINE foi recusada para preservar os arquivos existentes. A alternativa
+**Sistema → Salvar estado → Arquivo…**, com destino novo, produziu uma cópia
+de controle validada como ZIP com memória EE de 32 MiB, sem substituir originais.
+Esse resultado é da rota manual de arquivo, não do botão PINE com slots cheios.
+O leitor de configuração aceita padding NUL somente no final do INI UTF-8 sem BOM
+examinado; não ignora NUL interno nem altera a configuração do emulador.
 
 O emulador deve estar pausado ao listar e editar. Use **Pausar PCSX2** ou o
 menu **Sistema → Pausar** do emulador correto. A pausa interna com **Start**
@@ -171,6 +206,80 @@ as estruturas de tráfego não passaram na verificação, mantendo uma pendênci
 Essa recusa não estabelece travamento ou falha geral; os limites de perfil
 continuam ativos mesmo após os ensaios bem-sucedidos.
 
+## Recuperação explícita de solicitações restauradas
+
+O diagnóstico desta etapa ligou uma pendência antiga ao recarregamento de um
+estado feito antes da limpeza: a rotina temporária voltou à memória junto
+com aquele estado. **Finalizar pendência** reconhece apenas payloads canônicos
+v1/v2 baseados na landing, com correspondência no registro local e prova de que
+o lote devolveu o controle ao jogo. Código desconhecido ou execução incompleta
+continua bloqueado.
+
+Uma recuperação real alterou somente a área temporária de 4 KiB. As regiões
+classificadas de objetos, nós e matrizes permaneceram idênticas byte a byte;
+nenhum veículo foi reposicionado. Isso encerrou o código antigo, sem recuperar
+seu alinhamento ou sua receita JSON. Os dumps, tokens e hashes privados dessa
+conferência não são distribuídos.
+
+O formato v2 liga a publicação de conclusão a um token da geração daquela
+solicitação e evita reutilização do histórico conhecido. Os probes e o token
+esperado precisam concordar: uma publicação de outro lote não conclui o atual.
+O formato v1 com landing permanece reconhecido somente para recuperação
+controlada de uma solicitação antiga já encerrada.
+
+A ação de recuperação é explícita e passa pelo trabalhador da interface.
+Ela continua acessível com perfil de tráfego inválido, sem seleção de veículo.
+Se a limpeza for confirmada e a leitura seguinte falhar, o aviso de sucesso é
+preservado e a lista/edição ficam bloqueadas até uma leitura válida.
+
+Um novo lote de ônibus tipo 5 em formato v2 foi preparado. A conferência foi
+interrompida antes de confirmar sua finalização; isso não confirma movimento,
+presença visível ou colisão de ônibus em execução.
+
+## Densidade experimental e criação no ponto
+
+O usuário relatou perda de física e congelamento/assert VIF em cenas com mais
+de cinquenta carros adicionais e muitos envolvidos no mesmo impacto. O assert
+`FQC = 0 on VIF FIFO READ!` indica uma leitura FIFO com contagem zero no emulador;
+não é um contador de carros nem comprova um teto geral de cinquenta. A pesquisa
+encontrou outros recursos finitos, mas não atribuiu a causa exata da falha.
+As fontes, o escopo estático e as hipóteses estão em
+[high-density-experiments.md](high-density-experiments.md).
+
+O modo experimental da interface libera limites próprios do editor; não aumenta
+as estruturas fixas do jogo e não corrige o crash. Cada pedido aceita no máximo
+253 por causa do pool conhecido e precisa caber nas reservas reais de objetos,
+nós e colisão. Um conjunto cabine/carga usa dois objetos. Pedidos acima de oito
+viram grupos sucessivos de até oito, com confirmação de retomar/pausar a cada
+grupo; eles não executam centenas de alocações num único frame. Cancelar a fila
+não desfaz veículos criados ou o grupo já preparado.
+
+Com o toggle ativo, uma distância positiva e finita deixa de ter o intervalo
+artificial de 8/30 a 50, e a proteção de proximidade é relaxada. O caminho ainda
+precisa existir e ter trecho utilizável. Identidade, pausa, modelo carregado,
+formato de código, conclusão e limites conhecidos de memória continuam exigidos.
+As estatísticas da interface descrevem os objetos da sessão; não demonstram
+que todos possam participar de uma batida com física completa.
+
+**Adicionar no ponto** usa um único veículo ou conjunto por ação. X/Z podem vir
+do alvo na vista de cima ou dos campos manuais; a implementação aproxima o
+ponto ao melhor caminho entre os carregados que têm referências válidas. No
+modo normal, limita a lateral à largura admitida e recusa um pedido muito
+distante. No experimental, admite uma lateral fora dessa largura, ainda sem
+buscar terreno ou definir Y. O resultado pode diferir do clique: não se trata
+de um posicionamento exato em qualquer superfície, carregamento de cenário
+novo ou teleporte de um corpo existente.
+
+Para um objeto deslocado fora da faixa que ainda mantenha o layout e a física
+admitidos, o modo experimental pode oferecer o controle lateral de 0% a 100%
+para tentar trazê-lo de volta. Isso não o torna uma referência normal de criação
+enquanto estiver fora do perfil. Receitas registram a natureza experimental das
+ações; sua carga é recusada com o toggle desligado, sem ativação automática pelo JSON.
+
+Esses fluxos novos têm validação automatizada, mas não receberam ensaio real
+nesta etapa. O relato anterior de criação/colisão e o novo relato de falha com
+muitos carros não validam a implementação ampliada ou a criação por ponto.
+
 ## Limites e próxima validação
 
 A interface usa os modelos e caminhos já carregados pelo jogo. As alterações
@@ -182,9 +291,8 @@ save state e não resolve a persistência no evento.
 
 Os testes automatizados verificam o protocolo, o perfil, a rotina de criação,
 o fluxo da interface e as simulações de controle de janela/exportação.
-Passaram **122 testes distribuíveis** e **35 privados**: 19 do controlador e
-16 do perfil. Eles não demonstram
-impacto, estabilidade prolongada ou funcionamento de todos os modelos e níveis.
+Esses resultados não demonstram impacto,
+estabilidade prolongada ou funcionamento de todos os modelos e níveis.
 A integração e o relato manual acima cobrem somente os ensaios descritos.
 Edição dentro do jogo,
 novos locais de Crash e gravação persistente continuam como etapas futuras.

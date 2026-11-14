@@ -3,12 +3,18 @@ from contextlib import redirect_stdout
 import io
 from pathlib import Path
 import queue
+import sys
+from tempfile import TemporaryDirectory
 import types
 import unittest
 from unittest.mock import Mock, patch
 
 import gui
 import run_editor
+
+sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+from editor.profile import ProfileError
+from editor.pine import PineTransportError
 
 
 class Var:
@@ -26,6 +32,7 @@ def app_shell(vehicle=None, *, paused=True):
     app = gui.EditorApp.__new__(gui.EditorApp)
     app.busy, app.pending, app.closed = False, False, False
     app.connected, app.core_paused = True, paused
+    app.profile_valid = True
     app.selected = lambda: vehicle
     app.core_text, app.status = Var(), Var()
     for name in ('connect_button', 'refresh_button', 'save_button', 'load_button',
@@ -172,7 +179,9 @@ class InterfaceContractTests(unittest.TestCase):
         app.controller = types.SimpleNamespace(export_state=Mock(return_value={'message': 'Estado editado salvo.'}))
         jobs = []
         app._submit = lambda label, work, done: jobs.append((work, done))
-        with patch.object(gui.filedialog, 'asksaveasfilename', return_value='edited.p2s') as dialog:
+        with TemporaryDirectory(prefix='b3-gui-export-') as folder, \
+                patch.object(gui, 'EXPORT_DIRECTORY', Path(folder)), \
+                patch.object(gui.filedialog, 'asksaveasfilename', return_value='edited.p2s') as dialog:
             app.export_state()
         dialog.assert_called_once()
         self.assertEqual(dialog.call_args.kwargs['defaultextension'], '.p2s')
@@ -478,6 +487,459 @@ class InterfaceContractTests(unittest.TestCase):
             with self.subTest(value=value):
                 with self.assertRaises(ValueError): gui.number(value, positive=True)
         self.assertEqual(gui.number(' 10,5 ', positive=True), 10.5)
+
+
+class RecoveryAndExportTests(unittest.TestCase):
+    @staticmethod
+    def connection_app(controller):
+        app = app_shell()
+        app.controller = controller
+        app.connection_text = Var()
+        app.model_choice = Var('Mesmo modelo do selecionado')
+        app.models, app.model_choices, app.vehicles = {}, {}, {}
+        app.table, app.catalog_table = Mock(), Mock()
+        app.table.get_children.return_value = ()
+        app.catalog_table.get_children.return_value = ()
+        app._selection_changed = Mock()
+        app.finalize_button = Widget()
+        return app
+
+    def test_connection_with_rejected_profile_skips_second_read_and_allows_finalize(self):
+        connection = {'game': 'Burnout 3 USA', 'profile': 'SLUS-21050', 'core_paused': True,
+                      'profile_valid': False, 'warning': True, 'models': [], 'vehicles': [],
+                      'message': 'As estruturas de tráfego não passaram na verificação.'}
+        controller = types.SimpleNamespace(connect=Mock(return_value=connection), refresh=Mock())
+        app = self.connection_app(controller)
+        jobs = []
+        app._submit = lambda label, work, done: jobs.append((work, done))
+        app.connect()
+        work, done = jobs.pop()
+        done(work())
+        app._update_controls()
+        controller.refresh.assert_not_called()
+        self.assertTrue(app.connected)
+        self.assertFalse(app.profile_valid)
+        self.assertEqual(app.finalize_button.options['state'], 'normal')
+        self.assertEqual(app.move_button.options['state'], 'disabled')
+        self.assertEqual(app.add_button.options['state'], 'disabled')
+        self.assertIn(connection['message'], app.status.get())
+
+    def test_second_read_profile_rejection_preserves_verified_connection(self):
+        controller = types.SimpleNamespace(
+            connect=Mock(return_value={'game': 'Burnout 3 USA', 'core_paused': True}),
+            refresh=Mock(side_effect=ProfileError('perfil rejeitado na segunda leitura')))
+        app = self.connection_app(controller)
+        jobs = []
+        app._submit = lambda label, work, done: jobs.append((work, done))
+        app.connect()
+        work, done = jobs.pop()
+        done(work())
+        app._update_controls()
+        self.assertTrue(app.connected)
+        self.assertFalse(app.profile_valid)
+        self.assertEqual(app.finalize_button.options['state'], 'normal')
+        self.assertIn('perfil rejeitado na segunda leitura', app.status.get())
+
+    def test_pine_error_during_second_read_is_not_treated_as_profile_rejection(self):
+        error = PineTransportError('fake disconnect', may_have_executed=False)
+        controller = types.SimpleNamespace(connect=Mock(return_value={'core_paused': True}),
+                                           refresh=Mock(side_effect=error))
+        app = self.connection_app(controller)
+        jobs = []
+        app._submit = lambda label, work, done: jobs.append((work, done))
+        app.connect()
+        work, _done = jobs.pop()
+        with self.assertRaises(PineTransportError): work()
+        self.assertFalse(app.connected)
+        app._update_controls()
+        self.assertEqual(app.finalize_button.options['state'], 'disabled')
+
+    def test_identity_failure_is_not_treated_as_profile_rejection(self):
+        error = PineTransportError('fake identity failure', may_have_executed=False)
+        controller = types.SimpleNamespace(connect=Mock(side_effect=error), refresh=Mock())
+        app = self.connection_app(controller)
+        jobs = []
+        app._submit = lambda label, work, done: jobs.append((work, done))
+        app.connect()
+        work, _done = jobs.pop()
+        with self.assertRaises(PineTransportError): work()
+        self.assertFalse(app.connected)
+        controller.refresh.assert_not_called()
+
+    def test_finalize_button_does_not_require_selection_profile_or_gui_pending(self):
+        for pending in (False, True):
+            with self.subTest(pending=pending):
+                app = app_shell()
+                app.pending, app.profile_valid = pending, False
+                app.finalize_button = Widget()
+                app._update_controls()
+                self.assertEqual(app.finalize_button.options['state'], 'normal')
+
+    def test_finalize_requires_connection_pause_and_free_worker(self):
+        for connected, paused, busy, closed in [(False, True, False, False),
+                                               (True, False, False, False),
+                                               (True, None, False, False),
+                                               (True, True, True, False),
+                                               (True, True, False, True)]:
+            with self.subTest(connected=connected, paused=paused, busy=busy, closed=closed):
+                app = app_shell(paused=paused)
+                app.connected, app.busy, app.closed = connected, busy, closed
+                app.finalize_button, app._change = Widget(), Mock()
+                app._update_controls()
+                app.finalize_pending()
+                self.assertEqual(app.finalize_button.options['state'], 'disabled')
+                app._change.assert_not_called()
+
+    def test_finalize_is_one_worker_action_even_when_gui_pending_is_false(self):
+        app = app_shell()
+        app.controller = types.SimpleNamespace(finalize_pending=Mock(return_value={'pending': False}))
+        actions = []
+        app._change = lambda label, action: actions.append(action)
+        app.finalize_pending()
+        app.controller.finalize_pending.assert_not_called()
+        self.assertEqual(len(actions), 1)
+        actions[0]()
+        app.controller.finalize_pending.assert_called_once()
+
+    def test_cleanup_message_and_warning_survive_profile_refresh_failure(self):
+        app = app_shell({'id': 9, 'editable': True})
+        app.pending = True
+        app.status_label, app.finalize_button = Widget(), Widget()
+        app.controller = types.SimpleNamespace(
+            finalize_pending=Mock(return_value={'pending': False, 'core_paused': True,
+                'warning': True, 'message': 'Pendência finalizada; alinhamento não confirmado.'}),
+            refresh=Mock(side_effect=RuntimeError('perfil inválido')))
+        jobs = []
+        app._submit = lambda label, work, done: jobs.append((work, done))
+        app.finalize_pending()
+        work, done = jobs.pop()
+        done(work())
+        app._update_controls()
+        self.assertFalse(app.pending)
+        self.assertTrue(app.core_paused)
+        self.assertFalse(app.profile_valid)
+        self.assertIn('Pendência finalizada; alinhamento não confirmado.', app.status.get())
+        self.assertIn('perfil inválido', app.status.get())
+        self.assertEqual(app.status_label.options['foreground'], '#8a5200')
+        self.assertEqual(app.move_button.options['state'], 'disabled')
+        self.assertEqual(app.add_button.options['state'], 'disabled')
+        self.assertEqual(app.load_button.options['state'], 'disabled')
+        self.assertEqual(app.table.options['selectmode'], 'none')
+        self.assertEqual(app.refresh_button.options['state'], 'normal')
+        self.assertEqual(app.finalize_button.options['state'], 'normal')
+        app.controller.finalize_pending.assert_called_once()
+
+    def test_invalidated_profile_cannot_select_a_cached_map_actor(self):
+        app = app_shell()
+        app.profile_valid = False
+        app.table = Mock()
+        app.map_hits = [(20, 30, 'old-actor')]
+        app._map_select(types.SimpleNamespace(x=20, y=30))
+        app.table.selection_set.assert_not_called()
+
+    def test_valid_snapshot_is_required_to_reenable_editing_after_invalidation(self):
+        vehicle = {'id': 9, 'model_id': 'car', 'editable': True}
+        app = app_shell(vehicle)
+        app._invalidate_profile()
+        app.table, app.catalog_table = Mock(), Mock()
+        app.table.get_children.return_value = ()
+        app.catalog_table.get_children.return_value = ()
+        app.model_choices, app.vehicles = {}, {}
+        app.model_choice = Var()
+        app._selection_changed = Mock()
+        app._snapshot({'core_paused': True, 'models': [], 'vehicles': [vehicle]})
+        app._update_controls()
+        self.assertTrue(app.profile_valid)
+        self.assertEqual(app.move_button.options['state'], 'normal')
+        app._snapshot({'core_paused': False, 'status': 'Pause antes de atualizar.'})
+        self.assertFalse(app.profile_valid)
+
+    def test_autopoll_never_calls_explicit_finalize_recovery(self):
+        app = app_shell()
+        app.pending, app.pending_poll_id = True, 'timer'
+        app.controller = types.SimpleNamespace(
+            poll=Mock(return_value={'pending': True, 'core_paused': True}),
+            finalize_pending=Mock(), refresh=Mock())
+        app._schedule_pending_poll = Mock()
+        jobs = []
+        app._submit = lambda label, work, done, **options: jobs.append((work, done))
+        app._poll_pending()
+        work, done = jobs.pop()
+        done(work())
+        app.controller.poll.assert_called_once()
+        app.controller.finalize_pending.assert_not_called()
+        app.controller.refresh.assert_not_called()
+
+    def test_export_name_avoids_existing_local_files(self):
+        with TemporaryDirectory(prefix='b3-gui-export-') as folder, patch.object(gui, 'datetime') as clock:
+            clock.now.return_value.strftime.return_value = '20261113-190000'
+            first = gui.export_suggestion(Path(folder))
+            first.write_text('preservar', encoding='utf8')
+            second = gui.export_suggestion(Path(folder))
+            self.assertNotEqual(first, second)
+            self.assertEqual(second.suffix, '.p2s')
+            self.assertEqual(first.read_text(encoding='utf8'), 'preservar')
+        self.assertEqual(gui.EXPORT_DIRECTORY.parts[-2:], ('outputs', 'events'))
+
+    def test_export_dialog_defaults_to_event_folder_and_displays_returned_path(self):
+        app = app_shell()
+        app.root, app.state_export = Mock(), True
+        returned_path = str(Path('backend-result') / 'saved.p2s')
+        app.controller = types.SimpleNamespace(export_state=Mock(return_value={
+            'message': 'Estado verificado.', 'path': returned_path}))
+        jobs = []
+        app._submit = lambda label, work, done: jobs.append((work, done))
+        with TemporaryDirectory(prefix='b3-gui-export-') as folder, \
+                patch.object(gui, 'EXPORT_DIRECTORY', Path(folder) / 'events'), \
+                patch.object(gui.filedialog, 'asksaveasfilename', return_value='chosen.p2s') as dialog:
+            app.export_state()
+            self.assertEqual(dialog.call_args.kwargs['initialdir'], str(Path(folder) / 'events'))
+            self.assertTrue((Path(folder) / 'events').is_dir())
+            self.assertTrue(dialog.call_args.kwargs['initialfile'].startswith('evento-editado-'))
+        work, done = jobs.pop()
+        done(work())
+        self.assertIn('Estado verificado.', app.status.get())
+        self.assertIn(returned_path, app.status.get())
+        self.assertNotIn('chosen.p2s', app.status.get())
+
+    def test_bus_type_five_uses_large_gap_without_exposing_trailer_controls(self):
+        app = truck_app(reference_is_truck=False)
+        app.models['bus'] = {'id': 'bus', 'label': 'Ônibus', 'kind': 'independent', 'type': 5}
+        app.model_choices['Ônibus'], app.model_choice = 'bus', Var('Ônibus')
+        app.gap_hint = Widget()
+        app._update_secondary_choices()
+        self.assertEqual(app.gap.get(), '30')
+        self.assertIn('Ônibus/caminhão', app.gap_hint.options['text'])
+        self.assertFalse(app.trailer_visible)
+        self.assertEqual(app.count_label.options['text'], 'Quantidade')
+
+    def test_bus_reference_uses_large_gap_and_van_type_three_keeps_small_gap(self):
+        for reference_bus in (False, True):
+            with self.subTest(reference_bus=reference_bus):
+                app = truck_app(reference_is_truck=False)
+                app.models['van3'] = {'id': 'van3', 'kind': 'independent', 'type': 3}
+                app.model_choices['Van'], app.model_choice = 'van3', Var('Van')
+                if reference_bus:
+                    app.models['bus'] = {'id': 'bus', 'kind': 'independent', 'type': 5}
+                    app.selected()['model_id'] = 'bus'
+                app._update_secondary_choices()
+                self.assertEqual(app.gap.get(), '30' if reference_bus else '10')
+
+
+class ExperimentalPlacementTests(unittest.TestCase):
+    @staticmethod
+    def creation_app(*, experimental=False):
+        app = app_shell({'id': 9, 'model_id': 'car', 'editable': True, 'can_reference': True})
+        app.root = Mock()
+        app.models = {'car': {'id': 'car', 'kind': 'independent', 'type': 1}}
+        app.model_choices = {'Mesmo modelo do selecionado': None}
+        app.model_choice = Var('Mesmo modelo do selecionado')
+        app.experimental = Var(experimental)
+        app.gap, app.count = Var('10'), Var('1')
+        app.point_x, app.point_z = Var('100'), Var('200')
+        return app
+
+    def test_experimental_quantity_has_finite_pool_bound_without_eight_car_cap(self):
+        for text, expected in [('9', 9), ('50', 50), ('253', 253)]:
+            with self.subTest(text=text):
+                self.assertEqual(gui.quantity(text, experimental=True), expected)
+                with self.assertRaises(ValueError): gui.quantity(text)
+        for text in ('0', '-1', '254', '9999999', '1.5', 'NaN', 'Inf', ''):
+            with self.subTest(text=text), self.assertRaises(ValueError):
+                gui.quantity(text, experimental=True)
+
+    def test_recipe_replay_only_receives_experimental_permission_from_explicit_toggle(self):
+        for experimental in (False, True):
+            with self.subTest(experimental=experimental):
+                app = self.creation_app(experimental=experimental)
+                app.controller = types.SimpleNamespace(load_preset=Mock())
+                actions = []
+                app._change = lambda label, action: actions.append(action)
+                with patch.object(gui.filedialog, 'askopenfilename', return_value='recipe.json'):
+                    app.load_preset()
+                app.controller.load_preset.assert_not_called()
+                self.assertEqual(len(actions), 1)
+                actions[0]()
+                expected = {'experimental': True} if experimental else {}
+                app.controller.load_preset.assert_called_once_with(str(Path('recipe.json')), **expected)
+
+    def test_experimental_offroad_actor_can_return_to_road_without_becoming_a_reference(self):
+        for experimental in (False, True):
+            with self.subTest(experimental=experimental):
+                vehicle = {'id': 9, 'editable': False, 'experimental_editable': True,
+                           'can_reference': False}
+                app = app_shell(vehicle)
+                app.experimental, app.lateral = Var(experimental), Var(50)
+                app._update_controls()
+                self.assertEqual(app.move_button.options['state'], 'normal' if experimental else 'disabled')
+                self.assertEqual(app.add_button.options['state'], 'disabled')
+                if experimental:
+                    app.controller = types.SimpleNamespace(move=Mock())
+                    actions = []
+                    app._change = lambda label, action: actions.append(action)
+                    app.move()
+                    app.controller.move.assert_not_called()
+                    actions[0]()
+                    app.controller.move.assert_called_once_with(9, 50, experimental=True)
+
+    def test_experimental_batches_submit_count_and_distance_without_artificial_maximum(self):
+        app = self.creation_app(experimental=True)
+        app.gap, app.count = Var('500,5'), Var('52')
+        app.controller = types.SimpleNamespace(add_many_behind=Mock())
+        actions = []
+        app._change = lambda label, action: actions.append(action)
+        app.add_behind()
+        app.controller.add_many_behind.assert_not_called()
+        self.assertEqual(len(actions), 1)
+        actions[0]()
+        app.controller.add_many_behind.assert_called_once_with(9, None, 500.5, 52,
+            secondary_model_id=None, experimental=True)
+
+    def test_experimental_small_spacing_is_explicit_and_normal_mode_rejects_it(self):
+        for experimental in (False, True):
+            with self.subTest(experimental=experimental):
+                app = self.creation_app(experimental=experimental)
+                app.gap = Var('0,5')
+                app.controller = types.SimpleNamespace(add_many_behind=Mock())
+                actions = []
+                app._change = lambda label, action: actions.append(action)
+                with patch.object(gui.messagebox, 'showinfo'):
+                    app.add_behind()
+                self.assertEqual(len(actions), int(experimental))
+                if actions:
+                    actions[0]()
+                    self.assertEqual(app.controller.add_many_behind.call_args.args[2], .5)
+                    self.assertTrue(app.controller.add_many_behind.call_args.kwargs['experimental'])
+
+    def test_experimental_warning_remains_visible_during_pending_and_status_changes(self):
+        app = self.creation_app(experimental=True)
+        app.experimental_warning, app.experimental_check = Mock(), Widget()
+        app.count_box = Widget()
+        app._experimental_changed()
+        self.assertEqual(app.count_box.options['to'], 253)
+        app.status.set('Lote preparado')
+        app.pending = True
+        app._update_controls()
+        self.assertEqual(app.experimental_check.options['state'], 'disabled')
+        self.assertEqual(app.experimental_warning.grid.call_count, 2)
+        app.experimental_warning.grid_remove.assert_not_called()
+        app.pending, app.experimental = False, Var(False)
+        app._experimental_changed()
+        self.assertEqual(app.count_box.options['to'], 8)
+        app.experimental_warning.grid_remove.assert_called_once()
+
+    def test_experimental_truck_does_not_silently_raise_spacing(self):
+        app = truck_app(reference_is_truck=False)
+        app.experimental, app.gap = Var(True), Var('.5')
+        app.gap_hint = Widget()
+        app._update_secondary_choices()
+        self.assertEqual(app.gap.get(), '.5')
+        self.assertIn('Experimental', app.gap_hint.options['text'])
+        self.assertIn('capacidade', app.gap_hint.options['text'])
+
+    def test_map_world_conversion_matches_displayed_axes_and_rejects_invalid_view(self):
+        self.assertEqual(gui.map_to_world((100, 200, 100), 500, 400, 250, 200), (100, 200))
+        self.assertEqual(gui.map_to_world((100, 200, 100), 500, 400, 285, 165), (110, 210))
+        for view, width, height in [((0, 0, 0), 500, 400), ((0, 0, 10), 40, 400),
+                                     ((0, 0, 10), 500, 50), ((float('nan'), 0, 10), 500, 400)]:
+            with self.subTest(view=view, width=width, height=height), self.assertRaises(ValueError):
+                gui.map_to_world(view, width, height, 20, 20)
+
+    def test_marking_empty_map_records_coordinates_without_selecting_or_adding(self):
+        app = self.creation_app()
+        app.marking_position, app.map_view, app.map_hits = True, (100, 200, 100), []
+        app.map_canvas, app.table, app.mark_button = Mock(), Mock(), Widget()
+        app.map_canvas.winfo_width.return_value = 500
+        app.map_canvas.winfo_height.return_value = 400
+        app._draw_traffic, app._update_controls = Mock(), Mock()
+        app.controller = types.SimpleNamespace(add_at=Mock())
+        app._map_select(types.SimpleNamespace(x=285, y=165))
+        self.assertEqual(app._target_point(), (110, 210))
+        self.assertFalse(app.marking_position)
+        app.table.selection_set.assert_not_called()
+        app.controller.add_at.assert_not_called()
+        app._draw_traffic.assert_called_once()
+
+    def test_marking_and_point_creation_remain_blocked_when_simulation_runs(self):
+        app = self.creation_app()
+        app.core_paused = False
+        app.marking_position, app.map_view, app.map_hits = True, (100, 200, 100), []
+        app._change = Mock()
+        app._map_select(types.SimpleNamespace(x=285, y=165))
+        self.assertEqual(app._target_point(), (100, 200))
+        app.add_at()
+        app._change.assert_not_called()
+
+    def test_point_creation_is_one_worker_action_with_the_chosen_model_and_mode(self):
+        for experimental in (False, True):
+            with self.subTest(experimental=experimental):
+                app = self.creation_app(experimental=experimental)
+                app.point_x, app.point_z = Var('-12,5'), Var('987.25')
+                app.model_choices['Van'] = 'van'
+                app.model_choice.set('Van')
+                app.controller = types.SimpleNamespace(add_at=Mock())
+                actions = []
+                app._change = lambda label, action: actions.append(action)
+                app.add_at()
+                self.assertEqual(len(actions), 1)
+                app.controller.add_at.assert_not_called()
+                actions[0]()
+                app.controller.add_at.assert_called_once_with(9, 'van', -12.5, 987.25,
+                    secondary_model_id=None, experimental=experimental)
+
+    def test_nonfinite_target_never_reaches_backend(self):
+        for bad in ('NaN', 'Inf', '-Inf', '', '1e308', '-1e308'):
+            with self.subTest(bad=bad):
+                app = self.creation_app(experimental=True)
+                app.point_x.set(bad)
+                app._change = Mock()
+                with patch.object(gui.messagebox, 'showinfo') as info:
+                    app.add_at()
+                app._change.assert_not_called()
+                info.assert_called_once()
+
+    def test_point_button_requires_target_reference_and_confirmed_pause(self):
+        app = self.creation_app()
+        app.add_at_button, app.point_x_entry, app.point_z_entry, app.mark_button = [Widget() for _ in range(4)]
+        app._update_controls()
+        self.assertEqual(app.add_at_button.options['state'], 'normal')
+        app.point_x.set('NaN')
+        app._update_controls()
+        self.assertEqual(app.add_at_button.options['state'], 'disabled')
+        app.point_x.set('100')
+        app.selected()['can_reference'] = False
+        app._update_controls()
+        self.assertEqual(app.add_at_button.options['state'], 'disabled')
+        self.assertEqual(app.mark_button.options['state'], 'disabled')
+
+    def test_cancelling_remaining_queue_uses_worker_without_repeating_creation(self):
+        app = self.creation_app(experimental=True)
+        app.pending, app.core_paused = True, False
+        app.cancel_queue_button = Widget()
+        app.controller = types.SimpleNamespace(cancel_queue=Mock())
+        actions = []
+        app._change = lambda label, action: actions.append(action)
+        app._update_controls()
+        self.assertEqual(app.cancel_queue_button.options['state'], 'normal')
+        app.cancel_queue()
+        app.controller.cancel_queue.assert_not_called()
+        self.assertEqual(len(actions), 1)
+        actions[0]()
+        app.controller.cancel_queue.assert_called_once()
+
+    def test_capacity_summary_does_not_claim_free_resources_when_unknown(self):
+        summary = gui.capacity_summary({'vehicles': [{'initialized': True}, {'initialized': False}]})
+        self.assertIn('Objetos ativos: 2', summary)
+        self.assertIn('Física pronta: 1', summary)
+        self.assertNotIn('livres', summary)
+        summary = gui.capacity_summary({'capacity': {'active_objects': 60, 'initialized_objects': 48,
+            'free_objects': 194, 'free_nodes': 191, 'queued_operations': 13,
+            'physics_warning': 'Alguns veículos não estão prontos.'}})
+        self.assertIn('Objetos ativos: 60', summary)
+        self.assertIn('Física pronta: 48', summary)
+        self.assertIn('Nós livres: 191', summary)
+        self.assertIn('Na fila: 13', summary)
+        self.assertIn('Alguns veículos não estão prontos.', summary)
 
 
 class LauncherTests(unittest.TestCase):
