@@ -1318,6 +1318,299 @@ class RouteAndSpeedTests(unittest.TestCase):
         app.details_canvas.itemconfigure.assert_not_called()
 
 
+class EventProjectTests(unittest.TestCase):
+    @staticmethod
+    def app(*, existing=False):
+        app=app_shell({'id':9,'editable':True})
+        app.root=Mock()
+        app.event_projects=True
+        app.project=dict(path='event.b3event.json',name='Cruzamento',scene_revision=2) if existing else None
+        app.project_name,app.project_text=Var('Meu cruzamento'),Var()
+        for name in ('project_name_entry','new_project_button','open_project_button',
+                     'save_project_button','test_project_button','restart_project_button','restore_base_button',
+                     'import_project_button','save_project_state_button','confirm_scene_button','confirm_base_button'):
+            setattr(app,name,Widget())
+        return app
+
+    def test_controls_require_capability_profile_pause_idle_and_active_project(self):
+        for blocked in (None,'capability','profile','running','pending','busy','closed','disconnected'):
+            for existing in (False,True):
+                with self.subTest(blocked=blocked,existing=existing):
+                    app=self.app(existing=existing)
+                    if blocked=='capability': app.event_projects=False
+                    elif blocked=='profile': app.profile_valid=False
+                    elif blocked=='running': app.core_paused=False
+                    elif blocked=='pending': app.pending=True
+                    elif blocked=='busy': app.busy=True
+                    elif blocked=='closed': app.closed=True
+                    elif blocked=='disconnected': app.connected=False
+                    app._update_controls()
+                    ready=blocked is None
+                    for name in ('new_project_button','open_project_button','project_name_entry',
+                                 'import_project_button','confirm_scene_button','confirm_base_button'):
+                        self.assertEqual(getattr(app,name).options['state'],'normal' if ready else 'disabled')
+                    for name in ('save_project_button','test_project_button','restart_project_button','restore_base_button',
+                                 'save_project_state_button'):
+                        self.assertEqual(getattr(app,name).options['state'],
+                                         'normal' if ready and existing else 'disabled')
+
+    def test_project_context_survives_refresh_and_can_be_explicitly_cleared(self):
+        app=self.app()
+        project=dict(path='folder/event.b3event.json',name='Avenida',base_path='base.p2s',
+                     scene_path='scene.p2s',scene_revision=3)
+        app._set_core_state(dict(core_paused=True,event_projects=True,project=project))
+        self.assertEqual(app.project,project)
+        self.assertEqual(app.project_name.get(),'Avenida')
+        self.assertIn('Cena salva 3',app.project_text.get())
+        self.assertIn('folder/event.b3event.json',app.project_text.get())
+        app._set_core_state(dict(core_paused=False))
+        self.assertTrue(app.event_projects)
+        self.assertEqual(app.project,project)
+        app._set_core_state(dict(core_paused=True,event_projects=False))
+        self.assertFalse(app.event_projects)
+        self.assertEqual(app.project,project)
+        app._set_core_state(dict(project=None))
+        self.assertIsNone(app.project)
+        self.assertIn('Nenhum projeto',app.project_text.get())
+
+    def test_create_chooses_parent_and_submits_one_new_child_and_trimmed_name(self):
+        app=self.app()
+        app.project_name.set('  Minha avenida  ')
+        app.controller=types.SimpleNamespace(create_project=Mock())
+        actions=[]
+        app._change=lambda _label,action:actions.append(action)
+        with TemporaryDirectory() as folder, patch.object(gui.filedialog,'askdirectory',return_value=folder) as dialog:
+            app.create_project()
+            app.controller.create_project.assert_not_called()
+            self.assertEqual(len(actions),1)
+            actions[0]()
+            directory,name=app.controller.create_project.call_args.args
+            self.assertEqual(Path(directory).parent,Path(folder))
+            self.assertTrue(Path(directory).name.startswith('evento-'))
+            self.assertFalse(Path(directory).exists(),'Backend owns exclusive directory creation')
+            self.assertEqual(name,'Minha avenida')
+            self.assertTrue(dialog.call_args.kwargs['mustexist'])
+
+    def test_new_directory_suggestion_avoids_existing_files_and_directories(self):
+        clock=Mock()
+        clock.now.return_value.strftime.return_value='20261115-120000'
+        with TemporaryDirectory() as folder, patch.object(gui,'datetime',clock):
+            parent=Path(folder)
+            first=gui.project_suggestion(parent)
+            first.mkdir()
+            second=gui.project_suggestion(parent)
+            second.write_text('occupied',encoding='utf8')
+            self.assertEqual(gui.project_suggestion(parent).name,'evento-20261115-120000-002')
+
+    def test_cancelled_or_invalid_create_does_not_reach_the_controller(self):
+        for name in ('','   ','x'*101,'A\nB','Válido'):
+            with self.subTest(name=name):
+                app=self.app()
+                app.project_name.set(name)
+                app._change=Mock()
+                with patch.object(gui.filedialog,'askdirectory',return_value='') as dialog, \
+                     patch.object(gui.messagebox,'showinfo') as info:
+                    app.create_project()
+                app._change.assert_not_called()
+                if name=='Válido':
+                    dialog.assert_called_once()
+                    info.assert_not_called()
+                else:
+                    dialog.assert_not_called()
+                    info.assert_called_once()
+
+    def test_open_passes_manifest_to_worker_and_invalidates_stale_traffic(self):
+        app=self.app(existing=True)
+        app.controller=types.SimpleNamespace(open_project=Mock())
+        actions=[]
+        app._change=lambda _label,action:actions.append(action)
+        with patch.object(gui.filedialog,'askopenfilename',return_value='saved.b3event.json') as dialog:
+            app.open_project()
+        self.assertFalse(app.profile_valid)
+        app.controller.open_project.assert_not_called()
+        self.assertEqual(dialog.call_args.kwargs['filetypes'],[('Projeto de evento','*.b3event.json')])
+        actions[0]()
+        app.controller.open_project.assert_called_once_with(str(Path('saved.b3event.json')))
+
+    def test_project_actions_use_one_controller_worker_action(self):
+        for method in ('save_project','test_project','restart_project','restore_project_base'):
+            with self.subTest(method=method):
+                app=self.app(existing=True)
+                action=Mock()
+                app.controller=types.SimpleNamespace(**{method:action})
+                actions=[]
+                app._change=lambda _label,callback:actions.append(callback)
+                getattr(app,method)()
+                action.assert_not_called()
+                self.assertEqual(len(actions),1)
+                self.assertEqual(app.profile_valid,method=='save_project')
+                actions[0]()
+                action.assert_called_once_with()
+
+    def test_missing_project_or_pending_blocks_every_project_action(self):
+        for condition in ('missing','pending','busy','running','invalid_profile','no_capability'):
+            with self.subTest(condition=condition):
+                app=self.app(existing=condition!='missing')
+                if condition=='pending': app.pending=True
+                elif condition=='busy': app.busy=True
+                elif condition=='running': app.core_paused=False
+                elif condition=='invalid_profile': app.profile_valid=False
+                elif condition=='no_capability': app.event_projects=False
+                app._change=Mock()
+                for method in ('save_project','test_project','restart_project','restore_project_base'):
+                    getattr(app,method)()
+                app._change.assert_not_called()
+                if condition!='missing':
+                    with patch.object(gui.filedialog,'askdirectory') as directory, \
+                         patch.object(gui.filedialog,'askopenfilename') as opening:
+                        app.create_project()
+                        app.open_project()
+                    directory.assert_not_called()
+                    opening.assert_not_called()
+
+    def test_test_response_cancels_stale_timer_and_keeps_running_despite_stale_refresh(self):
+        app=self.app(existing=True)
+        app.pending_poll_id='old-timer'
+        project=dict(path='event.b3event.json',name='Cruzamento',scene_revision=3)
+        result=dict(pending=False,core_paused=False,project=project,message='Cena salva. Pode jogar.')
+        app.controller=types.SimpleNamespace(test_project=Mock(return_value=result),
+            refresh=Mock(return_value=dict(core_paused=True,vehicles=[],models=[])))
+        def stale_snapshot(response,selected_id=None):
+            app.profile_valid=True
+            app._set_core_state(response)
+        app._snapshot=Mock(side_effect=stale_snapshot)
+        jobs=[]
+        app._submit=lambda _label,work,done:jobs.append((work,done))
+        app.test_project()
+        work,done=jobs.pop()
+        done(work())
+        app._update_controls()
+        self.assertFalse(app.core_paused)
+        self.assertFalse(app.profile_valid)
+        self.assertIsNone(app.pending_poll_id)
+        app.root.after_cancel.assert_called_once_with('old-timer')
+        self.assertEqual(app.project,project)
+        self.assertEqual(app.project_text.get().splitlines()[0],'Cruzamento · Cena salva 3')
+        self.assertEqual(app.restart_project_button.options['state'],'disabled')
+        self.assertEqual(app.move_button.options['state'],'disabled')
+        self.assertEqual(app.status.get(),result['message'])
+
+    def test_reconnect_preserves_project_and_accepts_capability(self):
+        project=dict(path='event.b3event.json',name='Avenida',scene_revision=4)
+        connection=dict(core_paused=True,vehicles=[],models=[],event_projects=True)
+        controller=types.SimpleNamespace(connect=Mock(return_value=connection))
+        app=RecoveryAndExportTests.connection_app(controller)
+        app.event_projects=False
+        app.project=project
+        app.project_text,app.project_name=Var('Avenida'),Var('Avenida')
+        jobs=[]
+        app._submit=lambda _label,work,done:jobs.append((work,done))
+        app.connect()
+        work,done=jobs.pop()
+        done(work())
+        self.assertTrue(app.event_projects)
+        self.assertEqual(app.project,project)
+        self.assertEqual(app.project_name.get(),'Avenida')
+
+    def test_manual_import_uses_new_project_location_and_current_state_file(self):
+        app=self.app()
+        app.controller=types.SimpleNamespace(import_project=Mock())
+        app._new_project_location=Mock(return_value=('new-folder','Avenida'))
+        actions=[]
+        app._change=lambda _label,action:actions.append(action)
+        with patch.object(gui.filedialog,'askopenfilename',return_value='manual.p2s') as dialog:
+            app.import_project()
+        self.assertEqual(dialog.call_args.kwargs['filetypes'],[('Estado PCSX2','*.p2s')])
+        app.controller.import_project.assert_not_called()
+        self.assertEqual(len(actions),1)
+        actions[0]()
+        app.controller.import_project.assert_called_once_with('new-folder','Avenida',str(Path('manual.p2s')))
+
+    def test_manual_save_scene_requires_existing_project_and_uses_one_worker(self):
+        for existing in (False,True):
+            with self.subTest(existing=existing):
+                app=self.app(existing=existing)
+                app.controller=types.SimpleNamespace(save_project_from_state=Mock())
+                actions=[]
+                app._change=lambda _label,action:actions.append(action)
+                with patch.object(gui.filedialog,'askopenfilename',return_value='current.p2s') as dialog:
+                    app.save_project_from_state()
+                if not existing:
+                    dialog.assert_not_called()
+                    self.assertEqual(actions,[])
+                else:
+                    self.assertEqual(len(actions),1)
+                    app.controller.save_project_from_state.assert_not_called()
+                    actions[0]()
+                    app.controller.save_project_from_state.assert_called_once_with(str(Path('current.p2s')))
+
+    def test_manual_confirmation_selects_manifest_and_distinguishes_base_from_scene(self):
+        for base in (False,True):
+            for existing in (False,True):
+                with self.subTest(base=base,existing=existing):
+                    app=self.app(existing=existing)
+                    app.controller=types.SimpleNamespace(confirm_project=Mock())
+                    actions=[]
+                    app._change=lambda _label,action:actions.append(action)
+                    with patch.object(gui.filedialog,'askopenfilename',return_value='other.b3event.json') as dialog:
+                        (app.confirm_project_base if base else app.confirm_project_scene)()
+                    self.assertFalse(app.profile_valid)
+                    self.assertEqual(dialog.call_args.kwargs['filetypes'],[('Projeto de evento','*.b3event.json')])
+                    if existing:
+                        self.assertEqual(dialog.call_args.kwargs['initialfile'],'event.b3event.json')
+                    app.controller.confirm_project.assert_not_called()
+                    self.assertEqual(len(actions),1)
+                    actions[0]()
+                    app.controller.confirm_project.assert_called_once_with(str(Path('other.b3event.json')),base=base)
+
+    def test_cancelled_manual_file_dialogs_do_not_invalidate_or_submit(self):
+        for method in ('import_project','save_project_from_state','confirm_project_scene','confirm_project_base'):
+            with self.subTest(method=method):
+                app=self.app(existing=True)
+                app._new_project_location=Mock(return_value=('new-folder','Avenida'))
+                app._change=Mock()
+                with patch.object(gui.filedialog,'askopenfilename',return_value=''):
+                    getattr(app,method)()
+                self.assertTrue(app.profile_valid)
+                app._change.assert_not_called()
+
+    def test_manual_actions_cannot_open_dialogs_during_unconfirmed_state(self):
+        for condition in ('pending','running','busy','invalid_profile','no_capability'):
+            with self.subTest(condition=condition):
+                app=self.app(existing=True)
+                if condition=='pending': app.pending=True
+                elif condition=='running': app.core_paused=False
+                elif condition=='busy': app.busy=True
+                elif condition=='invalid_profile': app.profile_valid=False
+                else: app.event_projects=False
+                app._new_project_location=Mock()
+                app._change=Mock()
+                with patch.object(gui.filedialog,'askopenfilename') as dialog:
+                    for method in ('import_project','save_project_from_state','confirm_project_scene','confirm_project_base'):
+                        getattr(app,method)()
+                app._new_project_location.assert_not_called()
+                dialog.assert_not_called()
+                app._change.assert_not_called()
+
+    def test_project_tab_scrolls_all_controls_and_wraps_to_available_width(self):
+        app=self.app()
+        app.project_canvas,app.project_window=Mock(),17
+        app.project_canvas.bbox.return_value=(0,0,400,1000)
+        app.project_help_label,app.project_status_label,app.project_manual_label=Widget(),Widget(),Widget()
+        app._project_resize(types.SimpleNamespace(width=300))
+        app.project_canvas.itemconfigure.assert_called_once_with(17,width=300)
+        app.project_canvas.configure.assert_called_once_with(scrollregion=(0,0,400,1000))
+        self.assertEqual(app.project_help_label.options['wraplength'],276)
+        self.assertEqual(app.project_status_label.options['wraplength'],276)
+        self.assertEqual(app.project_manual_label.options['wraplength'],252)
+        app.closed=True
+        app.project_canvas.reset_mock()
+        app._project_resize(types.SimpleNamespace(width=100))
+        app._project_region()
+        app.project_canvas.itemconfigure.assert_not_called()
+        app.project_canvas.configure.assert_not_called()
+
+
 class LauncherTests(unittest.TestCase):
     def test_help_does_not_import_controller_or_open_window(self):
         with redirect_stdout(io.StringIO()) as output:

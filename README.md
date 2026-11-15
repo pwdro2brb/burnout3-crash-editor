@@ -6,12 +6,15 @@ para identificar modelos, reposicionar veículos e acrescentar lotes de
 veículos atrás de uma referência ou criar um veículo num ponto X/Z do evento
 carregado. A vista de cima também mostra a geometria pesquisada dos caminhos de
 tráfego, e os veículos habilitados oferecem um alvo de velocidade nominal.
+Na aba **Projeto**, a primeira versão de eventos personalizados organiza uma
+base original e cenas editadas: **Testar cena** salva e retoma o jogo,
+**Voltar ao início** restaura a cena salva e **Abrir projeto…** reabre o trabalho.
 Há suporte experimental
 a cabine com carga, limitado a pares nativos já carregados. A integração real confirmou leitura,
 reposicionamento e criação pelo controlador; o usuário também relatou presença
 e colisão da van preparada pela interface no Grand Slam.
-Não existe editor dentro do jogo, gravação persistente de eventos ou criação
-de locais novos.
+Os projetos guardam estados locais; não existe editor dentro do jogo,
+gravação de eventos nos arquivos do ISO ou criação de locais novos.
 
 Os ensaios anteriores em cópias de save states confirmaram reposicionamento e
 criação no Grand Slam. O usuário relatou ter visto e atingido o veículo
@@ -35,6 +38,13 @@ incluindo a revisão com caminhos e velocidade, mas relatou uma espera infinita
 depois de criar vários carros. A revisão de 15/11/2026 limita a espera pela
 física de um lote já encerrado e acrescenta ajuste de velocidade para uma
 seleção de veículos. A confirmação anterior não valida essas duas correções.
+Em seguida, o usuário confirmou **“Está tudo funcionando!”**, abrangendo a
+finalização dos lotes e a velocidade em grupo. É uma confirmação manual de uso;
+não estabelece estabilidade geral nem confirma a restauração do `.p2s` exportado.
+O guia da primeira versão está em [Projetos de eventos de Crash](docs/custom-event-projects.md),
+incluindo a alternativa manual quando todos os slots estão ocupados. O fluxo
+novo foi verificado offline e ainda precisa de confirmação de restauração e
+repetição no jogo.
 
 O repositório contém somente código e documentação. Cada usuário fornece sua
 própria cópia extraída do jogo, ferramentas e, quando necessário, save states.
@@ -258,7 +268,9 @@ mudança visual localizada e verificou atualização dos limites de colisão.
 Os testes automatizados cobrem transporte, perfil, criação, recuperação,
 interface e exportação. A implementação do modo ampliado e da criação por ponto
 não constitui validação real de cenas densas. Ainda faltam testes de física e repetição mais
-amplos, restaurar o `.p2s` exportado e generalizar os modelos e eventos admitidos.
+amplos, confirmar a restauração e repetição dos novos projetos em jogo e
+generalizar os modelos e eventos admitidos. O ciclo de projetos está descrito
+em [custom-event-projects.md](docs/custom-event-projects.md).
 O reempacotamento implementado é de save states, não de recursos do jogo.
 
 A nova referência foi confirmada como **Grand Slam**, incluindo a contagem

@@ -121,9 +121,9 @@ Depois, `0x00162e80` integra a progressão usando esse avanço, o delta do jogo
 em `0x0052267c` e o comprimento do segmento. Essa sequência fundamenta a
 distinção entre alvo, seguimento e movimento físico observado.
 
-O usuário confirmou que a revisão anterior com caminhos e velocidade funcionou.
-A seleção múltipla e a correção da espera do lote pertencem à revisão seguinte;
-esse relato não as valida. Preparar patches protegidos e passar nos testes
+O usuário confirmou que a revisão com caminhos e velocidade funcionou e,
+posteriormente, relatou sucesso também com a seleção múltipla e a correção da
+espera do lote. Essa confirmação é manual. Preparar patches protegidos e passar nos testes
 automatizados não demonstra resposta real de todos os modelos, calibração
 física em km/h ou estabilidade em cenas densas.
 Os resultados sobre muitos carros batidos e renderização são tratados

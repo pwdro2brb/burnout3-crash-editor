@@ -13,7 +13,9 @@ essa revisão. É um relato de uso, sem medição instrumentada da velocidade.
 Passaram **271 testes distribuíveis** e **47 testes locais com capturas
 privadas**: 19 do controlador, 21 do perfil e 7 da integração de velocidade,
 somando **318 testes**. Essa validação foi offline; os novos ajustes desta
-revisão não receberam ensaio no PCSX2 em execução.
+revisão não receberam ensaio instrumentado no PCSX2 em execução. Posteriormente,
+o usuário confirmou **“Está tudo funcionando!”**, relatando sucesso também com
+a finalização dos lotes e a velocidade em grupo.
 
 O usuário relatou que criar vários carros funcionava, mas o editor permanecia
 aguardando a física/PCSX2 e bloqueava novas edições. O fluxo tinha uma espera
@@ -36,9 +38,38 @@ carga. A linha em foco continua sendo a referência de posição e criação.
 Um ator observado depois da referência inicial pode ser editado se passar no
 perfil, mesmo sem criação confirmada na receita. A receita que dependa dele
 não pode ser salva em JSON; `.p2s` preserva a sessão, ou uma nova conexão pode
-adotar o cenário atual como referência. A correção da espera e a seleção múltipla
-precisam de uma nova rodada de uso; a confirmação da revisão anterior não as
-valida.
+adotar o cenário atual como referência. A confirmação posterior do usuário
+abrange a correção da espera e a seleção múltipla; não valida todos os cenários
+nem a restauração do `.p2s` exportado.
+
+## Projetos de eventos — primeira versão
+
+Foram executados **331 testes distribuíveis** e **49 testes privados**
+(19 do controlador, 21 do perfil, 7 de velocidade e 2 do ciclo de projetos).
+Não houve falhas; três subcasos com links reais foram pulados por falta de
+permissão do Windows, com a recusa de redirecionamentos coberta também por
+atributos simulados. Os testes privados exercitaram captura, alteração,
+restauração da cena e da base por um transporte em memória, sem abrir o jogo.
+
+A aba **Projeto** organiza nome, base original e versões da cena editada nos
+mapas existentes. **Testar cena** salva antes de retomar; **Voltar ao início**
+restaura a última cena salva. Abrir um projeto ou restaurar a base inicia uma
+nova sessão de edição, sem reconstruir a receita JSON anterior.
+
+O carregamento automático exige evidência de restauração, além do ACK do PINE,
+e uma leitura válida do perfil antes de liberar escritas. Usa um slot livre
+sem substituir saves. Há uma alternativa manual com `.p2s` salvo/carregado pelo
+menu, seguida da conferência de regiões de memória. Essa prova compara os
+dados selecionados do tráfego, caminhos, jogador e código temporário; não é uma
+comparação integral de todo o estado do PS2. Uma falha ambígua bloqueia edições
+sem repetir o pedido.
+
+Os estados ficam locais, e o manifesto associa hashes a arquivos internos.
+A base e as versões anteriores são preservadas; uma alteração no arquivo
+entre sua validação e uso invalida a operação. O guia e os limites estão em
+[custom-event-projects.md](custom-event-projects.md). A validação desta etapa
+é offline; restauração, repetição e colisão reais ainda precisam de confirmação
+do usuário.
 
 Os testes automatizados cobrem transporte, perfil, fila, cancelamento, projeção
 por ponto, preservação do caminho no replay, retorno lateral experimental,

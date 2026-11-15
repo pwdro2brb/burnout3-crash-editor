@@ -17,6 +17,7 @@ from typing import Any, Callable, Protocol
 
 
 EXPORT_DIRECTORY = Path(__file__).resolve().parents[2] / 'outputs' / 'events'
+PROJECT_DIRECTORY = Path(__file__).resolve().parents[2] / 'outputs' / 'projects'
 NOMINAL_KMH_PER_CONTROL = 1.609344
 
 
@@ -44,6 +45,15 @@ class Controller(Protocol):
                   experimental: bool = False) -> dict[str, Any]: ...
     def set_speeds(self, vehicle_ids: list[int], control_value: float,
                    experimental: bool = False) -> dict[str, Any]: ...
+    def create_project(self, directory: str, name: str) -> dict[str, Any]: ...
+    def open_project(self, path: str) -> dict[str, Any]: ...
+    def save_project(self) -> dict[str, Any]: ...
+    def test_project(self) -> dict[str, Any]: ...
+    def restart_project(self) -> dict[str, Any]: ...
+    def restore_project_base(self) -> dict[str, Any]: ...
+    def import_project(self, directory: str, name: str, state_path: str) -> dict[str, Any]: ...
+    def save_project_from_state(self, state_path: str) -> dict[str, Any]: ...
+    def confirm_project(self, path: str, *, base: bool = False) -> dict[str, Any]: ...
     def close(self) -> None: ...
 
 
@@ -87,6 +97,17 @@ def export_suggestion(directory: Path | None = None) -> Path:
     index = 1
     while candidate.exists() or candidate.is_symlink():
         candidate = folder / f'{stem}-{index:03d}.p2s'
+        index += 1
+    return candidate
+
+
+def project_suggestion(parent: Path) -> Path:
+    """Use an unused child directory; the backend creates it exclusively."""
+    stem = 'evento-' + datetime.now().strftime('%Y%m%d-%H%M%S')
+    candidate = Path(parent) / stem
+    index = 1
+    while candidate.exists() or candidate.is_symlink():
+        candidate = Path(parent) / f'{stem}-{index:03d}'
         index += 1
     return candidate
 
@@ -211,6 +232,8 @@ class EditorApp:
         self.profile_valid = False
         self.emulator_control = False
         self.state_export = False
+        self.event_projects = False
+        self.project: dict[str, Any] | None = None
         self.busy = False
         self.pending = False
         self.pending_sized = False
@@ -249,6 +272,8 @@ class EditorApp:
         self.point_x = tk.StringVar(value='')
         self.point_z = tk.StringVar(value='')
         self.capacity_text = tk.StringVar(value='')
+        self.project_name = tk.StringVar(value='Meu evento de Crash')
+        self.project_text = tk.StringVar(value='Nenhum projeto aberto. Conecte e pause o PCSX2 para começar.')
         self.model_choice = tk.StringVar(value='Mesmo modelo do selecionado')
         self.secondary_choice = tk.StringVar(value='Selecione a carga')
         self.map_notice = tk.StringVar(value='Posições dos veículos; sem desenho da pista.')
@@ -412,6 +437,60 @@ class EditorApp:
         catalog_scroll = ttk.Scrollbar(catalog, orient='vertical', command=self.catalog_table.yview)
         catalog_scroll.grid(row=0, column=1, sticky='ns')
         self.catalog_table.configure(yscrollcommand=catalog_scroll.set)
+        project_container = ttk.Frame(lists)
+        project_container.columnconfigure(0, weight=1)
+        project_container.rowconfigure(0, weight=1)
+        lists.add(project_container, text='Projeto')
+        self.project_canvas = tk.Canvas(project_container, highlightthickness=0, height=200,
+            background=ttk.Style(root).lookup('TFrame','background') or root.cget('background'))
+        self.project_canvas.grid(row=0, column=0, sticky='nsew')
+        project_scroll = ttk.Scrollbar(project_container, orient='vertical', command=self.project_canvas.yview)
+        project_scroll.grid(row=0, column=1, sticky='ns')
+        self.project_canvas.configure(yscrollcommand=project_scroll.set)
+        project_tab = ttk.Frame(self.project_canvas, padding=12)
+        self.project_window = self.project_canvas.create_window(0,0,window=project_tab,anchor='nw')
+        project_tab.bind('<Configure>',self._project_region)
+        self.project_canvas.bind('<Configure>',self._project_resize)
+        project_tab.columnconfigure(0, weight=1)
+        project_tab.columnconfigure(1, weight=1)
+        ttk.Label(project_tab, text='Nome para novo projeto').grid(row=0, column=0, columnspan=2, sticky='w')
+        self.project_name_entry = ttk.Entry(project_tab, textvariable=self.project_name)
+        self.project_name_entry.grid(row=1, column=0, columnspan=2, sticky='ew', pady=(5, 10))
+        self.new_project_button = ttk.Button(project_tab, text='Criar projeto…', command=self.create_project)
+        self.new_project_button.grid(row=2, column=0, sticky='ew', padx=(0, 5))
+        self.open_project_button = ttk.Button(project_tab, text='Abrir projeto…', command=self.open_project)
+        self.open_project_button.grid(row=2, column=1, sticky='ew', padx=(5, 0))
+        self.save_project_button = ttk.Button(project_tab, text='Salvar cena no projeto', command=self.save_project)
+        self.save_project_button.grid(row=3, column=0, columnspan=2, sticky='ew', pady=(8, 0))
+        self.test_project_button = ttk.Button(project_tab, text='Testar cena', command=self.test_project)
+        self.test_project_button.grid(row=4, column=0, sticky='ew', padx=(0, 5), pady=(8, 0))
+        self.restart_project_button = ttk.Button(project_tab, text='Voltar ao início', command=self.restart_project)
+        self.restart_project_button.grid(row=4, column=1, sticky='ew', padx=(5, 0), pady=(8, 0))
+        self.restore_base_button = ttk.Button(project_tab, text='Restaurar base original', command=self.restore_project_base)
+        self.restore_base_button.grid(row=5, column=0, columnspan=2, sticky='ew', pady=(8, 0))
+        self.project_help_label = ttk.Label(project_tab, text='Testar salva a cena e retoma o jogo. Voltar ao início restaura essa cena salva; '
+                  'pause o PCSX2 antes. Restaurar base recupera a referência original do projeto.',
+                  wraplength=400, foreground='#5f6875')
+        self.project_help_label.grid(row=6, column=0, columnspan=2, sticky='w', pady=(12, 0))
+        self.project_status_label = ttk.Label(project_tab, textvariable=self.project_text, wraplength=400,
+                  foreground='#305d86')
+        self.project_status_label.grid(row=7, column=0, columnspan=2, sticky='w', pady=(12, 0))
+        manual_project = ttk.LabelFrame(project_tab, text='Alternativa sem slot livre', padding=10)
+        manual_project.grid(row=8, column=0, columnspan=2, sticky='ew', pady=(16, 0))
+        manual_project.columnconfigure(0, weight=1)
+        manual_project.columnconfigure(1, weight=1)
+        self.import_project_button = ttk.Button(manual_project, text='Criar de .p2s…', command=self.import_project)
+        self.import_project_button.grid(row=0, column=0, sticky='ew', padx=(0, 4))
+        self.save_project_state_button = ttk.Button(manual_project, text='Salvar cena de .p2s…', command=self.save_project_from_state)
+        self.save_project_state_button.grid(row=0, column=1, sticky='ew', padx=(4, 0))
+        self.confirm_scene_button = ttk.Button(manual_project, text='Conferir cena carregada…', command=self.confirm_project_scene)
+        self.confirm_scene_button.grid(row=1, column=0, columnspan=2, sticky='ew', pady=(8, 0))
+        self.confirm_base_button = ttk.Button(manual_project, text='Conferir base carregada…', command=self.confirm_project_base)
+        self.confirm_base_button.grid(row=2, column=0, columnspan=2, sticky='ew', pady=(8, 0))
+        self.project_manual_label = ttk.Label(manual_project,
+            text='Sem slot livre: salve/carregue em Sistema → Salvar/Carregar estado → Arquivo… e confira aqui. '
+                 'Os arquivos precisam corresponder à cena pausada.', wraplength=360, foreground='#5f6875')
+        self.project_manual_label.grid(row=3, column=0, columnspan=2, sticky='w', pady=(10, 0))
         pane.add(list_frame, weight=3)
 
         details_panel = ttk.Frame(pane)
@@ -535,6 +614,23 @@ class EditorApp:
                 self.table.focus(iids[0])
             self.table.see(self.table.focus())
         self._selection_changed()
+
+    def _project_region(self, _event: Any = None) -> None:
+        if hasattr(self, 'project_canvas') and not self.closed:
+            self.project_canvas.configure(scrollregion=self.project_canvas.bbox('all') or (0,0,1,1))
+
+    def _project_resize(self, event: Any) -> None:
+        if self.closed or not hasattr(self, 'project_canvas'):
+            return
+        width=max(1,int(event.width))
+        self.project_canvas.itemconfigure(self.project_window, width=width)
+        for name in ('project_help_label', 'project_status_label'):
+            label=getattr(self,name,None)
+            if label is not None:
+                label.configure(wraplength=max(100,width-24))
+        if hasattr(self, 'project_manual_label'):
+            self.project_manual_label.configure(wraplength=max(100,width-48))
+        self._project_region()
 
     def _details_region(self,_event: Any = None) -> None:
         """Keep controls reachable through a local scrollbar on short windows."""
@@ -899,6 +995,20 @@ class EditorApp:
         self.lateral_text.set(f'{self.lateral.get():.1f}%'.replace('.', ','))
 
     def _set_core_state(self, response: dict[str, Any]) -> None:
+        if 'event_projects' in response:
+            self.event_projects = response['event_projects'] is True
+        if 'project' in response:
+            project = response['project']
+            self.project = dict(project) if isinstance(project, dict) else None
+            if hasattr(self, 'project_text'):
+                if self.project:
+                    name = str(self.project.get('name') or 'Evento sem nome')
+                    revision = self.project.get('scene_revision', 0)
+                    self.project_text.set(f'{name} · Cena salva {revision}\n' + str(self.project.get('path') or ''))
+                    if hasattr(self, 'project_name'):
+                        self.project_name.set(name)
+                else:
+                    self.project_text.set('Nenhum projeto aberto. Crie um projeto a partir da cena pausada ou abra um existente.')
         paused = response.get('core_paused')
         if isinstance(paused, bool):
             self.core_paused = paused
@@ -985,6 +1095,19 @@ class EditorApp:
                 self.export_button.grid_remove()
             self.export_button.configure(state='normal' if export_available and idle and profile_valid
                                          and self.core_paused is True else 'disabled')
+        if hasattr(self, 'new_project_button'):
+            project_ready = bool(idle and self.connected and profile_valid and self.core_paused is True
+                                 and getattr(self, 'event_projects', False))
+            for widget in (self.new_project_button, self.open_project_button, self.project_name_entry):
+                widget.configure(state='normal' if project_ready else 'disabled')
+            for widget in (self.save_project_button, self.test_project_button,
+                           self.restart_project_button, self.restore_base_button):
+                widget.configure(state='normal' if project_ready and getattr(self, 'project', None) else 'disabled')
+            if hasattr(self, 'import_project_button'):
+                for widget in (self.import_project_button, self.confirm_scene_button, self.confirm_base_button):
+                    widget.configure(state='normal' if project_ready else 'disabled')
+                self.save_project_state_button.configure(state='normal' if project_ready
+                    and getattr(self, 'project', None) else 'disabled')
         for widget in (self.move_button, self.lateral_scale):
             widget.configure(state='normal' if editable else 'disabled')
         for widget in (self.add_button, self.gap_entry):
@@ -1258,6 +1381,11 @@ class EditorApp:
             self._set_core_state(result)
             if snapshot is not None:
                 self._snapshot(snapshot, result.get('new_vehicle_id'))
+            if result.get('core_paused') is False:
+                # A successful Test resumes simulation; never reuse a stale
+                # paused snapshot for any later edit, even if refresh raced.
+                self._set_core_state(result)
+                self._invalidate_profile()
             message = str(result.get('message') or 'Alteração aplicada.')
             if refresh_error:
                 self._invalidate_profile()
@@ -1423,6 +1551,111 @@ class EditorApp:
             self._submit('Salvando a configuração…',
                          lambda: self.controller.save_preset(str(Path(path))),
                          lambda result: self._set_status(str(result.get('message') or 'Configuração salva.')))
+
+    def _project_ready(self, *, existing: bool = False) -> bool:
+        return bool(not self.closed and not self.busy and not self.pending and self.connected
+                    and getattr(self, 'profile_valid', False) and self.core_paused is True
+                    and getattr(self, 'event_projects', False)
+                    and (not existing or getattr(self, 'project', None)))
+
+    def _new_project_location(self) -> tuple[str, str] | None:
+        name = str(self.project_name.get()).strip()
+        if not name or len(name) > 100 or any(ord(char) < 32 for char in name):
+            messagebox.showinfo('Projeto do evento', 'Informe um nome de 1 a 100 caracteres para o evento.', parent=self.root)
+            return None
+        parent = filedialog.askdirectory(parent=self.root, title='Escolha onde criar a nova pasta do projeto',
+                                        mustexist=True, initialdir=str(PROJECT_DIRECTORY if PROJECT_DIRECTORY.is_dir()
+                                            else Path(__file__).resolve().parents[2]))
+        if not parent:
+            return None
+        try:
+            directory = project_suggestion(Path(parent))
+        except OSError as exc:
+            messagebox.showerror('Projeto do evento', f'Não foi possível preparar a pasta do projeto: {exc}', parent=self.root)
+            return None
+        return str(directory),name
+
+    def create_project(self) -> None:
+        if not self._project_ready():
+            return
+        location=self._new_project_location()
+        if location is None:
+            return
+        directory,name=location
+        self._change('Criando o projeto e salvando a referência…',
+                     lambda: self.controller.create_project(directory, name))
+
+    def import_project(self) -> None:
+        if not self._project_ready():
+            return
+        location=self._new_project_location()
+        if location is None:
+            return
+        path=filedialog.askopenfilename(parent=self.root, title='Escolha o .p2s da cena pausada',
+                                       filetypes=[('Estado PCSX2','*.p2s')])
+        if path:
+            directory,name=location
+            self._change('Conferindo o estado e criando o projeto…',
+                         lambda:self.controller.import_project(directory,name,str(Path(path))))
+
+    def save_project_from_state(self) -> None:
+        if not self._project_ready(existing=True):
+            return
+        path=filedialog.askopenfilename(parent=self.root, title='Escolha o .p2s da cena pausada',
+                                       filetypes=[('Estado PCSX2','*.p2s')])
+        if path:
+            self._change('Conferindo e salvando a cena do arquivo…',
+                         lambda:self.controller.save_project_from_state(str(Path(path))))
+
+    def _confirm_project(self, *, base: bool) -> None:
+        if not self._project_ready():
+            return
+        current=getattr(self,'project',None) or {}
+        options={}
+        if current.get('path'):
+            options={'initialdir':str(Path(current['path']).parent), 'initialfile':Path(current['path']).name}
+        path=filedialog.askopenfilename(parent=self.root,
+            title='Conferir base carregada' if base else 'Conferir cena carregada',
+            filetypes=[('Projeto de evento','*.b3event.json')],**options)
+        if path:
+            self._invalidate_profile()
+            self._change('Conferindo a cena carregada manualmente…',
+                         lambda:self.controller.confirm_project(str(Path(path)),base=base))
+
+    def confirm_project_scene(self) -> None:
+        self._confirm_project(base=False)
+
+    def confirm_project_base(self) -> None:
+        self._confirm_project(base=True)
+
+    def open_project(self) -> None:
+        if not self._project_ready():
+            return
+        path = filedialog.askopenfilename(parent=self.root, title='Abrir projeto de evento',
+                    filetypes=[('Projeto de evento', '*.b3event.json')])
+        if path:
+            self._invalidate_profile()
+            self._change('Abrindo o projeto e restaurando a cena salva…',
+                         lambda: self.controller.open_project(str(Path(path))))
+
+    def save_project(self) -> None:
+        if self._project_ready(existing=True):
+            self._change('Salvando a cena no projeto…', self.controller.save_project)
+
+    def test_project(self) -> None:
+        if self._project_ready(existing=True):
+            self._invalidate_profile()
+            self._change('Salvando a cena e iniciando o teste…', self.controller.test_project)
+
+    def restart_project(self) -> None:
+        if self._project_ready(existing=True):
+            self._invalidate_profile()
+            self._change('Restaurando a cena salva para repetir o teste…', self.controller.restart_project)
+
+    def restore_project_base(self) -> None:
+        if self._project_ready(existing=True):
+            self._invalidate_profile()
+            self._change('Restaurando a referência original do projeto…', self.controller.restore_project_base)
 
     def load_preset(self) -> None:
         path = filedialog.askopenfilename(parent=self.root, title='Abrir configuração',

@@ -13,6 +13,7 @@ import math
 from pathlib import Path
 import secrets
 import struct
+import tempfile
 import time
 
 from .pine import PineClient, Status, Patch, PineError, PineNotPaused, PineTransportError, PineRemoteError
@@ -80,6 +81,7 @@ class EditorController:
         self.emulator_control = False
         self.completion_tokens: set[int] = set()
         self.physics_history = {}
+        self.project: dict | None = None
 
     def finalize_pending(self):
         self._paused()
@@ -173,6 +175,219 @@ class EditorController:
         self._journal('state_export_finished',path=result['path'],sha256=result['sha256'])
         return result
 
+    def _project_info(self):
+        if self.project is None:
+            return None
+        from .event_project import public_info
+        return public_info(self.project)
+
+    def _project_ready(self):
+        snap = self._ready()
+        if (self.client.read_bytes(spawncode.HOOK,8) != spawncode.ORIGINAL
+                or self.client.read_bytes(spawncode.CAVE,4096) not in
+                   (bytes(4096),spawncode.clean_batch_scratch())):
+            raise EditorError('Finalize a pendência antes de trabalhar com o projeto do evento.')
+        if not self._control_available():
+            raise EditorError('O projeto precisa da instalação portátil do PCSX2 desta conexão.')
+        return snap
+
+    @staticmethod
+    def _scene_summary(snap):
+        return {'active_objects':len(snap.vehicles),
+                'models':sorted({row['model_id'] for row in snap.vehicles.values()}),
+                'initialized_objects':sum(bool(row.get('initialized')) for row in snap.vehicles.values())}
+
+    def _reset_scene_tracking(self,snap):
+        self.baseline = None
+        self.recipe.clear()
+        self.actor_keys.clear()
+        self.replay_ids.clear()
+        self.replay_queue.clear()
+        self.baseline_refs.clear()
+        self.physics_history.clear()
+        self.completion_tokens.clear()
+        self.next_key = 1
+        self._start_recipe(snap)
+        self.recovery_digest = _state_digest(snap)
+
+    def _capture_project_state(self):
+        # Preserve a failed capture for inspection. Only a successfully committed
+        # project's verified staging copy is removed, never user snapshots.
+        folder = Path(tempfile.mkdtemp(prefix='burnout3-event-'))
+        source = folder/'capture.p2s'
+        try:
+            capture = self.export_state(source)
+        except Exception as error:
+            raise EditorError(f'Não foi possível capturar o projeto. Arquivos criados foram preservados em {folder}. {error}') from error
+        return source,capture
+
+    @staticmethod
+    def _remove_project_capture(source,capture):
+        from .state_store import _regular_file,_sha256
+        try:
+            if _regular_file(source) and _sha256(source) == capture['sha256']:
+                source.unlink()
+                source.parent.rmdir()
+        except OSError:
+            pass
+
+    @staticmethod
+    def _project_destination(directory,name):
+        if (not isinstance(name,str) or not name.strip() or len(name.strip()) > 100
+                or any(ord(char) < 32 or ord(char) == 127 for char in name)):
+            raise EditorError('Informe um nome de evento com até 100 caracteres.')
+        target = Path(directory)
+        if target.exists() or target.is_symlink():
+            raise EditorError('Escolha uma pasta nova para o projeto; os arquivos existentes serão preservados.')
+        return target
+
+    def create_project(self,directory: str,name: str):
+        from . import event_project
+        snap = self._project_ready()
+        target = self._project_destination(directory,name)
+        source,capture = self._capture_project_state()
+        try:
+            project = event_project.create(target,name,source,summary=self._scene_summary(snap),
+                                           expected_source_sha256=capture['sha256'])
+        except Exception as error:
+            raise EditorError(f'O projeto não foi criado. A captura foi preservada em {source}. {error}') from error
+        self.project = project
+        self._reset_scene_tracking(snap)
+        self._remove_project_capture(source,capture)
+        self._journal('event_project_created',path=project['path'],name=project['name'])
+        return {'pending':False,'core_paused':True,'event_projects':True,'project':self._project_info(),
+            'message':'Projeto criado. A base foi preservada; edite o evento e use Testar para salvar a cena e jogar.'}
+
+    def import_project(self,directory: str,name: str,state_path: str):
+        from . import event_project,state_restore
+        self._project_ready()
+        target = self._project_destination(directory,name)
+        verified = state_restore.verify_current_state(self.client,Path(state_path))
+        snap = self._snapshot()
+        project = event_project.create(target,name,Path(verified['path']),summary=self._scene_summary(snap),
+                                       expected_source_sha256=verified['sha256'])
+        self.project = project
+        self._reset_scene_tracking(snap)
+        self._journal('event_project_imported',path=project['path'],sha256=verified['sha256'])
+        return {'pending':False,'core_paused':True,'event_projects':True,'project':self._project_info(),
+            'message':'Projeto criado a partir do estado conferido. A base foi copiada; o arquivo original foi preservado.'}
+
+    def _current_project(self):
+        if self.project is None:
+            raise EditorError('Crie ou abra um projeto de evento antes de salvar a cena.')
+        from .event_project import load
+        current = load(Path(self.project['path']))
+        if current['_manifest_sha256'] != self.project['_manifest_sha256']:
+            raise EditorError('O projeto mudou em outra sessão. Abra-o novamente antes de salvar.')
+        return current
+
+    def save_project(self):
+        from . import event_project
+        snap = self._project_ready()
+        # Validate the existing manifest and snapshots before asking the emulator
+        # for a new state. save_scene also rejects a concurrent/stale revision.
+        self._current_project()
+        source,capture = self._capture_project_state()
+        try:
+            project = event_project.save_scene(self.project,source,summary=self._scene_summary(snap),
+                                               expected_source_sha256=capture['sha256'])
+        except Exception as error:
+            raise EditorError(f'A cena não foi registrada no projeto. A captura foi preservada em {source}. {error}') from error
+        self.project = project
+        self._remove_project_capture(source,capture)
+        self._journal('event_project_saved',path=project['path'],scene=project['scene'])
+        return {'pending':False,'core_paused':True,'event_projects':True,'project':self._project_info(),
+            'message':'Cena do evento salva e verificada. Voltar ao início restaurará esta versão.'}
+
+    def save_project_from_state(self,state_path: str):
+        from . import event_project,state_restore
+        self._project_ready()
+        self._current_project()
+        verified = state_restore.verify_current_state(self.client,Path(state_path))
+        snap = self._snapshot()
+        project = event_project.save_scene(self.project,Path(verified['path']),summary=self._scene_summary(snap),
+                                           expected_source_sha256=verified['sha256'])
+        self.project = project
+        self._journal('event_project_scene_imported',path=project['path'],sha256=verified['sha256'])
+        return {'pending':False,'core_paused':True,'event_projects':True,'project':self._project_info(),
+            'message':'Cena salva no projeto a partir do estado conferido. O arquivo escolhido foi preservado.'}
+
+    def confirm_project(self,path: str,*,base=False):
+        if type(base) is not bool:
+            raise EditorError('Escolha a cena salva ou a base original do projeto.')
+        from . import event_project,state_restore
+        self._project_ready()
+        project = event_project.load(Path(path))
+        source = Path(project['base_path'] if base else project['scene_path'])
+        verified = state_restore.verify_current_state(self.client,source,
+            expected_sha256=project['base' if base else 'scene']['sha256'])
+        snap = self._snapshot()
+        self._reset_scene_tracking(snap)
+        self.project = project
+        self._journal('event_project_manual_state_confirmed',path=project['path'],base=base,sha256=verified['sha256'])
+        return {'pending':False,'core_paused':True,'event_projects':True,'project':self._project_info(),
+            'message':('Base carregada pelo menu conferida. Projeto pronto para editar.' if base else
+                       'Cena carregada pelo menu conferida. Projeto pronto para editar ou testar.')}
+
+    def test_project(self):
+        saved = self.save_project()
+        try:
+            result = self.resume()
+        except Exception as error:
+            try:
+                paused = self.client.status() is Status.PAUSED
+            except PineError:
+                paused = None
+            return {**saved,'core_paused':paused,'warning':True,
+                'message':f'A cena foi salva, mas não foi possível confirmar a retomada. {error}'}
+        return {**saved,**result,'project':self._project_info(),
+            'message':'Cena salva e PCSX2 retomado. Para repetir, pause e use Voltar ao início.'}
+
+    def _restore_project(self,project,*,base=False):
+        from . import state_restore
+        snap = self._project_ready()
+        self.recovery_digest = _state_digest(snap)
+        source = Path(project['base_path'] if base else project['scene_path'])
+        try:
+            restored = state_restore.restore_state(self.client,self.pause_control.emulator_root(),source,
+                expected_sha256=project['base' if base else 'scene']['sha256'])
+        except state_restore.RestoreError as error:
+            if error.uncertain:
+                self.unsafe = True
+                self._journal('event_project_restore_unconfirmed',path=project['path'],base=base)
+            raise EditorError(str(error)) from error
+        try:
+            self._identity()
+            loaded = self._snapshot()
+            self._reset_scene_tracking(loaded)
+        except Exception as error:
+            self.unsafe = True
+            self._journal('event_project_restore_profile_rejected',path=project['path'],base=base)
+            raise EditorError('O estado foi carregado, mas o perfil não confirmou uma cena editável. '
+                              'Recarregue uma referência limpa antes de editar.') from error
+        self.project = project
+        self._journal('event_project_restored',path=project['path'],base=base,sha256=restored['sha256'])
+        return {**restored,'pending':False,'core_paused':True,'event_projects':True,
+            'project':self._project_info(),
+            'message':('Base original restaurada e conferida. A cena salva do projeto foi preservada.' if base else
+                       'Cena salva restaurada e conferida. Pode editar ou retomar para repetir o evento.')}
+
+    def open_project(self,path: str):
+        from .event_project import load
+        return self._restore_project(load(Path(path)))
+
+    def restart_project(self):
+        if self.project is None:
+            raise EditorError('Crie ou abra um projeto antes de voltar ao início.')
+        from .event_project import load
+        return self._restore_project(load(Path(self.project['path'])))
+
+    def restore_project_base(self):
+        if self.project is None:
+            raise EditorError('Crie ou abra um projeto antes de restaurar a base.')
+        from .event_project import load
+        return self._restore_project(load(Path(self.project['path'])),base=True)
+
     def resume(self):
         self._identity()
         if not self._control_available():
@@ -245,6 +460,8 @@ class EditorController:
         if self.pause_control is not None or type(self.client) is PineClient:
             result['emulator_control'] = self._control_available()
             result['state_export'] = result['emulator_control']
+            result['event_projects'] = result['emulator_control']
+        result['project'] = self._project_info()
         if paused and self.pending is None:
             try:
                 result.update(self.refresh())
@@ -276,7 +493,7 @@ class EditorController:
         capacity.update(initialized_objects=sum(v['initialized'] for v in snap.vehicles.values()),
             queued_operations=len(self.replay_queue),
             physics_warning=(f'{lost} veículo(s) deixaram de ter física inicializada nesta referência.' if lost else ''))
-        return {**public,'pending':False,'capacity':capacity}
+        return {**public,'pending':False,'capacity':capacity,'project':self._project_info()}
 
     @staticmethod
     def _selected(snap, vehicle_id, *, experimental=False):

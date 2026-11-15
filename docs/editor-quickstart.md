@@ -38,6 +38,24 @@ Em janelas baixas, use a barra vertical do painel direito para alcançar os
 controles de velocidade, modelo e carga. A roda sobre o mapa continua reservada
 ao zoom; o botão direito desloca a vista.
 
+## Criar um projeto de evento
+
+Na aba **Projeto**, dê um nome ao evento e use **Criar projeto…** com o PCSX2
+pausado antes da batida. A referência original fica preservada. Edite os
+veículos e finalize os lotes; **Testar cena** salva a versão e retoma o jogo.
+Para repetir, pause e use **Voltar ao início**, que restaura a última cena
+editada salva. **Restaurar base original** recupera a referência sem substituir
+essa cena. Para reabrir o trabalho, selecione `event.b3event.json` em
+**Abrir projeto…**.
+
+O fluxo automático precisa de um slot livre e não substitui saves existentes.
+Se todos estiverem ocupados, a seção **Alternativa sem slot livre** permite
+salvar/carregar um `.p2s` pelo menu do PCSX2 e importar/conferir essa cena no
+editor. O arquivo escolhido precisa corresponder à memória pausada verificada.
+Veja o [guia de projetos](custom-event-projects.md) para o procedimento completo.
+Os projetos conservam estados locais; o fluxo novo ainda precisa de confirmação
+de restauração e repetição no jogo.
+
 Se a identidade do jogo foi confirmada, mas o perfil de tráfego é recusado,
 o editor mantém a conexão e desabilita a edição. Com o jogo pausado, **Finalizar
 pendência** continua disponível, sem exigir seleção de veículo. Uma limpeza
@@ -346,9 +364,10 @@ O protocolo e a pausa exigida foram conferidos no
 As mensagens de sucesso da interface não substituem a observação no jogo.
 
 Após a confirmação anterior de lote e exportação, o usuário também relatou que
-as novas mudanças da revisão com caminhos e velocidade funcionaram. Isso não
-valida a correção posterior da espera pela física nem a seleção múltipla de
-velocidade. Bloqueios de perfil ainda podem impedir uma operação; os relatos
+as novas mudanças da revisão com caminhos e velocidade funcionaram. Em seguida,
+confirmou também o funcionamento da correção da espera pela física e da seleção
+múltipla de velocidade. A restauração do `.p2s` exportado ainda precisa ser
+confirmada. Bloqueios de perfil ainda podem impedir uma operação; os relatos
 não demonstram estabilidade de todos os cenários.
 
 O fluxo de lotes, caminhões, pausa e arquivos está em
