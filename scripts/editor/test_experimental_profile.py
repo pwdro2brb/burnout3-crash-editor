@@ -145,7 +145,7 @@ class ExperimentalProfileTests(unittest.TestCase):
             with self.subTest(changed=changed):
                 state=self.fixture(progress=150)
                 row=state.vehicles[9]
-                if changed=='speed': state.memory.store(row['node']+0x2C,'<f',0)
+                if changed=='speed': state.memory.store(row['node']+0x2C,'<f',-1)
                 elif changed=='path': state.memory.store(row['node']+0x41,'<B',1)
                 else: state.memory.store(profile.MATRICES+9*profile.MATRIX_STRIDE+0x20,'<3f',-1,0,0)
                 before=dict(state.memory.data)

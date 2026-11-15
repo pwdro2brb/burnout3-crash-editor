@@ -9,6 +9,10 @@ tráfego, e os veículos habilitados oferecem um alvo de velocidade nominal.
 Na aba **Projeto**, a primeira versão de eventos personalizados organiza uma
 base original e cenas editadas: **Testar cena** salva e retoma o jogo,
 **Voltar ao início** restaura a cena salva e **Abrir projeto…** reabre o trabalho.
+**Gerenciar slots…** permite arquivar um save verificado para liberar seu slot,
+preservando uma cópia. Os lotes também oferecem modelos alternados e variação
+visual experimental; referências paradas são admitidas quando física e caminho
+estão prontos. Veja [slots e lotes alternados](docs/slots-and-mixed-traffic.md).
 Há suporte experimental
 a cabine com carga, limitado a pares nativos já carregados. A integração real confirmou leitura,
 reposicionamento e criação pelo controlador; o usuário também relatou presença

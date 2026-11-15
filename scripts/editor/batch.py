@@ -43,6 +43,7 @@ class BatchPending:
     at_point: tuple[float,float] | None = None
     physics_wait_started: float | None = None
     physics_wait_polls: int = 0
+    items: list[dict] | None = None
 
 
 def reference(snapshot, vehicle_id):
@@ -69,7 +70,8 @@ def model_pair(snapshot, model_id, secondary_model_id):
 
 
 def stage(editor, vehicle_id, model_id, gap, count, secondary_model_id=None, *, created_keys=None,
-          experimental=False, reserve_count=None, at_point=None, point_reference=False):
+          experimental=False, reserve_count=None, at_point=None, point_reference=False,
+          spawn_items=None, reserve_items=None):
     if type(experimental) is not bool:
         raise EditorError('Modo experimental inválido.')
     if type(count) is not int or not 1 <= count <= 8:
@@ -82,6 +84,27 @@ def stage(editor, vehicle_id, model_id, gap, count, secondary_model_id=None, *, 
     target = reference(snap, vehicle_id)
     model_id = model_id or target['model_id']
     model, secondary = model_pair(snap, model_id, secondary_model_id)
+    if spawn_items is None:
+        spawn_items = [dict(model_id=model_id,secondary_model_id=secondary_model_id,variant=0) for _ in range(count)]
+    if type(spawn_items) not in (list,tuple) or len(spawn_items) != count:
+        raise EditorError('A sequência de modelos não corresponde à quantidade do lote.')
+    def prepare(item):
+        if (not isinstance(item,dict) or set(item)-{'model_id','secondary_model_id','variant'}
+                or type(item.get('variant',0)) is not int or not 0 <= item.get('variant',0) <= 7):
+            raise EditorError('Modelo ou variação visual inválidos na sequência.')
+        primary,child = model_pair(snap,item.get('model_id'),item.get('secondary_model_id'))
+        return dict(model_id=item['model_id'],model_hash=primary['model_hash'],type=primary['type'],
+            secondary_model_id=item.get('secondary_model_id'),secondary_model_hash=child['model_hash'] if child else 0,
+            variant=item.get('variant',0))
+    items = [prepare(item) for item in spawn_items]
+    if (items[0]['model_id'] != model_id or items[0]['secondary_model_id'] != secondary_model_id):
+        raise EditorError('O primeiro modelo da sequência não corresponde à configuração do lote.')
+    # Validate the complete future queue before installing its first group.
+    if reserve_items is not None and (type(reserve_items) not in (list,tuple) or not count <= len(reserve_items) <= 253):
+        raise EditorError('A reserva da sequência de modelos é inválida.')
+    reserved_items = [prepare(item) for item in reserve_items] if reserve_items is not None else None
+    if reserved_items is not None and reserved_items[:count] != items:
+        raise EditorError('O início da reserva não corresponde ao lote preparado.')
     projection = None
     if at_point is not None:
         if count != 1:
@@ -99,12 +122,25 @@ def stage(editor, vehicle_id, model_id, gap, count, secondary_model_id=None, *, 
             if maximum_shift > 10:
                 raise EditorError('O ponto exige deslocamento lateral amplo. Ative o modo experimental para tentar essa posição.')
     if (not experimental and projection is None and
-            (secondary or target.get('native_pair_valid') or model['type'] == 5 or target['type'] == 5) and gap < 30):
+            (any(item['secondary_model_id'] or item['type'] == 5 for item in items)
+             or target.get('native_pair_valid') or target['type'] == 5) and gap < 30):
         raise EditorError('Use distância de 30 a 50 unidades para ônibus ou conjuntos de cabine e carga.')
     reserved = count if reserve_count is None else reserve_count
     if type(reserved) is not int or not count <= reserved <= 253:
         raise EditorError('A quantidade ultrapassa a capacidade conhecida do tráfego.')
-    needed = reserved*(2 if secondary else 1)
+    if (reserved > count and reserved_items is None and
+            any((item['model_id'],item['secondary_model_id']) !=
+                (items[0]['model_id'],items[0]['secondary_model_id']) for item in items)):
+        raise EditorError('Informe a sequência completa para reservar um lote misto com fila.')
+    if reserved_items is not None and len(reserved_items) != reserved:
+        raise EditorError('A reserva não corresponde à sequência completa do lote.')
+    if (not experimental and projection is None and reserved_items is not None
+            and any(item['secondary_model_id'] or item['type'] == 5 for item in reserved_items) and gap < 30):
+        raise EditorError('Use distância de 30 a 50 unidades para ônibus ou conjuntos de cabine e carga.')
+    needed = (sum(2 if item['secondary_model_id'] else 1 for item in reserved_items)
+              if reserved_items is not None else
+              sum(2 if item['secondary_model_id'] else 1 for item in items) if reserved == count else
+              reserved*(2 if secondary else 1))
     counts = snap.inspection['counts']
     if (counts['free_objects'] < needed+1 or counts['free_nodes'] < reserved
             or counts['active_objects']+needed+1 > counts['capacity_budget_byte_0x363ab']):
@@ -127,7 +163,7 @@ def stage(editor, vehicle_id, model_id, gap, count, secondary_model_id=None, *, 
     positions, requests = [], []
     origin = profile.lane(snap.memory,target['path'],progress,target['lateral'])['point']
     residual = [target['position'][k]-origin[k] for k in range(3)]
-    for _ in range(count):
+    for item in items:
         if projection is None:
             options = {'node':target['node']}
             if experimental:
@@ -148,11 +184,11 @@ def stage(editor, vehicle_id, model_id, gap, count, secondary_model_id=None, *, 
         if not experimental and any(math.dist(point,previous) < 6 for previous in positions):
             raise EditorError('As posições do lote ficaram muito próximas neste caminho.')
         positions.append(point)
-        requests.append(dict(manager=spawncode.MANAGER,type_code=model['type'],
-            model_hash=model['model_hash'],path_descriptor=profile.PATHS+target['path']*profile.PATH_STRIDE,
+        requests.append(dict(manager=spawncode.MANAGER,type_code=item['type'],
+            model_hash=item['model_hash'],path_descriptor=profile.PATHS+target['path']*profile.PATH_STRIDE,
             progression=progress,speed=target['speed'],spacing=target['spacing_scalar'],
-            secondary_type_code=11 if secondary else 0,
-            secondary_model_hash=secondary['model_hash'] if secondary else 0))
+            variant=item['variant'],secondary_type_code=11 if item['secondary_model_id'] else 0,
+            secondary_model_hash=item['secondary_model_hash']))
     keys = list(range(editor.next_key,editor.next_key+count)) if created_keys is None else list(created_keys)
     if len(keys) != count or len(set(keys)) != count or any(type(k) is not int or not 1 <= k <= 10000 for k in keys):
         raise EditorError('Identificadores do lote inválidos.')
@@ -181,6 +217,7 @@ def stage(editor, vehicle_id, model_id, gap, count, secondary_model_id=None, *, 
         time.monotonic())
     editor.pending.experimental = experimental
     editor.pending.at_point = tuple(at_point) if at_point is not None else None
+    editor.pending.items = items
     editor.next_key = max(editor.next_key,max(keys)+1)
     try:
         editor.client.write_bytes(spawncode.CAVE,payload['scratch_bytes'])
@@ -198,6 +235,8 @@ def stage(editor, vehicle_id, model_id, gap, count, secondary_model_id=None, *, 
         completion_token=payload['completion_token'],format_version=payload['format_version'],
         experimental=experimental,requested_count=reserved,at_point=at_point,
         capacity=dict(counts,colliders=collision_count,endpoints=endpoint_count),
+        items=[dict(model_id=item['model_id'],secondary_model_id=item['secondary_model_id'],
+                    variant=item['variant'],type_code=item['type']) for item in items],
         progressions=[r['progression'] for r in requests])
     message = f'Lote de {count} preparado. Retome o PCSX2 uma vez e pause novamente para finalizar todos.'
     if projection:
@@ -287,20 +326,25 @@ def poll(editor):
         return _wait_for_physics(editor,pending,reason='profile_not_ready',detail=str(error))
     selected,seen,cold = [],set(),[]
     invalid = False
-    for _state,object_ptr,node_ptr in probes:
+    expected_items = pending.items or [dict(model_id=pending.model_id,model_hash=pending.model_hash,
+        type=pending.type_code,secondary_model_id=pending.secondary_model_id,
+        secondary_model_hash=pending.secondary_model_hash,variant=0) for _ in probes]
+    if len(expected_items) != len(probes):
+        raise EditorError('A descrição do lote não corresponde às solicitações preparadas.')
+    for (_state,object_ptr,node_ptr),item in zip(probes,expected_items):
         index = (object_ptr-profile.VEHICLES)//profile.VEHICLE_STRIDE
         row = snap.vehicles.get(index)
         if (not object_ptr or object_ptr != profile.VEHICLES+index*profile.VEHICLE_STRIDE
                 or index in pending.old_ids or index in seen or not row
-                or row['node'] != node_ptr or row['model_hash'] != pending.model_hash
-                or row['type'] != pending.type_code or row['path'] != pending.path):
+                or row['node'] != node_ptr or row['model_hash'] != item['model_hash']
+                or row['type'] != item['type'] or row['path'] != pending.path):
             invalid = True
             break
         seen.add(index)
-        if pending.secondary_model_id is not None:
+        if item['secondary_model_id'] is not None:
             child = snap.vehicles.get(row.get('child_id'))
             if (not row.get('native_pair_valid') or not child or child['id'] in pending.old_ids
-                    or child['id'] in seen or child['model_hash'] != pending.secondary_model_hash
+                    or child['id'] in seen or child['model_hash'] != item['secondary_model_hash']
                     or child['parent_id'] != index or child['type'] != 11 or child['node'] != 0):
                 invalid = True
                 break
@@ -356,18 +400,20 @@ def poll(editor):
         raise EditorError('A finalização do lote não pôde ser confirmada. Recarregue a referência limpa.')
     editor.pending = None
     target_ref = pending.target_ref
-    for row,key in zip(selected,pending.created_keys):
+    for row,key,item in zip(selected,pending.created_keys,expected_items):
         editor.actor_keys[row['id']] = key
         editor.replay_ids[key] = row['id']
-        operation = {'op':'add_behind','target':target_ref,'model_id':pending.model_id,
+        operation = {'op':'add_behind','target':target_ref,'model_id':item['model_id'],
             'gap':pending.gap,'created_key':key}
         if pending.at_point is not None:
             operation.pop('gap')
             operation.update(op='add_at',x=pending.at_point[0],z=pending.at_point[1])
         if pending.experimental:
             operation['experimental'] = True
-        if pending.secondary_model_id is not None:
-            operation['secondary_model_id'] = pending.secondary_model_id
+        if item['secondary_model_id'] is not None:
+            operation['secondary_model_id'] = item['secondary_model_id']
+        if item['variant']:
+            operation['variant'] = item['variant']
         editor.recipe.append(operation)
         target_ref = {'kind':'created','key':key}
     editor._journal('batch_finished',nonce=pending.nonce,

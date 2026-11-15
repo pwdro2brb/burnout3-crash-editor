@@ -110,15 +110,25 @@ class Snapshot:
             elif row.get('parent_id') is not None:
                 reason = 'Carga vinculada: selecione a cabine para editar o conjunto.'
             elif row.get('kind') == 'truck':
-                reason = 'O conjunto ainda não tem física ou formato validado para reposicionamento.'
+                if row.get('node_index') is None or not row.get('path_valid'):
+                    reason = 'A cabine não tem um caminho de tráfego válido para reposicionar o conjunto.'
+                else:
+                    reason = 'O conjunto ainda não tem física ou formato validado para reposicionamento.'
             elif not row['independent']:
                 reason = 'Este componente vinculado não pode ser editado isoladamente.'
             elif row['type'] not in SUPPORTED_SINGLE_TYPES:
                 reason = 'Este tipo de veículo ainda não está habilitado para edição.'
             elif not row['initialized']:
                 reason = 'O jogo ainda não inicializou os pontos físicos deste veículo.'
+            elif row.get('node_index') is None:
+                reason = 'O veículo não tem um nó de tráfego; mover pela largura da via não está disponível.'
+            elif row.get('path') in (None, 0xFF):
+                reason = 'O veículo não está associado a um caminho de tráfego válido.'
             elif not row['editable']:
-                reason = 'O veículo não tem um caminho válido para esta edição.'
+                reason = 'A posição ou os parâmetros do caminho não passaram na validação; a direção do jogador não é um filtro.'
+            reference_reason = None
+            if not row['can_reference']:
+                reference_reason = reason or 'Os parâmetros nativos de velocidade ou espaçamento não permitem criar um lote nesta referência.'
             public_row = {
                 'id': index, 'label': f"Veículo {index} — {model['label']}",
                 'model_id': row['model_id'], 'type_label': model['type_label'],
@@ -134,6 +144,7 @@ class Snapshot:
                 'secondary_model_id': row['secondary_model_id'],
                 'native_pair_valid': row['native_pair_valid'],
                 'can_reference': row['can_reference'],
+                'reference_reason': reference_reason,
                 'can_edit_compound': row['can_edit_compound'],
                 'can_add': row['can_reference'] and model['eligible'],
             }
@@ -182,7 +193,7 @@ def _compound_metadata(vehicles, models):
         row['secondary_model_id'] = None
         row['native_pair_valid'] = False
         row['can_edit_compound'] = False
-        row['can_reference'] = row['editable'] and row['travel_speed'] > 0
+        row['can_reference'] = row['editable'] and _reference_parameters_ready(row)
     for primary in vehicles.values():
         child = vehicles.get(primary['child_id'])
         if not child:
@@ -201,8 +212,8 @@ def _compound_metadata(vehicles, models):
         primary['secondary_model_id'] = child['model_id']
         primary['can_edit_compound'] = _compound_layout_ready(primary, child)
         primary['editable'] = primary['can_edit_compound']
-        primary['can_reference'] = (primary['initialized'] and child['initialized']
-            and primary['path_valid'] and primary['travel_speed'] > 0)
+        primary['can_reference'] = (primary['can_edit_compound']
+            and _reference_parameters_ready(primary))
         truck['trailer_model_ids'].add(child['model_id'])
         trailer['truck_model_ids'].add(primary['model_id'])
     for name, model in models.items():
@@ -220,6 +231,17 @@ def _compound_metadata(vehicles, models):
         model['independent_observed_types'] = sorted(model['independent_observed_types'])
         model['trailer_model_ids'] = sorted(model['trailer_model_ids'])
         model['truck_model_ids'] = sorted(model['truck_model_ids'])
+
+
+def _reference_parameters_ready(row):
+    """A stopped traffic controller can still describe a native creation path.
+
+    Direction belongs to the selected path and saved forward axis, not to the
+    player's heading. behind_progress separately checks that alignment.
+    """
+    values = [row['speed'],row['travel_speed'],row['spacing_scalar']]
+    return (_finite(values) and 0 <= values[0] <= 240 and values[1] >= 0
+            and 0 <= values[2] <= 10000)
 
 
 def _compound_layout_ready(primary, child):
@@ -412,7 +434,7 @@ def _arc(memory, path, lo, hi, lateral, samples=64):
 def behind_progress(memory, path: int, progress: float, lateral: float, gap: float, *, node: int | None = None, experimental: bool = False) -> float:
     """Find a lower path parameter roughly `gap` game units behind.
 
-    Pass the selected node to also verify observed positive travel and agreement
+    Pass the selected node to also verify finite nonnegative travel and agreement
     between its saved path-forward axis and the increasing spline parameter.
     """
     if type(experimental) is not bool:
@@ -427,8 +449,8 @@ def behind_progress(memory, path: int, progress: float, lateral: float, gap: flo
         if ni is None:
             raise ProfileError('O veículo não tem um nó válido neste caminho.')
         speed = memory.read(node+0x2C, '<f')[0]
-        if not math.isfinite(speed) or speed <= 0 or memory.u8(node+0x41) != path:
-            raise ProfileError('Selecione um veículo que avance neste caminho.')
+        if not math.isfinite(speed) or speed < 0 or memory.u8(node+0x41) != path:
+            raise ProfileError('A referência precisa de avanço não negativo e do mesmo caminho de tráfego.')
         forward = memory.xyz(MATRICES+ni*MATRIX_STRIDE+0x20)
         derivative = origin['derivative']
         norms = math.sqrt(sum(x*x for x in forward))*math.sqrt(sum(x*x for x in derivative))

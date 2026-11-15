@@ -1637,4 +1637,194 @@ class LauncherTests(unittest.TestCase):
         show.assert_called_once_with(instance)
 
 
+class AlternatingAndSlotTests(unittest.TestCase):
+    @staticmethod
+    def mixed_app():
+        app=app_shell({'id':9,'model_id':'car','editable':True,'can_reference':True})
+        app.root=Mock()
+        app.models={
+            'car':dict(id='car',label='Carro',kind='independent',type=1,eligible=True),
+            'van':dict(id='van',label='Van',kind='independent',type=3,eligible=True),
+            'bus':dict(id='bus',label='Ônibus',kind='independent',type=5,eligible=True),
+            'truck':dict(id='truck',label='Cabine',kind='truck',type=4,eligible=True),
+            'cargo':dict(id='cargo',label='Carga',kind='trailer',type=11,eligible=False),
+            'cold':dict(id='cold',kind='independent',type=1,eligible=False)}
+        app.model_choice=Var('Mesmo modelo do selecionado')
+        app.model_choices={'Mesmo modelo do selecionado':None}
+        app.mixed_model_ids=['van','car']
+        app.mixed_text=Var()
+        app.spawn_mode=Var('Alternar modelos')
+        app.spawn_color=Var('Original (0)')
+        app.gap,app.count=Var('10'),Var('4')
+        app.controller=types.SimpleNamespace(add_mixed_behind=Mock(),add_many_behind=Mock())
+        return app
+
+    def test_mixed_selection_preserves_order_and_prunes_unavailable_models(self):
+        app=self.mixed_app()
+        self.assertEqual([model['id'] for model in app._mixed_candidates()],['car','van','bus'])
+        app.mixed_model_ids=['van','truck','car','cold','missing']
+        app._refresh_mixed_models()
+        self.assertEqual(app.mixed_model_ids,['van','car'])
+        self.assertIn('Van → Carro → repete',app.mixed_text.get())
+        del app.models['van']
+        app._refresh_mixed_models()
+        self.assertEqual(app.mixed_model_ids,['car'])
+
+    def test_mixed_dispatch_submits_pattern_once_and_cycles_visuals_only_when_selected(self):
+        app=self.mixed_app()
+        actions=[]
+        app._change=lambda _label,action:actions.append(action)
+        app.add_behind()
+        self.assertEqual(len(actions),1)
+        app.controller.add_mixed_behind.assert_not_called()
+        actions.pop()()
+        app.controller.add_mixed_behind.assert_called_once_with(9,[dict(model_id='van'),dict(model_id='car')],10.,4)
+        app.spawn_color.set('Alternar variações (0–7)')
+        app.experimental=Var(True)
+        app.count.set('20')
+        app.add_behind()
+        actions.pop()()
+        app.controller.add_mixed_behind.assert_called_with(9,[dict(model_id='van'),dict(model_id='car')],10.,20,
+                                                         experimental=True,color_mode='cycle')
+        app.controller.add_many_behind.assert_not_called()
+
+    def test_single_model_cycle_uses_existing_batch_api(self):
+        app=self.mixed_app()
+        app.spawn_mode.set('Modelo único')
+        app.spawn_color.set('Alternar variações (0–7)')
+        actions=[]
+        app._change=lambda _label,action:actions.append(action)
+        app.add_behind()
+        actions.pop()()
+        app.controller.add_many_behind.assert_called_once_with(9,None,10.,4,secondary_model_id=None,color_mode='cycle')
+        app.controller.add_mixed_behind.assert_not_called()
+
+    def test_mixed_bus_spacing_is_validated_for_the_whole_pattern(self):
+        app=self.mixed_app()
+        app.mixed_model_ids=['car','bus']
+        app._change=Mock()
+        with patch.object(gui.messagebox,'showinfo') as info:
+            app.add_behind()
+        self.assertIn('30 e 50',info.call_args.args[1])
+        app._change.assert_not_called()
+        app.gap.set('30')
+        app.add_behind()
+        self.assertEqual(app._change.call_count,1)
+
+    def test_invalid_pattern_is_not_silently_changed_to_single_model(self):
+        app=self.mixed_app()
+        app.mixed_model_ids=['car','missing']
+        app._change=Mock()
+        with patch.object(gui.messagebox,'showinfo') as info:
+            app.add_behind()
+        self.assertIn('pelo menos dois',info.call_args.args[1])
+        app._change.assert_not_called()
+
+    def test_creation_action_cannot_bypass_pause_pending_or_reference_guards(self):
+        for blocked in ('running','pending','busy','closed','profile','disconnected','reference'):
+            with self.subTest(blocked=blocked):
+                app=self.mixed_app()
+                if blocked=='running': app.core_paused=False
+                elif blocked=='pending': app.pending=True
+                elif blocked=='busy': app.busy=True
+                elif blocked=='closed': app.closed=True
+                elif blocked=='profile': app.profile_valid=False
+                elif blocked=='disconnected': app.connected=False
+                else: app.selected=lambda:dict(id=9,editable=True,can_reference=False)
+                app._change=Mock()
+                app.add_behind()
+                app._change.assert_not_called()
+
+    def test_stopped_ready_reference_does_not_have_a_separate_gui_speed_gate(self):
+        app=self.mixed_app()
+        app.selected=lambda:dict(id=9,model_id='car',editable=True,can_reference=True,speed=0,travel_speed=0)
+        app._change=Mock()
+        app.add_behind()
+        self.assertEqual(app._change.call_count,1)
+
+    def test_slot_confirmation_names_exact_files_and_rejects_blocked_or_empty_rows(self):
+        row=dict(slot=9,occupied=True,paths=['C:/test/a.p2s','C:/test/nested/a.p2s'])
+        text=gui.slot_archive_description(row)
+        self.assertIn('slot 9',text)
+        self.assertIn('C:/test/a.p2s',text)
+        self.assertIn('C:/test/nested/a.p2s',text)
+        self.assertIn('cópia verificada',text)
+        for change in (dict(slot=True),dict(slot=10),dict(occupied=False),dict(paths=[]),dict(blocked='Link'),dict(paths=[''])):
+            with self.subTest(change=change),self.assertRaises(ValueError):
+                gui.slot_archive_description({**row,**change})
+
+    def test_archiving_is_serialized_once_after_confirmation_and_can_be_cancelled(self):
+        app=EventProjectTests.app()
+        app.controller=types.SimpleNamespace(archive_state_slot=Mock(return_value=dict(message='Arquivado',archive_directory='backup')))
+        app._set_status,app._set_core_state=Mock(),Mock()
+        jobs=[]
+        app._submit=lambda _label,work,done:jobs.append((work,done))
+        callback=Mock()
+        row=dict(slot=7,occupied=True,paths=['C:/test/save.p2s'])
+        with patch.object(gui.messagebox,'askyesno',return_value=False):
+            app._archive_slot(row,callback)
+        self.assertEqual(jobs,[])
+        with patch.object(gui.messagebox,'askyesno',return_value=True) as ask:
+            app._archive_slot(row,callback)
+        self.assertIn('C:/test/save.p2s',ask.call_args.args[1])
+        app.controller.archive_state_slot.assert_not_called()
+        self.assertEqual(len(jobs),1)
+        work,done=jobs.pop()
+        response=work()
+        app.controller.archive_state_slot.assert_called_once_with(7)
+        callback.assert_not_called()
+        done(response)
+        callback.assert_called_once_with(response)
+
+    def test_archive_confirmation_cannot_reuse_a_state_that_became_busy(self):
+        app=EventProjectTests.app()
+        app._slot_job=Mock()
+        def changed(*_args,**_kwargs):
+            app.busy=True
+            return True
+        with patch.object(gui.messagebox,'askyesno',side_effect=changed):
+            app._archive_slot(dict(slot=2,occupied=True,paths=['saved.p2s']),Mock())
+        app._slot_job.assert_not_called()
+
+    def test_slot_failure_reaches_dialog_callback_and_never_retries(self):
+        app=EventProjectTests.app()
+        app._set_status,app._set_core_state=Mock(),Mock()
+        jobs=[]
+        app._submit=lambda _label,work,done:jobs.append((work,done))
+        action,callback=Mock(side_effect=ValueError('Slot mudou')),Mock()
+        app._slot_job('Arquivando',action,callback)
+        work,done=jobs.pop()
+        result=work()
+        done(result)
+        action.assert_called_once()
+        callback.assert_called_once_with(dict(error='Slot mudou'))
+        self.assertTrue(app._set_status.call_args.kwargs['warning'])
+        app._set_core_state.assert_not_called()
+
+    def test_slot_manager_button_requires_the_same_paused_idle_capability(self):
+        for blocked in (None,'running','pending','profile','capability'):
+            with self.subTest(blocked=blocked):
+                app=EventProjectTests.app()
+                app.slot_manager_button=Widget()
+                if blocked=='running': app.core_paused=False
+                elif blocked=='pending': app.pending=True
+                elif blocked=='profile': app.profile_valid=False
+                elif blocked=='capability': app.event_projects=False
+                app._update_controls()
+                self.assertEqual(app.slot_manager_button.options['state'],'normal' if blocked is None else 'disabled')
+
+    def test_selection_distinguishes_position_eligibility_from_creation_reference_reason(self):
+        row=dict(id=9,editable=True,can_reference=False,path=2,position=[1,2,3],
+                 edit_reason='Movimento lateral disponível.',reference_reason='O nó não pertence mais a este veículo.')
+        app=app_shell(row)
+        app.selection_text,app.position_text,app.lateral=Var(),Var(),Var(50)
+        app._lateral_changed,app._update_secondary_choices,app._update_controls,app._draw_traffic=Mock(),Mock(),Mock(),Mock()
+        app._selection_changed()
+        self.assertIn('Movimento lateral disponível.',app.position_text.get())
+        self.assertIn('Adicionar atrás: O nó não pertence mais a este veículo.',app.position_text.get())
+        row['can_reference']=True
+        app._selection_changed()
+        self.assertNotIn('Adicionar atrás:',app.position_text.get())
+
+
 if __name__ == '__main__': unittest.main()

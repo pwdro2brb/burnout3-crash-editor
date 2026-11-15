@@ -60,15 +60,43 @@ def _matches_record(row,nonce,requests):
     if not isinstance(progressions,list) or len(progressions) != len(requests):
         return False
     try:
-        primary = encode_identifier(row['model_id'])
-        secondary_id = row.get('secondary_model_id')
-        secondary = encode_identifier(secondary_id) if secondary_id is not None else 0
-        for request,progression in zip(requests,progressions):
+        items = row.get('items')
+        if 'items' not in row:
+            # Older journals describe a homogeneous batch and did not record
+            # appearance. They may authorize only the original variant zero.
+            items = [dict(model_id=row['model_id'],secondary_model_id=row.get('secondary_model_id'),
+                          variant=0) for _ in requests]
+            legacy = True
+        else:
+            if (not isinstance(items,list) or len(items) != len(requests)
+                    or any(not isinstance(item,dict) for item in items)):
+                return False
+            legacy = False
+            if (items[0].get('model_id') != row.get('model_id')
+                    or items[0].get('secondary_model_id') != row.get('secondary_model_id')):
+                return False
+        for request,progression,item in zip(requests,progressions,items):
+            primary = encode_identifier(item['model_id'])
+            secondary_id = item.get('secondary_model_id')
+            secondary = encode_identifier(secondary_id) if secondary_id is not None else 0
+            variant = item.get('variant')
+            if type(variant) is not int or not 0 <= variant <= 7:
+                return False
+            type_code = item.get('type_code',request['type_code']) if legacy else item.get('type_code')
+            secondary_type = 11 if secondary_id is not None else 0
+            if (type(type_code) is not int or type_code not in (1,2,3,4,5)
+                    or (type_code == 4) != bool(secondary_type)
+                    or type(item.get('secondary_type_code',secondary_type)) is not int
+                    or item.get('secondary_type_code',secondary_type) != secondary_type):
+                return False
             if (type(progression) not in (int,float)
                     or struct.pack('<f',progression) != struct.pack('<f',request['progression'])
                     or request['manager'] != spawncode.MANAGER
                     or request['model_hash'] != primary
                     or request['secondary_model_hash'] != secondary
+                    or request['type_code'] != type_code
+                    or request['secondary_type_code'] != secondary_type
+                    or request['variant'] != variant
                     or request['path_descriptor'] != spawncode.PATHS+row['path']*spawncode.PATH_STRIDE):
                 return False
     except (KeyError,TypeError,ValueError,OverflowError,struct.error):

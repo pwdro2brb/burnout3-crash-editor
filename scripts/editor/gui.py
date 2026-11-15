@@ -29,7 +29,10 @@ class Controller(Protocol):
                    gap: float) -> dict[str, Any]: ...
     def add_many_behind(self, vehicle_id: int, model_id: str | None, gap: float,
                         count: int, secondary_model_id: str | None = None,
-                        experimental: bool = False) -> dict[str, Any]: ...
+                        experimental: bool = False, color_mode: str = 'original') -> dict[str, Any]: ...
+    def add_mixed_behind(self, vehicle_id: int, choices: list[dict[str, Any]], gap: float,
+                         count: int, *, experimental: bool = False,
+                         color_mode: str = 'original') -> dict[str, Any]: ...
     def add_at(self, vehicle_id: int, model_id: str | None, x: float, z: float,
                secondary_model_id: str | None = None,
                experimental: bool = False) -> dict[str, Any]: ...
@@ -54,6 +57,8 @@ class Controller(Protocol):
     def import_project(self, directory: str, name: str, state_path: str) -> dict[str, Any]: ...
     def save_project_from_state(self, state_path: str) -> dict[str, Any]: ...
     def confirm_project(self, path: str, *, base: bool = False) -> dict[str, Any]: ...
+    def list_state_slots(self) -> dict[str, Any]: ...
+    def archive_state_slot(self, slot: int) -> dict[str, Any]: ...
     def close(self) -> None: ...
 
 
@@ -138,6 +143,18 @@ def catalog_rows(models: list[dict[str, Any]]) -> list[tuple[str, str, str]]:
              'Disponível com caminhão' if model.get('eligible_as_trailer') is True else
              'Criação não validada')
             for index, model in enumerate(models)]
+
+
+def slot_archive_description(row: dict[str,Any]) -> str:
+    slot,paths = row.get('slot'),row.get('paths')
+    if (type(slot) is not int or not 0 <= slot <= 9 or row.get('occupied') is not True
+            or row.get('blocked') or not isinstance(paths,list) or not paths
+            or any(not isinstance(path,str) or not path for path in paths)):
+        raise ValueError('Selecione um slot ocupado que possa ser arquivado.')
+    return (f'Arquivar os arquivos do slot {slot}?\n\n' + '\n'.join(paths)
+            + '\n\nUma cópia verificada ficará na pasta de backups do editor. '
+              'Depois da conferência, esses arquivos sairão dos slots para liberar o espaço. '
+              'Os demais slots serão preservados.')
 
 
 def xz(position: Any) -> tuple[float, float] | None:
@@ -276,6 +293,10 @@ class EditorApp:
         self.project_text = tk.StringVar(value='Nenhum projeto aberto. Conecte e pause o PCSX2 para começar.')
         self.model_choice = tk.StringVar(value='Mesmo modelo do selecionado')
         self.secondary_choice = tk.StringVar(value='Selecione a carga')
+        self.spawn_mode = tk.StringVar(value='Modelo único')
+        self.spawn_color = tk.StringVar(value='Original (0)')
+        self.mixed_model_ids: list[str] = []
+        self.mixed_text = tk.StringVar(value='Escolha pelo menos dois modelos carregados para alternar.')
         self.map_notice = tk.StringVar(value='Posições dos veículos; sem desenho da pista.')
         self.instructions_text = tk.StringVar(value='Pause com Esc no PCSX2 e atualize a lista antes de editar. As alterações valem para a sessão atual.')
         self._build()
@@ -421,7 +442,7 @@ class EditorApp:
         self.add_at_button = ttk.Button(point_controls, text='Adicionar no ponto', command=self.add_at)
         self.add_at_button.grid(row=1, column=0, columnspan=4, sticky='ew', pady=(7, 0))
         ttk.Label(point_controls,
-            text='Usa caminhos com referência móvel verificada e o modelo escolhido ao lado. O ponto pode ser ajustado à via.',
+            text='Usa uma referência com caminho e física verificados e o modelo escolhido ao lado. O ponto pode ser ajustado à via.',
             foreground='#5f6875', wraplength=410).grid(row=2, column=0, columnspan=4, sticky='w', pady=(5, 0))
         catalog = ttk.Frame(lists, padding=(0, 8, 0, 0))
         catalog.columnconfigure(0, weight=1)
@@ -491,6 +512,8 @@ class EditorApp:
             text='Sem slot livre: salve/carregue em Sistema → Salvar/Carregar estado → Arquivo… e confira aqui. '
                  'Os arquivos precisam corresponder à cena pausada.', wraplength=360, foreground='#5f6875')
         self.project_manual_label.grid(row=3, column=0, columnspan=2, sticky='w', pady=(10, 0))
+        self.slot_manager_button = ttk.Button(project_tab, text='Gerenciar slots…', command=self.manage_slots)
+        self.slot_manager_button.grid(row=9, column=0, columnspan=2, sticky='ew', pady=(14, 0))
         pane.add(list_frame, weight=3)
 
         details_panel = ttk.Frame(pane)
@@ -571,7 +594,21 @@ class EditorApp:
         self.secondary_label.grid_remove()
         self.secondary_box.grid_remove()
         self.add_button = ttk.Button(addition, text='Adicionar veículos atrás', command=self.add_behind)
-        self.add_button.grid(row=6, column=0, sticky='ew', pady=(11, 0))
+        self.spawn_mode_box = ttk.Combobox(addition, textvariable=self.spawn_mode,
+            values=('Modelo único','Alternar modelos'),state='readonly',width=29)
+        self.spawn_mode_box.grid(row=6,column=0,sticky='ew',pady=(10,0))
+        self.spawn_mode_box.bind('<<ComboboxSelected>>',self._spawn_options_changed)
+        self.mixed_button = ttk.Button(addition,text='Escolher modelos alternados…',command=self.choose_mixed_models)
+        self.mixed_button.grid(row=7,column=0,sticky='ew',pady=(6,0))
+        self.mixed_label = ttk.Label(addition,textvariable=self.mixed_text,wraplength=300,foreground='#5f6875')
+        self.mixed_label.grid(row=8,column=0,sticky='w',pady=(5,0))
+        self.spawn_color_label = ttk.Label(addition,text='Lotes: variação visual experimental (cor a confirmar)',
+            wraplength=300,foreground='#5f6875')
+        self.spawn_color_label.grid(row=9,column=0,sticky='w',pady=(10,0))
+        self.spawn_color_box = ttk.Combobox(addition,textvariable=self.spawn_color,
+            values=('Original (0)','Alternar variações (0–7)'),state='readonly',width=29)
+        self.spawn_color_box.grid(row=10,column=0,sticky='ew',pady=(5,0))
+        self.add_button.grid(row=11, column=0, sticky='ew', pady=(11, 0))
 
         footer = ttk.Frame(container)
         footer.grid(row=4, column=0, sticky='ew', pady=(16, 0))
@@ -642,7 +679,8 @@ class EditorApp:
             return
         width=max(1,int(event.width))
         self.details_canvas.itemconfigure(self.details_window,width=width)
-        for name in ('selection_label','position_label','speed_label','speed_selection_label'):
+        for name in ('selection_label','position_label','speed_label','speed_selection_label',
+                     'mixed_label','spawn_color_label'):
             label=getattr(self,name,None)
             if label is not None:
                 label.configure(wraplength=max(100,width-24))
@@ -675,6 +713,10 @@ class EditorApp:
                 (f'\nCaminho: P{path}' if type(path) is int else '\nSem caminho de tráfego reconhecido.'))
             if vehicle.get('edit_reason'):
                 self.position_text.set(self.position_text.get() + '\n' + str(vehicle['edit_reason']))
+            reference_reason = vehicle.get('reference_reason')
+            if (reference_reason and not vehicle.get('can_reference',vehicle.get('editable',False))
+                    and reference_reason != vehicle.get('edit_reason')):
+                self.position_text.set(self.position_text.get() + '\nAdicionar atrás: ' + str(reference_reason))
             try:
                 lateral = float(vehicle.get('lateral_percent', 50))
                 if not math.isfinite(lateral):
@@ -701,6 +743,74 @@ class EditorApp:
     def _experimental_enabled(self) -> bool:
         variable = getattr(self, 'experimental', None)
         return variable is not None and variable.get() is True
+
+    def _alternating_models(self) -> bool:
+        variable = getattr(self,'spawn_mode',None)
+        return variable is not None and variable.get() == 'Alternar modelos'
+
+    def _creation_ready(self) -> bool:
+        vehicle = self.selected()
+        return bool(not self.closed and not self.busy and not self.pending and self.connected
+                    and getattr(self,'profile_valid',True) and self.core_paused is True
+                    and vehicle and vehicle.get('active',True)
+                    and vehicle.get('can_reference',vehicle.get('editable',False)))
+
+    def _mixed_candidates(self) -> list[dict[str,Any]]:
+        return [model for model in getattr(self,'models',{}).values()
+                if model.get('eligible') is True and model.get('kind') not in ('truck','trailer')
+                and model.get('type') in (1,2,3,5)]
+
+    def _refresh_mixed_models(self) -> None:
+        candidates = {str(model['id']):model for model in self._mixed_candidates()}
+        self.mixed_model_ids = [model_id for model_id in getattr(self,'mixed_model_ids',[])
+                                if model_id in candidates]
+        if hasattr(self,'mixed_text'):
+            names = [str(candidates[model_id].get('label') or model_id)
+                     for model_id in self.mixed_model_ids]
+            self.mixed_text.set((' → '.join(names) + ' → repete. Caminhões com carga usam Modelo único.')
+                if names else 'Escolha pelo menos dois modelos carregados para alternar.')
+
+    def _spawn_options_changed(self, _event=None) -> None:
+        self._refresh_mixed_models()
+        self._update_controls()
+
+    def choose_mixed_models(self) -> None:
+        if not self._creation_ready():
+            return
+        candidates = self._mixed_candidates()
+        if len(candidates) < 2:
+            messagebox.showinfo('Modelos alternados','Esta leitura precisa ter pelo menos dois modelos '
+                'independentes disponíveis. Caminhões com carga continuam no modo Modelo único.',parent=self.root)
+            return
+        dialog = tk.Toplevel(self.root)
+        dialog.title('Modelos alternados')
+        dialog.transient(self.root)
+        dialog.geometry('440x360')
+        dialog.columnconfigure(0,weight=1)
+        dialog.rowconfigure(1,weight=1)
+        ttk.Label(dialog,text='Selecione os modelos com Ctrl/Shift. A ordem da lista se repete no lote.',
+                  wraplength=400).grid(row=0,column=0,sticky='w',padx=14,pady=12)
+        listing = tk.Listbox(dialog,selectmode='extended',exportselection=False,height=10)
+        listing.grid(row=1,column=0,sticky='nsew',padx=14)
+        for index,model in enumerate(candidates):
+            listing.insert('end',str(model.get('label') or model['id']))
+            if str(model['id']) in getattr(self,'mixed_model_ids',[]):
+                listing.selection_set(index)
+        def accept():
+            if not self._creation_ready():
+                dialog.destroy()
+                return
+            indexes = listing.curselection()
+            if len(indexes) < 2:
+                messagebox.showinfo('Modelos alternados','Escolha pelo menos dois modelos.',parent=dialog)
+                return
+            self.mixed_model_ids = [str(candidates[index]['id']) for index in indexes]
+            self.spawn_mode.set('Alternar modelos')
+            self._refresh_mixed_models()
+            self._update_controls()
+            dialog.destroy()
+        ttk.Button(dialog,text='Usar seleção',command=accept).grid(row=2,column=0,sticky='ew',padx=14,pady=12)
+        dialog.grab_set()
 
     def _experimental_changed(self) -> None:
         if hasattr(self, 'count_box'):
@@ -1108,6 +1218,8 @@ class EditorApp:
                     widget.configure(state='normal' if project_ready else 'disabled')
                 self.save_project_state_button.configure(state='normal' if project_ready
                     and getattr(self, 'project', None) else 'disabled')
+            if hasattr(self,'slot_manager_button'):
+                self.slot_manager_button.configure(state='normal' if project_ready else 'disabled')
         for widget in (self.move_button, self.lateral_scale):
             widget.configure(state='normal' if editable else 'disabled')
         for widget in (self.add_button, self.gap_entry):
@@ -1129,6 +1241,17 @@ class EditorApp:
             else:
                 self.experimental_warning.grid_remove()
         self.model_box.configure(state='readonly' if can_reference else 'disabled')
+        if hasattr(self,'spawn_mode_box'):
+            self.spawn_mode_box.configure(state='readonly' if can_reference else 'disabled')
+            self.spawn_color_box.configure(state='readonly' if can_reference else 'disabled')
+            mixed = self._alternating_models()
+            self.mixed_button.configure(state='normal' if can_reference and mixed else 'disabled')
+            if mixed:
+                self.mixed_button.grid()
+                self.mixed_label.grid()
+            else:
+                self.mixed_button.grid_remove()
+                self.mixed_label.grid_remove()
         if hasattr(self, 'secondary_box'):
             self.secondary_box.configure(state='readonly' if can_reference
                 and self._chosen_model().get('kind') == 'truck' else 'disabled')
@@ -1251,6 +1374,7 @@ class EditorApp:
         if selected_id is not None:
             selected_ids.add(selected_id)
         self.models = {str(model['id']): model for model in snapshot.get('models', [])}
+        self._refresh_mixed_models()
         self.profile_valid = (snapshot.get('profile_valid') is not False
                               and isinstance(snapshot.get('vehicles'), list)
                               and isinstance(snapshot.get('models'), list))
@@ -1491,20 +1615,32 @@ class EditorApp:
 
     def add_behind(self) -> None:
         vehicle = self.selected()
-        if not vehicle:
+        if not self._creation_ready() or not vehicle:
             return
         try:
             gap = number(self.gap.get(), positive=True)
             experimental = self._experimental_enabled()
             count = quantity(self.count.get(), experimental=experimental)
             chosen = self._chosen_model()
+            mixed = self._alternating_models()
+            choices = []
+            if mixed:
+                self._refresh_mixed_models()
+                if len(self.mixed_model_ids) < 2:
+                    raise ValueError('Escolha pelo menos dois modelos carregados para alternar.')
+                choices = [{'model_id':model_id} for model_id in self.mixed_model_ids]
+            color_mode = ('cycle' if getattr(self,'spawn_color',None) is not None
+                          and self.spawn_color.get() == 'Alternar variações (0–7)' else 'original')
             reference = getattr(self, 'models', {}).get(str(vehicle.get('model_id')), {})
             minimum = 30 if (chosen.get('kind') == 'truck' or reference.get('kind') == 'truck'
                              or chosen.get('type') == 5 or reference.get('type') == 5) else 8
+            if mixed:
+                minimum = 30 if (reference.get('kind') == 'truck' or reference.get('type') == 5
+                                or any(self.models[item['model_id']].get('type') == 5 for item in choices)) else 8
             if not experimental and not minimum <= gap <= 50:
                 raise ValueError(f'Use uma distância entre {minimum} e 50 unidades do jogo.')
             secondary_id = None
-            if chosen.get('kind') == 'truck':
+            if not mixed and chosen.get('kind') == 'truck':
                 secondary_id = self.secondary_choices.get(self.secondary_choice.get())
                 if secondary_id is None:
                     raise ValueError('Escolha uma carga compatível para o caminhão.')
@@ -1516,6 +1652,13 @@ class EditorApp:
         options = {'secondary_model_id': secondary_id}
         if experimental:
             options['experimental'] = True
+        if color_mode != 'original':
+            options['color_mode'] = color_mode
+        if mixed:
+            mixed_options = {key:value for key,value in options.items() if key != 'secondary_model_id'}
+            self._change('Adicionando os modelos alternados atrás…',
+                         lambda:self.controller.add_mixed_behind(vehicle_id,choices,gap,count,**mixed_options))
+            return
         self._change('Adicionando os veículos atrás…',
                      lambda: self.controller.add_many_behind(vehicle_id, model_id, gap, count,
                                                               **options))
@@ -1557,6 +1700,142 @@ class EditorApp:
                     and getattr(self, 'profile_valid', False) and self.core_paused is True
                     and getattr(self, 'event_projects', False)
                     and (not existing or getattr(self, 'project', None)))
+
+    def _slot_job(self,label,action,callback) -> None:
+        if not self._project_ready():
+            return
+        def work():
+            try:
+                return {'result':action()}
+            except Exception as error:
+                return {'error':str(error).strip() or type(error).__name__}
+        def done(response):
+            if response.get('error'):
+                self._set_status('Não foi possível concluir: '+response['error'],warning=True)
+            else:
+                result=response['result']
+                self._set_core_state(result)
+                if result.get('message'):
+                    self._set_status(str(result['message']),warning=bool(result.get('warning')))
+            callback(response)
+        self._submit(label,work,done)
+
+    def _archive_slot(self,row,callback,*,parent=None) -> None:
+        if not self._project_ready():
+            return
+        try:
+            description=slot_archive_description(row)
+        except ValueError as error:
+            messagebox.showinfo('Gerenciar slots',str(error),parent=parent or self.root)
+            return
+        if not messagebox.askyesno('Arquivar e liberar slot',description,parent=parent or self.root):
+            return
+        # Do not use an old confirmation after the emulator changed pause or
+        # the editor entered another action. The controller rechecks ownership.
+        if not self._project_ready():
+            return
+        self._slot_job('Arquivando o slot com cópia verificada…',
+                       lambda:self.controller.archive_state_slot(row['slot']),callback)
+
+    def manage_slots(self) -> None:
+        if not self._project_ready():
+            return
+        previous=getattr(self,'slot_dialog',None)
+        if previous is not None:
+            try:
+                if previous.winfo_exists():
+                    previous.lift()
+                    return
+            except tk.TclError:
+                pass
+        dialog=tk.Toplevel(self.root)
+        self.slot_dialog=dialog
+        dialog.title('Gerenciar slots do PCSX2')
+        dialog.transient(self.root)
+        dialog.geometry('660x410')
+        dialog.columnconfigure(0,weight=1)
+        dialog.rowconfigure(1,weight=1)
+        ttk.Label(dialog,text='Arquivar preserva uma cópia verificada e libera o slot; não apaga definitivamente o save.',
+                  wraplength=610).grid(row=0,column=0,sticky='w',padx=14,pady=12)
+        table=ttk.Treeview(dialog,columns=('slot','state','size'),show='headings',selectmode='browse',height=10)
+        for key,label,width in (('slot','Slot',55),('state','Estado',340),('size','Tamanho',120)):
+            table.heading(key,text=label)
+            table.column(key,width=width,stretch=key=='state')
+        table.grid(row=1,column=0,sticky='nsew',padx=14)
+        status=tk.StringVar(value='Consultando os slots…')
+        ttk.Label(dialog,textvariable=status,wraplength=610).grid(row=2,column=0,sticky='w',padx=14,pady=10)
+        buttons=ttk.Frame(dialog)
+        buttons.grid(row=3,column=0,sticky='ew',padx=14,pady=(0,12))
+        state={'alive':True,'rows':{},'loading':False}
+        refresh=ttk.Button(buttons,text='Atualizar slots')
+        archive=ttk.Button(buttons,text='Arquivar e liberar selecionado')
+        refresh.pack(side='left')
+        archive.pack(side='left',padx=8)
+        def selected():
+            selection=table.selection()
+            return state['rows'].get(selection[0]) if selection else None
+        def enable(_event=None):
+            ready=state['alive'] and not state['loading'] and self._project_ready()
+            refresh.configure(state='normal' if ready else 'disabled')
+            row=selected()
+            archive.configure(state='normal' if ready and row and row.get('occupied')
+                              and not row.get('blocked') else 'disabled')
+        def loaded(response):
+            if not state['alive']:
+                return
+            state['loading']=False
+            table.delete(*table.get_children())
+            state['rows']={}
+            if response.get('error'):
+                status.set(response['error'])
+            else:
+                for row in response['result'].get('slots',[]):
+                    iid=f"slot-{row['slot']}"
+                    state['rows'][iid]=row
+                    text=('Bloqueado: '+str(row.get('blocked')) if row.get('blocked') else
+                          'Ocupado' if row.get('occupied') else 'Livre')
+                    size=row.get('total_bytes',0)
+                    table.insert('','end',iid=iid,values=(row['slot'],text,f'{size/1048576:.2f} MiB'))
+                status.set('Selecione um slot ocupado para ver os arquivos antes de arquivar.')
+            enable()
+        def load():
+            if not self._project_ready() or not state['alive']:
+                return
+            state['loading']=True
+            enable()
+            self._slot_job('Consultando os slots do PCSX2…',self.controller.list_state_slots,loaded)
+        def archived(response):
+            if not state['alive']:
+                return
+            state['loading']=False
+            if response.get('error'):
+                status.set(response['error'])
+                state['rows']={}
+                table.delete(*table.get_children())
+                enable()
+            else:
+                result=response['result']
+                messagebox.showinfo('Slot arquivado',str(result.get('message') or 'Slot arquivado.')
+                    +'\n\nBackup: '+str(result.get('archive_directory') or ''),parent=dialog)
+                load()
+        def submit_archive():
+            row=selected()
+            if row and not state['loading']:
+                self._archive_slot(row,archived,parent=dialog)
+                if self.busy:
+                    state['loading']=True
+                    enable()
+        def close():
+            state['alive']=False
+            self.slot_dialog=None
+            dialog.destroy()
+        refresh.configure(command=load)
+        archive.configure(command=submit_archive)
+        table.bind('<<TreeviewSelect>>',enable)
+        ttk.Button(buttons,text='Fechar',command=close).pack(side='right')
+        dialog.protocol('WM_DELETE_WINDOW',close)
+        dialog.grab_set()
+        load()
 
     def _new_project_location(self) -> tuple[str, str] | None:
         name = str(self.project_name.get()).strip()

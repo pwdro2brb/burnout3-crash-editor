@@ -2,7 +2,7 @@
 
 The result is an approximate ribbon projection for a stock-engine creation.
 It does not teleport an existing rigid body, find terrain, write memory or
-admit paths that have no initialized moving reference in the snapshot.
+admit paths that have no initialized reference in the snapshot.
 """
 from __future__ import annotations
 
@@ -57,7 +57,7 @@ def _references(state, reference_id, x, z):
         if path not in paths or rank < paths[path][0]:
             paths[path] = (rank,row)
     if not paths:
-        raise profile.ProfileError('Nenhum caminho tem uma referência móvel com física inicializada.')
+        raise profile.ProfileError('Nenhum caminho tem uma referência com física inicializada.')
     return [paths[path][1] for path in sorted(paths)]
 
 
@@ -65,7 +65,7 @@ def project_target(state, reference_id, x, z, *, experimental=False):
     """Project X/Z onto an observed path, returning native-creation parameters.
 
     An explicit reference restricts the search to its path. ``None`` considers
-    unique paths with initialized moving references. Normal mode clamps to the
+    unique paths with initialized references, including stopped traffic. Normal mode clamps to the
     loaded ribbon; experimental mode extrapolates its cross-road vector. Both
     keep progression inside loaded geometry, use its Y, and require float32-
     representable results. No terrain or collision-free placement is implied.

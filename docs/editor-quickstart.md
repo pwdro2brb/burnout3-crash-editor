@@ -49,12 +49,21 @@ essa cena. Para reabrir o trabalho, selecione `event.b3event.json` em
 **Abrir projeto…**.
 
 O fluxo automático precisa de um slot livre e não substitui saves existentes.
-Se todos estiverem ocupados, a seção **Alternativa sem slot livre** permite
+Se todos estiverem ocupados, **Gerenciar slots…** oferece **Arquivar e liberar
+selecionado**, depois de mostrar os caminhos e preservar cópias verificadas
+no backup. A seção **Alternativa sem slot livre** também permite
 salvar/carregar um `.p2s` pelo menu do PCSX2 e importar/conferir essa cena no
 editor. O arquivo escolhido precisa corresponder à memória pausada verificada.
 Veja o [guia de projetos](custom-event-projects.md) para o procedimento completo.
 Os projetos conservam estados locais; o fluxo novo ainda precisa de confirmação
 de restauração e repetição no jogo.
+
+Para misturar veículos no lote, escolha **Alternar modelos** no painel de
+criação e marque dois ou mais modelos carregados. A sequência se repete na
+quantidade solicitada. **Alternar variações (0–7)** é uma opção de aparência
+experimental; ainda não há uma tabela de cores por modelo. A referência pode
+estar parada, desde que caminho e física estejam válidos. Consulte o
+[guia de slots e lotes alternados](slots-and-mixed-traffic.md).
 
 Se a identidade do jogo foi confirmada, mas o perfil de tráfego é recusado,
 o editor mantém a conexão e desabilita a edição. Com o jogo pausado, **Finalizar

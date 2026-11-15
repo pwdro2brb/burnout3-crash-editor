@@ -1,5 +1,36 @@
 # Editor externo e identificação de modelos
 
+## Slots e tráfego alternado
+
+A revisão acrescenta arquivamento verificável de um slot escolhido na aba
+Projeto, lotes com sequência de modelos independentes, parâmetros visuais
+alternados e referências com avanço zero. Não há filtro pela direção do
+jogador; continuam obrigatórios o caminho, a orientação nativa e a física
+admitidos pelo perfil. O motivo de uma ação bloqueada aparece nos detalhes.
+
+Foram executados **380 testes distribuíveis** e **50 testes privados**
+(19 do controlador, 22 do perfil, 7 de velocidade e 2 de projetos), sem falhas.
+Três subcasos de links reais foram pulados por permissão do Windows; a recusa
+de redirecionamentos também é testada com atributos simulados. Os fluxos novos
+ainda precisam de confirmação no jogo.
+
+O arquivamento verifica as cópias e a identidade dos arquivos antes de liberar
+os nomes do slot; outros saves são preservados. O gerenciador exige pausa e
+nenhuma criação pendente, e confere a pausa durante a operação. Uma mudança
+externa interrompe a liberação; cópias e eventuais arquivos restantes são
+preservados. O procedimento não é atômico com ações externas do emulador.
+
+Os lotes mistos validam cada modelo, tipo, carga e variante, e reservam objetos
+para a sequência inteira antes do primeiro grupo. Receitas registram os itens
+individualmente e os reagrupam na repetição. A recuperação de código temporário
+continua exigindo a correspondência do journal e do payload canônico.
+
+A análise estática e capturas preservadas mostram o argumento visual primário
+no byte `+0xC9` do objeto e índices naturais de 0 a 7. Não foi fechada a ligação
+com a paleta: esses valores não são apresentados como oito cores comprovadas
+por modelo. Cargas têm um argumento visual separado, preservado nesta revisão.
+Instruções e limites em [slots-and-mixed-traffic.md](slots-and-mixed-traffic.md).
+
 Na revisão de 14/11/2026 passaram **241 testes distribuíveis** e **45 testes
 locais com capturas privadas**: 19 do controlador, 21 do perfil e 5 da integração
 de caminhos/velocidade. A prévia de uma referência preservada mostrou 27

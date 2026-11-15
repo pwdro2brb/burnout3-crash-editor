@@ -175,6 +175,20 @@ class EditorController:
         self._journal('state_export_finished',path=result['path'],sha256=result['sha256'])
         return result
 
+    def list_state_slots(self):
+        self._project_ready()
+        from .slot_archive import list_slots
+        slots = list_slots(self.pause_control.emulator_root())
+        return {'slots':slots,'pending':False,'core_paused':True,
+            'message':'Escolha um slot para arquivar. As cópias serão preservadas antes de liberar o slot.'}
+
+    def archive_state_slot(self,slot):
+        self._project_ready()
+        from .slot_archive import archive_slot
+        result = archive_slot(self.pause_control.emulator_root(),slot,guard=self._paused)
+        self._journal('state_slot_archived',slot=slot,archive_directory=result['archive_directory'])
+        return {**result,'pending':False,'core_paused':self.client.status() is Status.PAUSED}
+
     def _project_info(self):
         if self.project is None:
             return None
@@ -606,7 +620,11 @@ class EditorController:
     def add_behind(self, vehicle_id: int, model_id: str | None, gap: float):
         return self.add_many_behind(vehicle_id, model_id, gap, 1)
 
-    def add_many_behind(self, vehicle_id, model_id, gap, count, secondary_model_id=None, *, experimental=False):
+    def add_many_behind(self, vehicle_id, model_id, gap, count, secondary_model_id=None, *, experimental=False,
+                        color_mode='original'):
+        if color_mode != 'original':
+            return self.add_mixed_behind(vehicle_id,[dict(model_id=model_id,secondary_model_id=secondary_model_id)],
+                gap,count,experimental=experimental,color_mode=color_mode)
         if (type(experimental) is not bool or type(count) is not int
                 or not 1 <= count <= (253 if experimental else 8)):
             raise EditorError('Use quantidade de 1 a 8, ou ative o experimental para pedir até a capacidade do tráfego.')
@@ -623,6 +641,44 @@ class EditorController:
                 **({'secondary_model_id':secondary_model_id} if secondary_model_id is not None else {}))
                 for i in range(count-8))
             result['message'] += f' Fila: {count-8} restantes, em grupos de até oito; retome e pause a cada grupo.'
+        return result
+
+    def add_mixed_behind(self,vehicle_id,choices,gap,count,*,experimental=False,color_mode='original'):
+        if (type(experimental) is not bool or type(count) is not int
+                or not 1 <= count <= (253 if experimental else 8)):
+            raise EditorError('Use quantidade de 1 a 8, ou ative o experimental para pedir até a capacidade do tráfego.')
+        if color_mode not in ('original','cycle'):
+            raise EditorError('Escolha a aparência original ou a alternância de variações visuais.')
+        if (type(choices) not in (list,tuple) or not 1 <= len(choices) <= 12
+                or any(not isinstance(item,dict) or set(item)-{'model_id','secondary_model_id'} for item in choices)):
+            raise EditorError('Escolha de 1 a 12 modelos carregados para a sequência alternada.')
+        from . import batch
+        snap = self._ready()
+        target = batch.reference(snap,vehicle_id)
+        prepared = []
+        for choice in choices:
+            model_id = choice.get('model_id') or target['model_id']
+            secondary = choice.get('secondary_model_id')
+            batch.model_pair(snap,model_id,secondary)
+            prepared.append(dict(model_id=model_id,secondary_model_id=secondary))
+        items = [{**prepared[index%len(prepared)],'variant':index%8 if color_mode == 'cycle' else 0}
+                 for index in range(count)]
+        options = dict(experimental=experimental,spawn_items=items[:8],reserve_items=items,reserve_count=count)
+        result = batch.stage(self,vehicle_id,items[0]['model_id'],gap,min(count,8),
+            items[0]['secondary_model_id'],**options)
+        if count > 8:
+            first_key = self.pending.created_keys[-1]
+            for offset,item in enumerate(items[8:]):
+                operation = dict(op='add_behind',target={'kind':'created','key':first_key+offset},
+                    model_id=item['model_id'],gap=float(gap),created_key=first_key+offset+1,experimental=True)
+                if item['secondary_model_id'] is not None:
+                    operation['secondary_model_id'] = item['secondary_model_id']
+                if item['variant']:
+                    operation['variant'] = item['variant']
+                self.replay_queue.append(operation)
+            result['message'] += f' Fila alternada: {count-8} restantes; retome e pause a cada grupo.'
+        if color_mode == 'cycle':
+            result['message'] += ' Variações visuais 0–7: o efeito na cor depende do modelo e ainda precisa de confirmação.'
         return result
 
     def add_at(self, vehicle_id, model_id, x, z, secondary_model_id=None, *, experimental=False):
@@ -918,6 +974,8 @@ class EditorController:
                     raise EditorError('Posição fora do intervalo float32 no preset.') from error
             else:
                 model_id = op.get('model_id')
+                if type(op.get('variant',0)) is not int or not 0 <= op.get('variant',0) <= 7:
+                    raise EditorError('Variação visual inválida no preset.')
                 if not isinstance(model_id, str): raise EditorError('Modelo inválido no preset.')
                 model = snap.models.get(model_id)
                 from .batch import model_pair
@@ -975,19 +1033,23 @@ class EditorController:
                 from .batch import stage
                 return stage(self,vehicle_id,op['model_id'],10,1,op.get('secondary_model_id'),
                     created_keys=[op['created_key']],experimental=experimental,at_point=(op['x'],op['z']),
-                    point_reference=True)
+                    point_reference=True,spawn_items=[dict(model_id=op['model_id'],
+                        secondary_model_id=op.get('secondary_model_id'),variant=op.get('variant',0))])
             else:
                 group = [op]
                 while self.replay_queue and len(group) < 8:
                     nxt = self.replay_queue[0]
                     if (nxt.get('op') != 'add_behind' or nxt.get('target') != {'kind':'created','key':group[-1]['created_key']}
-                            or any(nxt.get(k) != op.get(k) for k in ('model_id','gap','secondary_model_id'))
+                            or nxt.get('gap') != op.get('gap')
                             or nxt.get('experimental',False) != experimental):
                         break
                     group.append(self.replay_queue.pop(0))
                 from .batch import stage
                 result = stage(self,vehicle_id,op['model_id'],op['gap'],len(group),op.get('secondary_model_id'),
-                             created_keys=[r['created_key'] for r in group],**({'experimental':True} if experimental else {}))
+                             created_keys=[r['created_key'] for r in group],
+                             spawn_items=[dict(model_id=r['model_id'],secondary_model_id=r.get('secondary_model_id'),
+                                               variant=r.get('variant',0)) for r in group],
+                             **({'experimental':True} if experimental else {}))
                 if self.replay_queue:
                     result['message'] += f' Fila: {len(self.replay_queue)} restantes; retome e pause para o próximo grupo.'
                 return result
