@@ -117,16 +117,23 @@ atualizada com a lista; não acompanha os carros continuamente.
 
 ## Consultar e ajustar a velocidade
 
-1. Pause o PCSX2, atualize a lista e selecione um veículo. A coluna
+1. Pause o PCSX2, atualize a lista e selecione um ou mais veículos. Use **Ctrl**
+   para escolher vários, **Shift** para um intervalo ou **Selecionar aptos para
+   velocidade** para reunir os registros habilitados. A coluna
    **Nominal km/h A/S** mostra alvo e seguimento; os detalhes apresentam os
    nomes completos. Registros sem nó reconhecido mostram indisponível.
 2. Quando o perfil admitir a alteração, preencha **Alvo nominal (km/h)** e
-   clique em **Aplicar velocidade**. Zero é aceito; um alvo positivo pode ser
+   clique em **Aplicar velocidade** ou **Aplicar aos N selecionados**. O mesmo
+   alvo vale para todos os selecionados. Um registro bloqueado impede a ação
+   inteira; ele não é ignorado. Zero é aceito; um alvo positivo pode ser
    reaplicado posteriormente. No modo normal, o máximo nominal é 386,24256 km/h,
    correspondente ao teto de controle pesquisado; isso não significa que o carro
    consiga atingir esse valor.
 3. Para caminhão com carga, selecione a cabine. O editor não grava velocidade
    numa carga avulsa. Aguarde a confirmação e use **Retomar** para observar.
+
+A linha em foco continua sendo a referência das ações de posição e criação;
+selecionar vários não move nem acrescenta vários alvos por essas ações.
 
 O alvo é o pedido ao controlador de tráfego, e o seguimento é um valor
 recalculado pelo jogo. Uma fila, um obstáculo ou um veículo sobreposto pode
@@ -192,6 +199,14 @@ Se o veículo já mudou ou saiu do cenário, o editor pode encerrar com
 Nesse caso ele limpa somente sua rotina temporária, libera a interface e
 não inclui essa criação na receita JSON. Ele não move outro veículo para
 tentar corrigir uma referência antiga.
+
+Se todas as criações já retornaram, mas a física ainda não permite confirmar
+o alinhamento, a espera fica limitada a cinco segundos a partir da primeira
+verificação pausada dessa etapa. Depois, o editor remove apenas o código
+temporário reconhecido, conserva os veículos que o jogo criou e cancela a fila
+restante. O lote não entra na receita. **Finalizar pendência** permite encerrar
+essa espera imediatamente, desde que a rotina já tenha devolvido o controle ao
+jogo. Código ativo, desconhecido ou sem prova de conclusão continua bloqueado.
 
 Durante uma criação em andamento, não carregue outro estado, troque de evento
 ou feche o editor. A mensagem da interface indica a etapa necessária. Se uma
@@ -266,7 +281,8 @@ sem servir de referência para novas criações enquanto estiver fora do perfil 
    referência limpa pelo PCSX2 antes de editar.
 
 Um estado feito antes da limpeza pode restaurar a rotina temporária antiga.
-Para removê-la, o editor exige o registro local correspondente e o payload
+Para recuperar uma solicitação antiga sem acompanhamento na sessão atual,
+o editor exige o registro local correspondente e o payload
 canônico de um formato reconhecido, com prova de conclusão. Código desconhecido
 ou sem prova continua bloqueado. A ação não alinha veículos nem recupera a
 receita daquela solicitação. A recuperação de solicitações antigas é explícita;
@@ -285,6 +301,12 @@ Se a receita contiver ações experimentais, ative o toggle e leia o aviso antes
 de abri-la. Com o modo desligado, o controlador recusa essas ações; um JSON
 não pode ativar o risco por conta própria. A receita ainda exige os mesmos
 modelos carregados, referências válidas e estado inicial.
+
+Veículos que aparecerem depois da referência inicial, sem criação confirmada
+na receita, podem ser editados quando o perfil os admitir. Se alguma ação usar
+essa referência observada, o editor recusa salvar o JSON para não prometer um
+replay que não consegue reconstruir. Use um `.p2s` para conservar a sessão,
+ou **Conectar / nova sessão** para adotar o cenário atual como nova referência.
 
 **Salvar estado…** exporta um arquivo `.p2s` da sessão editada, com o emulador
 pausado e nenhuma criação pendente. Escolha um nome novo. O botão só aparece
@@ -323,11 +345,11 @@ O protocolo e a pausa exigida foram conferidos no
 [PINE oficial do PCSX2 v1.7.2521](https://github.com/PCSX2/pcsx2/blob/v1.7.2521/pcsx2/PINE.cpp).
 As mensagens de sucesso da interface não substituem a observação no jogo.
 
-Na rodada anterior, após reabrir a revisão com a saída protegida do lote, o usuário confirmou que
-lote e exportação funcionaram. A validação automatizada cobre também recuperação
-e os tipos admitidos, sem substituir o teste real de ônibus ou dos novos modos
-ampliados e de criação por ponto. Bloqueios de
-perfil ainda podem impedir uma operação; o relato não valida todos os cenários.
+Após a confirmação anterior de lote e exportação, o usuário também relatou que
+as novas mudanças da revisão com caminhos e velocidade funcionaram. Isso não
+valida a correção posterior da espera pela física nem a seleção múltipla de
+velocidade. Bloqueios de perfil ainda podem impedir uma operação; os relatos
+não demonstram estabilidade de todos os cenários.
 
 O fluxo de lotes, caminhões, pausa e arquivos está em
 [batches-trucks-and-pause.md](batches-trucks-and-pause.md). As restrições,

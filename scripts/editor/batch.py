@@ -12,6 +12,9 @@ from .controller import EditorError, _state_digest, _word
 from .pine import Patch, Status, PineError
 
 
+PHYSICS_WAIT_SECONDS = 5.0
+
+
 @dataclass
 class BatchPending:
     scratch: bytes
@@ -38,6 +41,8 @@ class BatchPending:
     batch: bool = True
     experimental: bool = False
     at_point: tuple[float,float] | None = None
+    physics_wait_started: float | None = None
+    physics_wait_polls: int = 0
 
 
 def reference(snapshot, vehicle_id):
@@ -218,6 +223,35 @@ def collider_valid(memory, row):
     return all(math.isfinite(x) for x in lo+hi) and all(a <= b for a,b in zip(lo,hi))
 
 
+def _wait_for_physics(editor, pending, *, reason, vehicle_ids=(), detail=None):
+    """Bound a retired request's actor wait; never modify unconfirmed actors.
+
+    Call only after validating the paused core, owned request, every record's
+    completion, original hook and current generation's retirement token. Cleanup
+    repeats those ownership checks immediately before touching request bytes.
+    """
+    now = time.monotonic()
+    pending.physics_wait_polls += 1
+    fields = dict(reason=reason,vehicle_ids=list(vehicle_ids),
+                  physics_wait_polls=pending.physics_wait_polls)
+    if detail is not None:
+        fields['detail'] = detail
+    if pending.physics_wait_started is None:
+        pending.physics_wait_started = now
+        editor._journal('batch_physics_wait',nonce=pending.nonce,**fields)
+    elapsed = max(0.,now-pending.physics_wait_started)
+    if elapsed < PHYSICS_WAIT_SECONDS:
+        return {'pending':True,'core_paused':True,
+            'message':'As solicitações já executaram; aguardando a física do lote por até 5 segundos. '
+                      'Se possível, retome brevemente e pause.'}
+    editor._cleanup_completed_request(pending,'batch_not_finalized',
+        physics_wait_seconds=elapsed,**fields)
+    return {'pending':False,'core_paused':True,'warning':True,
+        'message':'O lote executou, mas a física não ficou pronta para confirmar o alinhamento. '
+                  'Código temporário removido e editor liberado. Os veículos criados pelo jogo foram '
+                  'mantidos; este lote não entrou na receita e a fila restante foi cancelada.'}
+
+
 def poll(editor):
     pending = editor.pending
     if editor.unsafe:
@@ -247,8 +281,11 @@ def poll(editor):
             'message':'Retome o evento por um instante para executar todas as solicitações do lote.'}
     if hook != spawncode.ORIGINAL:
         raise EditorError('O lote terminou sem restaurar a entrada do jogo. Recarregue uma referência limpa.')
-    snap = editor._snapshot(pending=True)
-    selected,seen = [],set()
+    try:
+        snap = editor._snapshot(pending=True)
+    except profile.ProfileError as error:
+        return _wait_for_physics(editor,pending,reason='profile_not_ready',detail=str(error))
+    selected,seen,cold = [],set(),[]
     invalid = False
     for _state,object_ptr,node_ptr in probes:
         index = (object_ptr-profile.VEHICLES)//profile.VEHICLE_STRIDE
@@ -269,28 +306,46 @@ def poll(editor):
                 break
             seen.add(child['id'])
             if not child['initialized']:
-                return {'pending':True,'core_paused':True,'message':'A carga ainda está inicializando. Retome brevemente e pause.'}
-            if not collider_valid(snap.memory,child):
-                invalid = True
-                break
+                cold.append(child['id'])
+            else:
+                try:
+                    valid = collider_valid(snap.memory,child)
+                except profile.ProfileError as error:
+                    return _wait_for_physics(editor,pending,reason='profile_not_ready',
+                        vehicle_ids=[child['id']],detail=str(error))
+                if not valid:
+                    invalid = True
+                    break
         elif not row['independent']:
             invalid = True
             break
         if not row['initialized']:
-            return {'pending':True,'core_paused':True,'message':'A física do lote ainda está inicializando. Retome brevemente e pause.'}
-        if not collider_valid(snap.memory,row):
-            invalid = True
-            break
+            cold.append(row['id'])
+        else:
+            try:
+                valid = collider_valid(snap.memory,row)
+            except profile.ProfileError as error:
+                return _wait_for_physics(editor,pending,reason='profile_not_ready',
+                    vehicle_ids=[row['id']],detail=str(error))
+            if not valid:
+                invalid = True
+                break
         selected.append(row)
     if invalid:
         editor._cleanup_completed_request(pending,'batch_not_finalized',reason='allocation_or_identity_changed')
         return {'pending':False,'core_paused':True,'warning':True,
             'message':'O lote executou, mas uma instância mudou ou não pôde ser validada. '
                       'Código temporário removido; alinhamento e receita não confirmados.'}
+    if cold:
+        return _wait_for_physics(editor,pending,reason='physics_not_ready',vehicle_ids=cold)
     patches = []
-    for row in selected:
-        options = {'experimental':True} if pending.experimental else {}
-        patches.extend(profile.lateral_patches(snap,row['id'],pending.lateral*100,**options))
+    try:
+        for row in selected:
+            options = {'experimental':True} if pending.experimental else {}
+            patches.extend(profile.lateral_patches(snap,row['id'],pending.lateral*100,**options))
+    except profile.ProfileError as error:
+        return _wait_for_physics(editor,pending,reason='alignment_not_ready',
+            vehicle_ids=[row['id'] for row in selected],detail=str(error))
     editor._check_pending(pending)
     try:
         editor.client.apply_patch(patches)

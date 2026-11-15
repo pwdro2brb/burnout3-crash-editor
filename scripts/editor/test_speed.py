@@ -12,9 +12,8 @@ from test_placement import Memory
 
 
 class SpeedTests(unittest.TestCase):
-    def fixture(self,*,control=50.,travel=22.352,type_code=1):
+    def fixture(self,*,control=50.,travel=22.352,type_code=1,vehicle_id=9,index=3):
         memory=Memory()
-        vehicle_id,index=9,3
         address=profile.VEHICLES+vehicle_id*profile.VEHICLE_STRIDE
         node=profile.NODES+index*profile.NODE_STRIDE
         memory.data.update((address+i,0xA5) for i in range(profile.VEHICLE_STRIDE))
@@ -34,6 +33,15 @@ class SpeedTests(unittest.TestCase):
             speed=memory.read(node,'<f')[0],travel_speed=memory.read(node+0x2C,'<f')[0],
             spacing_scalar=1.25)
         return SimpleNamespace(memory=memory,vehicles={vehicle_id:row},core_paused=True)
+
+    def multiple_fixture(self):
+        states=[self.fixture(vehicle_id=9+i,index=3+i,type_code=kind)
+                for i,kind in enumerate((1,5,4))]
+        state=states[0]
+        for other in states[1:]:
+            state.memory.data.update(other.memory.data)
+            state.vehicles.update(other.vehicles)
+        return state
 
     def test_nominal_target_and_current_are_distinct_and_not_physical_measurements(self):
         row=self.fixture(control=50,travel=0).vehicles[9]
@@ -146,6 +154,79 @@ class SpeedTests(unittest.TestCase):
         for value in (1e308,-1,True,float('nan'),10**1000):
             with self.subTest(value=value),self.assertRaises(profile.ProfileError):
                 speed.validate_control(value,experimental=True)
+
+    def test_bulk_prepares_distinct_controls_and_preserves_all_other_bytes(self):
+        for selected in ([9,10],[9,10,11]):
+            with self.subTest(selected=selected):
+                state=self.multiple_fixture()
+                before=dict(state.memory.data)
+                patches=speed.patches_many(state,selected,30.1)
+                self.assertEqual(state.memory.data,before)
+                self.assertEqual([p.address for p in patches],[state.vehicles[i]['node'] for i in selected])
+                allowed={p.address+k for p in patches for k in range(4)}
+                for patch in patches:
+                    self.assertEqual(patch.width,4)
+                    self.assertEqual(patch.expected,state.memory.u32(patch.address))
+                    state.memory.store(patch.address,'<I',patch.value)
+                self.assertTrue(all(state.memory.data[a]==v for a,v in before.items() if a not in allowed))
+                for index in selected:
+                    node=state.vehicles[index]['node']
+                    self.assertEqual(state.memory.read(node,'<f')[0],speed.validate_control(30.1))
+                    self.assertEqual(state.memory.read(node+0x24,'<f')[0],1.25)
+                    self.assertEqual(state.memory.read(node+0x2C,'<f')[0],state.vehicles[index]['travel_speed'])
+
+    def test_bulk_invalid_last_selection_never_changes_an_earlier_target(self):
+        for changed in ('not_ready','owner','current_control','child'):
+            with self.subTest(changed=changed):
+                state=self.multiple_fixture()
+                last=state.vehicles[11]
+                if changed=='not_ready':last['initialized']=False
+                elif changed=='owner':state.memory.store(last['node']+0x4A,'<B',12)
+                elif changed=='current_control':state.memory.store(last['node'],'<f',35)
+                else:last['parent_id']=10
+                before=dict(state.memory.data)
+                with self.assertRaises(profile.ProfileError):
+                    speed.patches_many(state,[9,10,11],20)
+                self.assertEqual(state.memory.data,before)
+                self.assertEqual(state.memory.read(state.vehicles[9]['node'],'<f')[0],50)
+
+    def test_bulk_selection_rejects_empty_invalid_duplicate_and_shared_nodes(self):
+        for selection in ([],(),[9,9],[True],[9,True],[-1],[254],[999],9,'9',{9},iter([9]),[9]*255):
+            with self.subTest(selection=type(selection).__name__):
+                state=self.multiple_fixture()
+                before=dict(state.memory.data)
+                with self.assertRaises(profile.ProfileError):
+                    speed.patches_many(state,selection,20)
+                self.assertEqual(state.memory.data,before)
+        state=self.multiple_fixture()
+        state.vehicles[10].update(node=state.vehicles[9]['node'],node_index=state.vehicles[9]['node_index'])
+        before=dict(state.memory.data)
+        with self.assertRaisesRegex(profile.ProfileError,'mesmo nó'):
+            speed.patches_many(state,[9,10],20)
+        self.assertEqual(state.memory.data,before)
+
+    def test_bulk_zero_experimental_limits_and_pause_guards_are_shared(self):
+        state=self.multiple_fixture()
+        self.assertTrue(all(p.value==0 for p in speed.patches_many(state,(9,10,11),0)))
+        expected=struct.unpack('<I',struct.pack('<f',1000))[0]
+        self.assertTrue(all(p.value==expected for p in speed.patches_many(state,[9,10,11],1000,experimental=True)))
+        for value,experimental in ((241,False),(-1,True),(float('nan'),True),(1e308,True),(True,False)):
+            with self.subTest(value=value),self.assertRaises(profile.ProfileError):
+                speed.patches_many(state,[9,10,11],value,experimental=experimental)
+        with self.assertRaises(profile.ProfileError):
+            speed.patches_many(state,[9,10],20,experimental=1)
+        state.core_paused=False
+        with self.assertRaises(profile.ProfileError):
+            speed.patches_many(state,[9,10],20)
+
+    def test_bulk_single_is_identical_and_snapshot_keys_cannot_alias_another_actor(self):
+        state=self.fixture()
+        self.assertEqual(speed.patches_many(state,[9],30),speed.patches(state,9,30))
+        other=self.fixture(vehicle_id=10,index=4)
+        state.memory.data.update(other.memory.data)
+        state.vehicles[9]=other.vehicles[10]
+        with self.assertRaises(profile.ProfileError):speed.patches_many(state,[9],30)
+        with self.assertRaises(profile.ProfileError):speed.patches(state,9,30)
 
 
 if __name__=='__main__':unittest.main()

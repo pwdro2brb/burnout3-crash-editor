@@ -30,6 +30,12 @@ funcionaram”**. A restauração do arquivo exportado ainda não foi testada.
 Há sucessos registrados em diferentes caminhos e bloqueios de perfil posteriores;
 isso não estabelece estabilidade geral.
 
+Na rodada seguinte, o usuário confirmou que as novas mudanças funcionaram,
+incluindo a revisão com caminhos e velocidade, mas relatou uma espera infinita
+depois de criar vários carros. A revisão de 15/11/2026 limita a espera pela
+física de um lote já encerrado e acrescenta ajuste de velocidade para uma
+seleção de veículos. A confirmação anterior não valida essas duas correções.
+
 O repositório contém somente código e documentação. Cada usuário fornece sua
 própria cópia extraída do jogo, ferramentas e, quando necessário, save states.
 Não são incluídos ISO, ELF, BIOS, recursos, saves, dumps, código descompilado,
@@ -78,9 +84,11 @@ O editor não inicia o emulador nem dirige o veículo.
   criação, aproximado a um dos caminhos com referência móvel válida; a presença
   de um candidato no desenho não o habilita para criação.
 - **Velocidade:** os detalhes distinguem **Alvo nominal** e **Seguimento nominal**
-  em km/h. **Aplicar velocidade** altera o alvo admitido pelo perfil, inclusive
-  zero; filas e obstáculos podem reduzir o avanço. Em caminhões, selecione a
-  cabine. A escala é nominal e não uma medição física calibrada em tempo real.
+  em km/h. Use **Ctrl/Shift** ou **Selecionar aptos para velocidade** para aplicar
+  o mesmo alvo a vários registros, inclusive zero. A seleção inteira precisa
+  estar habilitada; em caminhões, selecione a cabine. A linha em foco continua
+  sendo a referência para posição e criação. Filas e obstáculos podem reduzir
+  o avanço; a escala é nominal, sem medição física calibrada em tempo real.
 - **Edição:** deslocamento na largura do caminho e, no modo normal, lotes de 1 a 8
   atrás de uma referência, com os modelos carregados e admitidos pelo perfil. Caminhões
   oferecem seleção de carga compatível; a quantidade conta conjuntos completos.
@@ -94,7 +102,11 @@ O editor não inicia o emulador nem dirige o veículo.
   essas contagens não estabelecem a capacidade segura de uma batida.
 - **Recuperação:** **Finalizar pendência** confere e limpa uma solicitação
   reconhecida, inclusive quando o perfil impede listar os veículos. A conexão
-  fica disponível e a edição permanece bloqueada até uma leitura válida.
+  fica disponível e a edição permanece bloqueada até uma leitura válida. Quando
+  todas as criações terminaram e só falta confirmar a física, a espera fica
+  limitada a cinco segundos. A limpeza conserva os veículos criados pelo jogo,
+  cancela a fila e não confirma alinhamento nem receita desse lote. A rotina
+  precisa estar encerrada; código ativo ou desconhecido continua protegido.
 
 O perfil também admite associações nativas consistentes de tipo 3 nas vans
 `HEVYCAR17/18` e tipo 5 nos ônibus `HEVYCAR19/21`. Exige dois pontos físicos,
@@ -133,6 +145,11 @@ A restauração do arquivo ainda não foi testada. A sugestão de destino do edi
 restaurar, use **Sistema → Carregar estado → Arquivo…** no PCSX2. Combinações de
 caminhão não observadas continuam bloqueadas. O reposicionamento conjunto de
 cabine/carga ainda é experimental.
+
+Uma edição pode usar um veículo observado depois da referência inicial, desde
+que ele passe nas verificações do perfil. Se a receita depender dessa referência
+sem criação confirmada, **Salvar configuração** recusa o JSON. Preserve a sessão
+em `.p2s` ou inicie uma nova sessão com o cenário atual como referência.
 
 Recarregar um estado salvo antes da limpeza pode recolocar código temporário
 antigo na memória. A recuperação explícita exige correspondência com o registro

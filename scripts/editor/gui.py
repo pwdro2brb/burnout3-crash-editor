@@ -42,6 +42,8 @@ class Controller(Protocol):
     def cancel_queue(self) -> dict[str, Any]: ...
     def set_speed(self, vehicle_id: int, control_value: float,
                   experimental: bool = False) -> dict[str, Any]: ...
+    def set_speeds(self, vehicle_ids: list[int], control_value: float,
+                   experimental: bool = False) -> dict[str, Any]: ...
     def close(self) -> None: ...
 
 
@@ -236,6 +238,7 @@ class EditorApp:
         self.position_text = tk.StringVar(value='X: —     Y: —     Z: —')
         self.speed_text = tk.StringVar(value='Velocidade: não disponível nesta leitura.')
         self.speed_target_kmh = tk.StringVar(value='')
+        self.speed_selection_text = tk.StringVar(value='')
         self.speed_controls_visible = False
         self.show_routes = tk.BooleanVar(value=True)
         self.lateral = tk.DoubleVar(value=50)
@@ -338,7 +341,7 @@ class EditorApp:
         actors.rowconfigure(0, weight=1)
         lists.add(actors, text='Veículos presentes')
         self.table = ttk.Treeview(actors, columns=('vehicle', 'type', 'model','speed'),
-                                  show='headings', selectmode='browse', height=15)
+                                  show='headings', selectmode='extended', height=15)
         for key, title, width in [('vehicle', 'Veículo', 140), ('type', 'Categoria', 105),
                                   ('model', 'Modelo', 150),('speed','Nominal km/h A/S',150)]:
             self.table.heading(key, text=title)
@@ -348,6 +351,11 @@ class EditorApp:
         scroll.grid(row=0, column=1, sticky='ns')
         self.table.configure(yscrollcommand=scroll.set)
         self.table.bind('<<TreeviewSelect>>', self._selection_changed)
+        ttk.Label(actors, text='Ctrl: escolher vários · Shift: selecionar um intervalo.',
+                  foreground='#5f6875', wraplength=420).grid(row=1, column=0, sticky='w', pady=(6, 0))
+        self.select_speed_button = ttk.Button(actors, text='Selecionar aptos para velocidade',
+                                              command=self.select_speed_eligible)
+        self.select_speed_button.grid(row=2, column=0, sticky='w', pady=(6, 0))
         view = ttk.Frame(lists, padding=(0, 8, 0, 0))
         view.columnconfigure(0, weight=1)
         view.rowconfigure(1, weight=1)
@@ -451,6 +459,9 @@ class EditorApp:
         self.speed_entry.grid(row=0,column=1,sticky='ew')
         self.speed_button = ttk.Button(self.speed_controls,text='Aplicar velocidade',command=self.set_speed)
         self.speed_button.grid(row=1,column=0,columnspan=2,sticky='ew',pady=(7,0))
+        self.speed_selection_label = ttk.Label(self.speed_controls, textvariable=self.speed_selection_text,
+                                                wraplength=300, foreground='#5f6875')
+        self.speed_selection_label.grid(row=2,column=0,columnspan=2,sticky='w',pady=(6,0))
         self.speed_controls.grid_remove()
 
         addition = ttk.LabelFrame(details, text='Adicionar veículos atrás', padding=12)
@@ -503,7 +514,27 @@ class EditorApp:
 
     def selected(self) -> dict[str, Any] | None:
         selected = self.table.selection()
-        return self.vehicles.get(selected[0]) if selected else None
+        if not selected:
+            return None
+        focused = self.table.focus()
+        return self.vehicles.get(focused if focused in selected else selected[0])
+
+    def selected_vehicles(self) -> list[dict[str, Any]]:
+        """Return every selected actor; the focused actor remains the primary."""
+        return [self.vehicles[iid] for iid in self.table.selection() if iid in self.vehicles]
+
+    def select_speed_eligible(self) -> None:
+        if (self.closed or self.busy or self.pending or not self.connected
+                or not getattr(self, 'profile_valid', True) or self.core_paused is not True):
+            return
+        iids = [iid for iid, vehicle in self.vehicles.items()
+                if vehicle.get('can_set_speed') is True and vehicle.get('active', True)]
+        self.table.selection_set(iids)
+        if iids:
+            if self.table.focus() not in iids:
+                self.table.focus(iids[0])
+            self.table.see(self.table.focus())
+        self._selection_changed()
 
     def _details_region(self,_event: Any = None) -> None:
         """Keep controls reachable through a local scrollbar on short windows."""
@@ -515,7 +546,7 @@ class EditorApp:
             return
         width=max(1,int(event.width))
         self.details_canvas.itemconfigure(self.details_window,width=width)
-        for name in ('selection_label','position_label','speed_label'):
+        for name in ('selection_label','position_label','speed_label','speed_selection_label'):
             label=getattr(self,name,None)
             if label is not None:
                 label.configure(wraplength=max(100,width-24))
@@ -523,6 +554,7 @@ class EditorApp:
 
     def _selection_changed(self, _event: Any = None) -> None:
         vehicle = self.selected()
+        selections = self.selected_vehicles()
         if hasattr(self,'speed_text'):
             self.speed_text.set(speed_summary(vehicle,detailed=True))
         if hasattr(self,'speed_target_kmh'):
@@ -537,6 +569,8 @@ class EditorApp:
             self.position_text.set('X: —     Y: —     Z: —')
         else:
             self.selection_text.set(str(vehicle.get('label') or f"Veículo {vehicle['id']}"))
+            if len(selections) > 1:
+                self.selection_text.set(f'{len(selections)} selecionados · foco: ' + self.selection_text.get())
             xyz = vehicle.get('position') or []
             self.position_text.set('     '.join(f'{axis}: {coordinate(xyz[i] if i < len(xyz) else None)}'
                                                for i, axis in enumerate('XYZ')))
@@ -747,6 +781,7 @@ class EditorApp:
                           (point[0] - event.x) ** 2 + (point[1] - event.y) ** 2)
         if math.hypot(px - event.x, py - event.y) <= 12:
             self.table.selection_set(iid)
+            self.table.focus(iid)
             self.table.see(iid)
             self._selection_changed()
 
@@ -892,6 +927,7 @@ class EditorApp:
         idle = not self.busy and not self.pending and not self.closed
         profile_valid = getattr(self, 'profile_valid', True)
         selected = self.selected()
+        selections = self.selected_vehicles()
         available = bool(idle and self.connected and profile_valid and selected and selected.get('active', True)
                          and self.core_paused is True)
         editable = bool(available and (selected.get('editable', selected.get('eligible', False))
@@ -899,7 +935,10 @@ class EditorApp:
         can_reference = bool(available and selected.get('can_reference',
                               selected.get('editable', selected.get('eligible', False))))
         if hasattr(self,'speed_controls'):
-            visible = bool(selected and selected.get('can_set_speed') is True)
+            eligible = sum(vehicle.get('can_set_speed') is True and vehicle.get('active', True)
+                           for vehicle in selections)
+            blocked = len(selections) - eligible
+            visible = bool(selections)
             if visible:
                 self.speed_controls.grid()
                 if not getattr(self,'speed_controls_visible',False) and hasattr(self,'root'):
@@ -907,8 +946,24 @@ class EditorApp:
             else:
                 self.speed_controls.grid_remove()
             self.speed_controls_visible = visible
+            can_set_speed = bool(available and selections and not blocked)
             for widget in (self.speed_entry,self.speed_button):
-                widget.configure(state='normal' if visible and available else 'disabled')
+                widget.configure(state='normal' if can_set_speed else 'disabled')
+            self.speed_button.configure(text=(f'Aplicar aos {len(selections)} selecionados'
+                                              if len(selections) > 1 else 'Aplicar velocidade'))
+            if hasattr(self, 'speed_selection_text'):
+                note = f'{len(selections)} selecionados · {eligible} aptos · {blocked} bloqueados.'
+                if blocked:
+                    note += (' Selecione apenas veículos aptos. No caminhão, selecione a cabine; '
+                             'a carga acompanha o conjunto.')
+                elif len(selections) > 1:
+                    note += (' O mesmo alvo será aplicado a todos. Posição e criação usam o veículo em foco.')
+                self.speed_selection_text.set(note)
+        if hasattr(self, 'select_speed_button'):
+            speed_available = any(vehicle.get('can_set_speed') is True and vehicle.get('active', True)
+                                  for vehicle in self.vehicles.values())
+            self.select_speed_button.configure(state='normal' if idle and self.connected and profile_valid
+                and self.core_paused is True and speed_available else 'disabled')
         # A failed finalization can require a clean-state reload and reconnect.
         # Reconnection is serialized on the same worker and never retries a mutation.
         self.connect_button.configure(state='normal' if not self.busy and not self.closed else 'disabled')
@@ -954,7 +1009,7 @@ class EditorApp:
         if hasattr(self, 'secondary_box'):
             self.secondary_box.configure(state='readonly' if can_reference
                 and self._chosen_model().get('kind') == 'truck' else 'disabled')
-        self.table.configure(selectmode='browse' if idle and profile_valid else 'none')
+        self.table.configure(selectmode='extended' if idle and profile_valid else 'none')
         if hasattr(self, 'emulator_controls'):
             supported = bool(self.connected and self.emulator_control and not self.closed)
             if supported:
@@ -1066,9 +1121,12 @@ class EditorApp:
 
     def _snapshot(self, snapshot: dict[str, Any], selected_id: int | None = None) -> None:
         current = self.selected()
+        selected_ids = {vehicle['id'] for vehicle in self.selected_vehicles()}
         chosen_model = self.model_choices.get(self.model_choice.get())
         if selected_id is None and current:
             selected_id = current['id']
+        if selected_id is not None:
+            selected_ids.add(selected_id)
         self.models = {str(model['id']): model for model in snapshot.get('models', [])}
         self.profile_valid = (snapshot.get('profile_valid') is not False
                               and isinstance(snapshot.get('vehicles'), list)
@@ -1103,6 +1161,8 @@ class EditorApp:
                                    'Mesmo modelo do selecionado'))
         self.table.delete(*self.table.get_children())
         self.vehicles.clear()
+        selected_iids = []
+        focused_iid = None
         for index, vehicle in enumerate(snapshot.get('vehicles', [])):
             iid = f'vehicle-{index}'
             self.vehicles[iid] = vehicle
@@ -1110,9 +1170,16 @@ class EditorApp:
                               values=(f"Veículo {vehicle['id']}",
                                       vehicle.get('type_label') or 'Não identificada',
                                       str(vehicle.get('model_id') or 'Modelo sem nome'),speed_summary(vehicle)))
+            if vehicle['id'] in selected_ids:
+                selected_iids.append(iid)
             if vehicle['id'] == selected_id:
-                self.table.selection_set(iid)
-                self.table.see(iid)
+                focused_iid = iid
+        self.table.selection_set(selected_iids)
+        if focused_iid is None and selected_iids:
+            focused_iid = selected_iids[0]
+        if focused_iid is not None:
+            self.table.focus(focused_iid)
+            self.table.see(focused_iid)
         self._selection_changed()
         self._set_status(str(snapshot.get('status') or f'{len(self.vehicles)} veículos listados.'))
 
@@ -1141,7 +1208,7 @@ class EditorApp:
             self.connected = True
             self.emulator_control = connection.get('emulator_control') is True
             self.state_export = connection.get('state_export') is True
-            self.pending = bool(snapshot.get('pending', connection.get('pending', False)))
+            self._set_pending(bool(snapshot.get('pending', connection.get('pending', False))))
             parts = [str(connection.get(key) or '') for key in ('game', 'profile')]
             self.connection_text.set(' · '.join(part for part in parts if part) or 'Conectado')
             self._set_core_state(connection)
@@ -1186,8 +1253,8 @@ class EditorApp:
             return result, snapshot, None
         def done(value):
             result, snapshot, refresh_error = value
-            self.pending = bool(snapshot.get('pending', result.get('pending'))
-                                if snapshot is not None else result.get('pending'))
+            self._set_pending(bool(result.get('pending') if 'pending' in result else
+                                   snapshot.get('pending') if snapshot is not None else False))
             self._set_core_state(result)
             if snapshot is not None:
                 self._snapshot(snapshot, result.get('new_vehicle_id'))
@@ -1199,6 +1266,16 @@ class EditorApp:
             if self.pending:
                 self._schedule_pending_poll()
         self._submit(label, work, done)
+
+    def _set_pending(self, pending: bool) -> None:
+        self.pending = pending
+        timer = getattr(self, 'pending_poll_id', None)
+        if not pending and timer is not None:
+            self.pending_poll_id = None
+            try:
+                self.root.after_cancel(timer)
+            except tk.TclError:
+                pass
 
     def _schedule_pending_poll(self, delay: int = 500) -> None:
         if self.closed or not self.pending or self.pending_poll_id is not None:
@@ -1223,7 +1300,7 @@ class EditorApp:
             return result, snapshot, refresh_error
         def done(value):
             result, snapshot, refresh_error = value
-            self.pending = bool(result.get('pending'))
+            self._set_pending(bool(result.get('pending')))
             self._set_core_state(result)
             if snapshot is not None:
                 self._snapshot(snapshot, result.get('new_vehicle_id'))
@@ -1238,10 +1315,15 @@ class EditorApp:
         self._submit('', work, done, quiet=True)
 
     def set_speed(self) -> None:
-        vehicle = self.selected()
+        vehicles = self.selected_vehicles()
         if (self.closed or self.busy or self.pending or not self.connected
                 or not getattr(self,'profile_valid',True) or self.core_paused is not True
-                or not vehicle or vehicle.get('can_set_speed') is not True):
+                or not vehicles):
+            return
+        if any(vehicle.get('can_set_speed') is not True or not vehicle.get('active', True)
+               for vehicle in vehicles):
+            messagebox.showinfo('Velocidade', 'A seleção contém veículos sem ajuste de velocidade. '
+                'Use Selecionar aptos para velocidade; no caminhão, selecione a cabine.', parent=self.root)
             return
         try:
             nominal = number(self.speed_target_kmh.get())
@@ -1256,10 +1338,12 @@ class EditorApp:
         except (TypeError,ValueError) as exc:
             messagebox.showinfo('Velocidade',str(exc),parent=self.root)
             return
-        vehicle_id = int(vehicle['id'])
+        vehicle_ids = [int(vehicle['id']) for vehicle in vehicles]
         options = {'experimental':True} if self._experimental_enabled() else {}
         self._change('Aplicando alvo nominal de velocidade…',
-                     lambda:self.controller.set_speed(vehicle_id,control,**options))
+                     (lambda:self.controller.set_speed(vehicle_ids[0],control,**options))
+                     if len(vehicle_ids) == 1 else
+                     (lambda:self.controller.set_speeds(vehicle_ids,control,**options)))
 
     def move(self) -> None:
         vehicle = self.selected()

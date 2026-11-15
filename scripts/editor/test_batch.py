@@ -17,7 +17,7 @@ from unittest.mock import patch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from editor import batch, controller as c, profile, spawncode as s
-from editor.pine import Patch, PineVerificationError, Status
+from editor.pine import Patch, PineError, PineVerificationError, Status
 from test_controller import SparseClient
 
 
@@ -575,6 +575,160 @@ class BatchControllerTests(unittest.TestCase):
                 self.assertTrue(rejected['warning'])
                 aligned.assert_not_called()
                 self.assert_clean_owned_only(editor, client)
+
+    def test_physics_becoming_ready_during_the_wait_finalizes_the_whole_lot(self):
+        for paired in (False, True):
+            with self.subTest(paired=paired):
+                editor, client, snap = self.staged(paired=paired)
+                final, ids = self.publish(editor, client, snap, paired=paired)
+                index = ids[-1] + (1 if paired else 0)
+                final.vehicles[index]['initialized'] = False
+                pending = editor.pending
+                # The physics timer starts after retirement, independently of
+                # how long the user took to run the staged native requests.
+                pending.staged_at = -100000.
+                context, _snapshot, _collider, aligned, _journal = self.poll_context(editor, client, final)
+                with context, patch.object(batch.time, 'monotonic', return_value=100.):
+                    self.assertTrue(editor.poll()['pending'])
+                    self.assertEqual(pending.physics_wait_started, 100.)
+                    aligned.assert_not_called()
+                    self.assertEqual(client.writes, [])
+                final.vehicles[index]['initialized'] = True
+                context, _snapshot, _collider, aligned, _journal = self.poll_context(editor, client, final)
+                with context, patch.object(batch.time, 'monotonic', return_value=104.):
+                    result = editor.poll()
+                self.assertFalse(result['pending'])
+                self.assertEqual(result['new_vehicle_ids'], ids)
+                self.assertEqual(aligned.call_count, len(ids))
+                self.assertEqual(len(editor.recipe), len(ids))
+                self.assertEqual(set(editor.actor_keys), set(ids))
+                self.assertIsNone(editor.pending)
+
+    def test_permanently_cold_primary_or_cargo_releases_only_retired_code(self):
+        for paired in (False, True):
+            with self.subTest(paired=paired):
+                editor, client, snap = self.staged(paired=paired)
+                final, ids = self.publish(editor, client, snap, paired=paired)
+                cold = [ids[-1] + (1 if paired else 0), ids[0]]
+                for index in cold:
+                    final.vehicles[index]['initialized'] = False
+                before = {row['id']: client.read_bytes(row['address'] + 0xA0, 4)
+                          for row in final.vehicles.values()}
+                editor.replay_queue = [{'op':'must_not_run'}]
+                context, _snapshot, _collider, aligned, journal = self.poll_context(editor, client, final)
+                with context, patch.object(batch.time, 'monotonic') as clock:
+                    clock.return_value = 100.
+                    self.assertTrue(editor.poll()['pending'])
+                    clock.return_value = 100. + batch.PHYSICS_WAIT_SECONDS - .01
+                    self.assertTrue(editor.poll()['pending'])
+                    self.assertEqual(client.writes, [])
+                    clock.return_value = 100. + batch.PHYSICS_WAIT_SECONDS
+                    result = editor.poll()
+                self.assertFalse(result['pending'])
+                self.assertTrue(result['warning'])
+                self.assertIn('mantidos', result['message'])
+                aligned.assert_not_called()
+                self.assertEqual(client.patch_calls, [])
+                self.assert_clean_owned_only(editor, client)
+                self.assertFalse(editor.unsafe)
+                self.assertEqual(editor.actor_keys, {})
+                self.assertEqual(editor.replay_ids, {})
+                for row in final.vehicles.values():
+                    self.assertEqual(client.read_bytes(row['address'] + 0xA0, 4), before[row['id']])
+                finished = [call for call in journal.call_args_list if call.args == ('batch_not_finalized',)]
+                self.assertEqual(len(finished), 1)
+                self.assertEqual(finished[0].kwargs['reason'], 'physics_not_ready')
+                self.assertEqual(set(finished[0].kwargs['vehicle_ids']), set(cold))
+                self.assertEqual(finished[0].kwargs['physics_wait_polls'], 3)
+
+    def test_profile_or_alignment_rejection_after_retirement_cannot_wait_forever(self):
+        for rejection in ('snapshot', 'primary_collider', 'cargo_collider', 'alignment'):
+            with self.subTest(rejection=rejection):
+                paired = rejection == 'cargo_collider'
+                editor, client, snap = self.staged(paired=paired)
+                final, ids = self.publish(editor, client, snap, paired=paired)
+                context, snapshot, collider, aligned, journal = self.poll_context(editor, client, final)
+                if rejection == 'snapshot':
+                    snapshot.side_effect = profile.ProfileError('Synthetic active pool changed')
+                elif 'collider' in rejection:
+                    collider.side_effect = profile.ProfileError('Synthetic collider is not ready')
+                else:
+                    def incomplete_alignment(state, index, _lateral):
+                        if index == ids[0]:
+                            return [Patch(state.vehicles[index]['address'] + 0xA0, 4, index, index + 100)]
+                        raise profile.ProfileError('Synthetic physics is not editable')
+                    aligned.side_effect = incomplete_alignment
+                with context, patch.object(batch.time, 'monotonic') as clock:
+                    clock.return_value = 100.
+                    self.assertTrue(editor.poll()['pending'])
+                    self.assertEqual(client.writes, [])
+                    clock.return_value = 100. + batch.PHYSICS_WAIT_SECONDS
+                    result = editor.poll()
+                self.assertFalse(result['pending'])
+                self.assertTrue(result['warning'])
+                self.assertEqual(client.patch_calls, [])
+                self.assert_clean_owned_only(editor, client)
+                finished = [call for call in journal.call_args_list if call.args == ('batch_not_finalized',)]
+                self.assertEqual(finished[0].kwargs['reason'],
+                                 'alignment_not_ready' if rejection == 'alignment' else 'profile_not_ready')
+
+    def test_expired_physics_wait_does_not_bypass_ownership_or_read_errors(self):
+        for failure in ('tampered_code', 'read_failed', 'snapshot_transport_failed'):
+            with self.subTest(failure=failure):
+                editor, client, snap = self.staged()
+                final, ids = self.publish(editor, client, snap)
+                final.vehicles[ids[-1]]['initialized'] = False
+                pending = editor.pending
+                context, _snapshot, _collider, _aligned, _journal = self.poll_context(editor, client, final)
+                with context, patch.object(batch.time, 'monotonic', return_value=100.):
+                    self.assertTrue(editor.poll()['pending'])
+                context, snapshot, _collider, aligned, _journal = self.poll_context(editor, client, final)
+                if failure == 'tampered_code':
+                    client.memory[s.NONCE_ADDRESS] ^= 1
+                elif failure == 'snapshot_transport_failed':
+                    snapshot.side_effect = PineError('Synthetic snapshot transport failure')
+                with context, patch.object(batch.time, 'monotonic', return_value=200.), ExitStack() as errors:
+                    if failure == 'read_failed':
+                        errors.enter_context(patch.object(client, 'read_bytes',
+                            side_effect=PineError('Synthetic read failure')))
+                    with self.assertRaises((c.EditorError, PineError)):
+                        editor.poll()
+                self.assertIs(editor.pending, pending)
+                self.assertEqual(client.writes, [])
+                aligned.assert_not_called()
+                self.assertEqual(editor.recipe, [])
+
+    def test_expired_physics_wait_never_cleans_an_active_or_unretired_request(self):
+        for state in ('running', 'probe_incomplete', 'master_unretired', 'hook_active'):
+            with self.subTest(state=state):
+                editor, client, snap = self.staged()
+                final, ids = self.publish(editor, client, snap)
+                final.vehicles[ids[-1]]['initialized'] = False
+                pending = editor.pending
+                context, _snapshot, _collider, _aligned, _journal = self.poll_context(editor, client, final)
+                with context, patch.object(batch.time, 'monotonic', return_value=100.):
+                    self.assertTrue(editor.poll()['pending'])
+                if state == 'running':
+                    client.core_status = Status.RUNNING
+                elif state == 'probe_incomplete':
+                    client.store(pending.probes[-1], struct.pack('<I', 1))
+                elif state == 'master_unretired':
+                    client.store(pending.completion_address, struct.pack('<I', 0))
+                else:
+                    client.store(s.HOOK, pending.hook)
+                context, snapshot, _collider, aligned, _journal = self.poll_context(editor, client, final)
+                with context, patch.object(batch.time, 'monotonic', return_value=200.):
+                    if state == 'hook_active':
+                        with self.assertRaises(c.EditorError):
+                            editor.poll()
+                    else:
+                        self.assertTrue(editor.poll()['pending'])
+                self.assertIs(editor.pending, pending)
+                self.assertEqual(client.writes, [])
+                self.assertEqual(client.patch_calls, [])
+                self.assertEqual(editor.recipe, [])
+                snapshot.assert_not_called()
+                aligned.assert_not_called()
 
     def test_tampered_hook_code_record_arguments_or_nonce_blocks_all_writes(self):
         addresses = [s.HOOK, s.NONCE_ADDRESS, s.DATA + 0x0C, s.LANDING]

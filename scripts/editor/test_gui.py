@@ -28,17 +28,48 @@ class Widget:
     def configure(self, **options): self.options.update(options)
 
 
+class SelectionTable(Widget):
+    def __init__(self, rows=(), selected=(), focus=''):
+        super().__init__()
+        self.rows = dict(rows)
+        self.chosen, self.focused = tuple(selected), focus
+        self.seen = []
+    def selection(self): return self.chosen
+    def selection_set(self, items):
+        self.chosen = (items,) if isinstance(items, str) else tuple(items)
+    def focus(self, item=None):
+        if item is not None: self.focused = item
+        return self.focused
+    def see(self, item): self.seen.append(item)
+    def get_children(self): return tuple(self.rows)
+    def delete(self, *items):
+        for item in items: self.rows.pop(item, None)
+        self.chosen = tuple(item for item in self.chosen if item in self.rows)
+    def insert(self, _parent, _where, *, iid, values): self.rows[iid] = values
+
+
 def app_shell(vehicle=None, *, paused=True):
     app = gui.EditorApp.__new__(gui.EditorApp)
     app.busy, app.pending, app.closed = False, False, False
     app.connected, app.core_paused = True, paused
     app.profile_valid = True
     app.selected = lambda: vehicle
+    app.selected_vehicles = lambda: [app.selected()] if app.selected() is not None else []
     app.core_text, app.status = Var(), Var()
     for name in ('connect_button', 'refresh_button', 'save_button', 'load_button',
                  'move_button', 'add_button', 'lateral_scale', 'gap_entry',
                  'model_box', 'table'):
         setattr(app, name, Widget())
+    return app
+
+
+def multi_app(vehicles, selected, focus=None):
+    app = app_shell()
+    app.vehicles = {f'row-{vehicle["id"]}': vehicle for vehicle in vehicles}
+    iids = [f'row-{vehicle_id}' for vehicle_id in selected]
+    app.table = SelectionTable(app.vehicles.items(), iids, f'row-{focus}' if focus is not None else '')
+    app.selected = types.MethodType(gui.EditorApp.selected, app)
+    app.selected_vehicles = types.MethodType(gui.EditorApp.selected_vehicles, app)
     return app
 
 
@@ -1090,6 +1121,122 @@ class RouteAndSpeedTests(unittest.TestCase):
         jobs[0]()
         self.assertAlmostEqual(app.controller.set_speed.call_args.args[1],240)
         self.assertLessEqual(app.controller.set_speed.call_args.args[1],240)
+
+    def test_multiple_speed_targets_use_one_bulk_worker_action(self):
+        app = multi_app([{'id': 9, 'can_set_speed': True},
+                         {'id': 12, 'can_set_speed': True}], [9, 12], focus=12)
+        app.root, app.speed_target_kmh = Mock(), Var('80,4672')
+        app.controller = types.SimpleNamespace(set_speed=Mock(), set_speeds=Mock())
+        jobs = []
+        app._change = lambda _label, action: jobs.append(action)
+        app.set_speed()
+        self.assertEqual(len(jobs), 1)
+        app.controller.set_speeds.assert_not_called()
+        jobs[0]()
+        app.controller.set_speeds.assert_called_once_with([9, 12], 50.0)
+        app.controller.set_speed.assert_not_called()
+        app.experimental = Var(True)
+        app.speed_target_kmh.set('0')
+        app.set_speed()
+        jobs[1]()
+        app.controller.set_speeds.assert_called_with([9, 12], 0.0, experimental=True)
+
+    def test_mixed_speed_selection_is_blocked_in_full_without_silently_skipping_cargo(self):
+        app = multi_app([{'id': 9, 'can_set_speed': True},
+                         {'id': 12, 'can_set_speed': False, 'kind': 'trailer'}], [9, 12], focus=9)
+        app.root, app._change = Mock(), Mock()
+        app.speed_controls, app.speed_entry, app.speed_button = Mock(), Widget(), Widget()
+        app.speed_selection_text = Var()
+        app._update_controls()
+        self.assertEqual(app.speed_button.options['state'], 'disabled')
+        self.assertEqual(app.speed_button.options['text'], 'Aplicar aos 2 selecionados')
+        self.assertIn('2 selecionados · 1 aptos · 1 bloqueados', app.speed_selection_text.get())
+        self.assertIn('cabine', app.speed_selection_text.get())
+        with patch.object(gui.messagebox, 'showinfo') as info:
+            app.set_speed()
+        app._change.assert_not_called()
+        info.assert_called_once()
+
+    def test_bulk_speed_controls_and_action_require_confirmed_idle_pause_and_profile(self):
+        for paused, busy, pending, profile, connected, closed in [
+                (True, False, False, True, True, False),
+                (False, False, False, True, True, False),
+                (None, False, False, True, True, False),
+                (True, True, False, True, True, False),
+                (True, False, True, True, True, False),
+                (True, False, False, False, True, False),
+                (True, False, False, True, False, False),
+                (True, False, False, True, True, True)]:
+            with self.subTest(paused=paused, busy=busy, pending=pending, profile=profile,
+                              connected=connected, closed=closed):
+                app = multi_app([{'id': 9, 'can_set_speed': True},
+                                 {'id': 12, 'can_set_speed': True}], [9, 12], focus=9)
+                app.core_paused, app.busy, app.pending = paused, busy, pending
+                app.profile_valid, app.connected, app.closed = profile, connected, closed
+                app.speed_controls, app.speed_entry, app.speed_button = Mock(), Widget(), Widget()
+                app.select_speed_button = Widget()
+                app.speed_target_kmh, app.root, app._change = Var('40'), Mock(), Mock()
+                app._update_controls()
+                allowed = paused is True and not busy and not pending and profile and connected and not closed
+                self.assertEqual(app.speed_button.options['state'], 'normal' if allowed else 'disabled')
+                self.assertEqual(app.select_speed_button.options['state'], 'normal' if allowed else 'disabled')
+                app.set_speed()
+                self.assertEqual(app._change.call_count, int(allowed))
+
+    def test_focused_selected_actor_remains_primary_for_single_vehicle_actions(self):
+        app = multi_app([{'id': 9}, {'id': 12}], [9, 12], focus=12)
+        self.assertEqual(app.selected()['id'], 12)
+        self.assertEqual([vehicle['id'] for vehicle in app.selected_vehicles()], [9, 12])
+        app.table.focus('stale-row')
+        self.assertEqual(app.selected()['id'], 9)
+        app.table.selection_set([])
+        self.assertIsNone(app.selected())
+
+    def test_select_speed_eligible_excludes_trailer_and_inactive_actors_and_preserves_focus(self):
+        vehicles = [{'id': 9, 'can_set_speed': True}, {'id': 12, 'can_set_speed': True},
+                    {'id': 13, 'can_set_speed': False}, {'id': 14, 'can_set_speed': True, 'active': False}]
+        app = multi_app(vehicles, [12, 13], focus=12)
+        app._selection_changed = Mock()
+        app.select_speed_eligible()
+        self.assertEqual([vehicle['id'] for vehicle in app.selected_vehicles()], [9, 12])
+        self.assertEqual(app.selected()['id'], 12)
+        app._selection_changed.assert_called_once()
+        app.pending = True
+        app.table.selection_set('row-9')
+        app.select_speed_eligible()
+        self.assertEqual(app.table.selection(), ('row-9',))
+
+    def test_snapshot_preserves_multi_selection_by_actor_id_across_reorder_and_removal(self):
+        vehicles = [{'id': 9}, {'id': 12}, {'id': 13}]
+        app = multi_app(vehicles, [9, 12], focus=12)
+        app.catalog_table = Mock()
+        app.catalog_table.get_children.return_value = ()
+        app.model_choices, app.model_choice = {}, Var()
+        app._selection_changed = Mock()
+        app._snapshot({'models': [], 'vehicles': [vehicles[2], vehicles[1], vehicles[0]]})
+        self.assertEqual({vehicle['id'] for vehicle in app.selected_vehicles()}, {9, 12})
+        self.assertEqual(app.selected()['id'], 12)
+        self.assertEqual(app.table.focus(), 'vehicle-1')
+        app._snapshot({'models': [], 'vehicles': [vehicles[0], vehicles[2]]})
+        self.assertEqual([vehicle['id'] for vehicle in app.selected_vehicles()], [9])
+        self.assertEqual(app.selected()['id'], 9)
+
+    def test_completed_action_cancels_stale_timer_even_if_refresh_retains_old_pending_flag(self):
+        app = app_shell({'id': 9, 'editable': True})
+        app.root, app._snapshot = Mock(), Mock()
+        app.pending, app.pending_poll_id = True, 'pending-timer'
+        app.controller = types.SimpleNamespace(refresh=Mock(return_value={'pending': True}))
+        jobs = []
+        app._submit = lambda _label, work, done: jobs.append((work, done))
+        app._change('Finalizar', lambda: {'pending': False, 'message': 'Finalizado.'})
+        work, done = jobs.pop()
+        done(work())
+        self.assertFalse(app.pending)
+        self.assertIsNone(app.pending_poll_id)
+        app.root.after_cancel.assert_called_once_with('pending-timer')
+        app.root.after.assert_not_called()
+        app._update_controls()
+        self.assertEqual(app.add_button.options['state'], 'normal')
 
     def test_full_paused_connection_snapshot_avoids_duplicate_network_read(self):
         payload={'game':'Burnout 3 USA','profile':'SLUS-21050','core_paused':True,

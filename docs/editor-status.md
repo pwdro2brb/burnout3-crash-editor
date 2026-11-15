@@ -5,7 +5,40 @@ locais com capturas privadas**: 19 do controlador, 21 do perfil e 5 da integraç
 de caminhos/velocidade. A prévia de uma referência preservada mostrou 27
 caminhos e o caminho selecionado P21; a leitura e o ajuste de alvo foram
 verificados em memória copiada, sem aplicar mudanças na sessão do jogo.
-O novo controle de velocidade ainda precisa de validação em execução real.
+A confirmação posterior do usuário de que as novas mudanças funcionaram abrange
+essa revisão. É um relato de uso, sem medição instrumentada da velocidade.
+
+## Revisão de 15/11/2026: finalização e velocidade em grupo
+
+Passaram **271 testes distribuíveis** e **47 testes locais com capturas
+privadas**: 19 do controlador, 21 do perfil e 7 da integração de velocidade,
+somando **318 testes**. Essa validação foi offline; os novos ajustes desta
+revisão não receberam ensaio no PCSX2 em execução.
+
+O usuário relatou que criar vários carros funcionava, mas o editor permanecia
+aguardando a física/PCSX2 e bloqueava novas edições. O fluxo tinha uma espera
+sem limite para atores cuja física ainda não permitia confirmar o alinhamento.
+A revisão limita essa etapa a cinco segundos após a primeira verificação
+pausada com todos os registros concluídos, payload reconhecido, hook original
+e token de conclusão da geração correspondente. Ao expirar, limpa somente o
+código temporário admitido, mantém os veículos nativos, cancela a fila e não
+inclui o lote na receita. A identidade e a conclusão são verificadas novamente
+antes da limpeza. **Finalizar pendência** pode encerrar essa espera imediatamente;
+execução incompleta ou código desconhecido continuam bloqueados.
+
+**Ctrl/Shift** permite selecionar vários registros; **Selecionar aptos para
+velocidade** reúne os habilitados. Uma ação aplica o mesmo alvo nominal a toda
+a seleção, depois de validar todos os registros. Um alvo bloqueado impede o
+envio, sem ser ignorado. Apenas o controle desejado de cada nó é alterado;
+avanço e física continuam calculados pelo jogo. Selecione a cabine em vez da
+carga. A linha em foco continua sendo a referência de posição e criação.
+
+Um ator observado depois da referência inicial pode ser editado se passar no
+perfil, mesmo sem criação confirmada na receita. A receita que dependa dele
+não pode ser salva em JSON; `.p2s` preserva a sessão, ou uma nova conexão pode
+adotar o cenário atual como referência. A correção da espera e a seleção múltipla
+precisam de uma nova rodada de uso; a confirmação da revisão anterior não as
+valida.
 
 Os testes automatizados cobrem transporte, perfil, fila, cancelamento, projeção
 por ponto, preservação do caminho no replay, retorno lateral experimental,
@@ -13,8 +46,8 @@ visualização de vias e velocidade nominal. A conferência visual e os ensaios
 reais dos fluxos novos permanecem separados dessa validação. Esses resultados
 não comprovam estabilidade com muitos veículos.
 
-Estado documentado em 13/11/2026. A interface do evento atual está implementada
-e foi ligada a uma cópia isolada do PCSX2 real. O usuário relatou: **“A van
+O histórico a partir de 13/11/2026 registra a interface do evento atual ligada
+a uma cópia isolada do PCSX2 real. O usuário relatou: **“A van
 apareceu e a colisão funcionou”**, na rodada preparada pela interface no Grand
 Slam. Esse relato manual não constitui um impacto instrumentado nem comprova
 estabilidade prolongada. Os ensaios anteriores de reposicionamento e criação
@@ -143,8 +176,9 @@ atualizada reconectou com **Jogo pausado**, sem criação pendente.
   seu uso atual não é confirmado. A vista mantém alvo por clique e entrada manual
   para criação; não é a malha de asfalto nem acompanhamento em tempo real.
 - Consulta do alvo e do seguimento em escala nominal km/h, com edição apenas do
-  alvo quando o perfil admite o registro. Zero pode ser aplicado e alterado
-  depois; cabine e carga não recebem escritas independentes de velocidade.
+  alvo quando o perfil admite o registro, em um veículo ou seleção múltipla.
+  Zero pode ser aplicado e alterado depois; cabine e carga não recebem escritas
+  independentes de velocidade.
 - Painel direito com barra vertical e rodapé do mapa em duas linhas para manter
   os controles acessíveis em janelas menores, com quebra de texto ajustada à largura.
 - Reposicionamento lateral de independente com física inicializada e uma
@@ -290,9 +324,9 @@ para tentar trazê-lo de volta. Isso não o torna uma referência normal de cria
 enquanto estiver fora do perfil. Receitas registram a natureza experimental das
 ações; sua carga é recusada com o toggle desligado, sem ativação automática pelo JSON.
 
-Esses fluxos novos têm validação automatizada, mas não receberam ensaio real
-nesta etapa. O relato anterior de criação/colisão e o novo relato de falha com
-muitos carros não validam a implementação ampliada ou a criação por ponto.
+Esses fluxos receberam validação automatizada antes dos ensaios do usuário.
+A confirmação posterior de que as novas mudanças funcionaram é um relato de
+uso, sem demonstrar estabilidade de todos os modos, locais ou cenas densas.
 
 ## Caminhos e velocidade nominal
 

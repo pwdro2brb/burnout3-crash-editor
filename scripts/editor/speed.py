@@ -90,15 +90,14 @@ def validate_control(new_control,*,experimental=False) -> float:
     return struct.unpack('<f',packed)[0]
 
 
-def patches(state,vehicle_id,new_control,*,experimental=False) -> list[Patch]:
-    """Return one expected-value patch of node+0, never current speed/spacing."""
-    if getattr(state,'core_paused',False) is not True:
-        raise profile.ProfileError('Pause o PCSX2 antes de alterar a velocidade desejada.')
-    value=validate_control(new_control,experimental=experimental)
+def _selected(state,vehicle_id):
     row = state.vehicles.get(vehicle_id) if type(vehicle_id) is int else None
-    if row is None or not can_set_speed(row):
+    if row is None or row.get('id') != vehicle_id or not can_set_speed(row):
         raise profile.ProfileError('Selecione um veículo ou cabine com nó, caminho e física prontos.')
-    packed=struct.pack('<f',value)
+    return row
+
+
+def _control_patch(state,row,vehicle_id,value_word):
     node,memory = row['node'],state.memory
     if (memory.u8(node+0x49) != row['node_index'] or memory.u8(node+0x4A) != vehicle_id
             or memory.u8(node+0x41) != row['path'] or not 1 <= memory.u8(node+0x46) <= 7
@@ -107,4 +106,40 @@ def patches(state,vehicle_id,new_control,*,experimental=False) -> list[Patch]:
     current = memory.read(node,'<f')[0]
     if not math.isfinite(current) or current < 0 or current != row['speed']:
         raise profile.ProfileError('O controle de velocidade mudou; atualize a lista antes de editar.')
-    return [Patch(node,4,memory.u32(node),struct.unpack('<I',packed)[0])]
+    return Patch(node,4,memory.u32(node),value_word)
+
+
+def patches(state,vehicle_id,new_control,*,experimental=False) -> list[Patch]:
+    """Return one expected-value patch of node+0, never current speed/spacing."""
+    if getattr(state,'core_paused',False) is not True:
+        raise profile.ProfileError('Pause o PCSX2 antes de alterar a velocidade desejada.')
+    value=validate_control(new_control,experimental=experimental)
+    row=_selected(state,vehicle_id)
+    word=struct.unpack('<I',struct.pack('<f',value))[0]
+    return [_control_patch(state,row,vehicle_id,word)]
+
+
+def patches_many(state,vehicle_ids,new_control,*,experimental=False) -> list[Patch]:
+    """Preflight a whole selection and return one desired-control patch per node.
+
+    This pure preparation never writes memory or skips an invalid selection.
+    The caller should pass the complete returned list to one guarded apply_patch
+    call; that transport operation remains best effort rather than atomic.
+    """
+    if getattr(state,'core_paused',False) is not True:
+        raise profile.ProfileError('Pause o PCSX2 antes de alterar a velocidade desejada.')
+    value=validate_control(new_control,experimental=experimental)
+    if (type(vehicle_ids) not in (list,tuple)
+            or not 1 <= len(vehicle_ids) <= profile.POOL_COUNT):
+        raise profile.ProfileError('Selecione de 1 a 254 veículos ou cabines para alterar a velocidade.')
+    if any(type(index) is not int or not 0 <= index < profile.POOL_COUNT for index in vehicle_ids):
+        raise profile.ProfileError('A seleção contém um identificador de veículo inválido.')
+    if len(set(vehicle_ids)) != len(vehicle_ids):
+        raise profile.ProfileError('A seleção contém veículos repetidos.')
+    rows=[_selected(state,index) for index in vehicle_ids]
+    if len({row['node'] for row in rows}) != len(rows):
+        raise profile.ProfileError('Dois veículos selecionados apontam para o mesmo nó de tráfego.')
+    word=struct.unpack('<I',struct.pack('<f',value))[0]
+    # Validate every live backlink and expected current value before returning
+    # any patches. A late mismatch discards the entire prepared selection.
+    return [_control_patch(state,row,index,word) for index,row in zip(vehicle_ids,rows)]

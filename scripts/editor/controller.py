@@ -84,13 +84,35 @@ class EditorController:
     def finalize_pending(self):
         self._paused()
         if self.pending:
+            pending = self.pending
             try:
-                return self.poll()
+                result = self.poll()
             except profile.ProfileError:
                 # Explicit user action may release completed owned code even
                 # when traffic structures no longer permit alignment.
-                if not getattr(self.pending,'batch',False):
+                if not getattr(pending,'batch',False):
                     raise
+                result = {'pending':True,'core_paused':True}
+            if (self.pending is not pending or not getattr(pending,'batch',False)
+                    or not result.get('pending')):
+                return result
+            if not hasattr(pending,'probes'):
+                # Restored legacy metadata is not in-memory ownership proof;
+                # require the canonical payload plus matching local journal.
+                from .recovery import finalize_restored
+                return finalize_restored(self)
+            # A poll may finalize one group and stage the next. Only the same
+            # request may be released here, after its native code has retired.
+            if (self.client.status() is not Status.PAUSED
+                    or self.client.read_many([(p,4) for p in pending.probes]) != [2]*len(pending.probes)
+                    or self.client.read_bytes(spawncode.HOOK,8) != spawncode.ORIGINAL
+                    or self.client.read_many([(pending.completion_address,4)])[0] != pending.completion_token):
+                return result
+            self._paused()
+            self._cleanup_completed_request(pending,'batch_not_finalized',reason='manual_physics_release')
+            return {'pending':False,'core_paused':True,'warning':True,
+                'message':'Solicitação concluída liberada. Os veículos criados pelo jogo foram mantidos; '
+                          'alinhamento e receita deste lote não foram confirmados. A fila restante foi cancelada.'}
         from .recovery import finalize_restored
         return finalize_restored(self)
 
@@ -279,7 +301,10 @@ class EditorController:
         if row['id'] in self.actor_keys:
             return {'kind': 'created', 'key': self.actor_keys[row['id']]}
         if self.baseline_refs.get(row['id']) != (row['model_id'],row['path']):
-            raise EditorError('Esse veículo não pertence à referência da receita. Conecte novamente para iniciar outra sessão.')
+            # Late natural traffic and native allocations whose alignment was
+            # not confirmed can still be edited after normal live validation.
+            # Their appearance cannot be replayed from our original baseline.
+            return {'kind':'observed','id':row['id'],'model_id':row['model_id'],'path':row['path']}
         return {'kind': 'initial', 'id': row['id'], 'model_id': row['model_id'], 'path': row['path']}
 
     def _resolve(self, reference, snap, *, for_creation=False, experimental=False, for_speed=False):
@@ -309,27 +334,34 @@ class EditorController:
         return row
 
     def set_speed(self,vehicle_id,value,*,experimental=False):
+        return self.set_speeds([vehicle_id],value,experimental=experimental)
+
+    def set_speeds(self,vehicle_ids,value,*,experimental=False):
         snap = self._ready()
-        patches = speed.patches(snap,vehicle_id,value,experimental=experimental)
-        row = self._speed_selected(snap,vehicle_id)
+        patches = speed.patches_many(snap,vehicle_ids,value,experimental=experimental)
+        rows = [self._speed_selected(snap,index) for index in vehicle_ids]
         control = speed.validate_control(value,experimental=experimental)
         self._start_recipe(snap)
-        target = self._reference(row)
+        targets = [self._reference(row) for row in rows]
         self.recovery_digest = _state_digest(snap)
         try:
+            # PINE preflights all expected words. A transport/write failure can
+            # still be partial, so it always blocks further edits until recovery.
             self.client.apply_patch(patches)
         except PineError as error:
             self.unsafe = True
-            self._journal('speed_unconfirmed',vehicle_id=vehicle_id)
-            raise EditorError('A velocidade não pôde ser confirmada. Recarregue uma referência limpa antes de repetir.') from error
-        operation = dict(op='set_speed',target=target,control_value=control)
-        if experimental:
-            operation['experimental'] = True
-        self.recipe.append(operation)
-        self._journal('set_speed',vehicle_id=vehicle_id,operation=operation,
-            previous_control=row['speed'],previous_advance=row['travel_speed'])
+            self._journal('speed_unconfirmed',vehicle_ids=list(vehicle_ids))
+            raise EditorError('As velocidades não puderam ser confirmadas. Recarregue uma referência limpa antes de repetir.') from error
+        for row,target in zip(rows,targets):
+            operation = dict(op='set_speed',target=target,control_value=control)
+            if experimental:
+                operation['experimental'] = True
+            self.recipe.append(operation)
+            self._journal('set_speed',vehicle_id=row['id'],operation=operation,
+                previous_control=row['speed'],previous_advance=row['travel_speed'])
         return {'pending':False,'core_paused':True,
-            'message':'Velocidade desejada atualizada. Ao retomar, o jogo recalcula o avanço conforme o trânsito.'}
+            'message':f'Velocidade desejada atualizada em {len(rows)} veículo(s). '
+                      'Ao retomar, o jogo recalcula o avanço conforme o trânsito.'}
 
     def move(self, vehicle_id: int, lateral_percent: float, *, experimental=False):
         if type(experimental) is not bool:
@@ -599,6 +631,10 @@ class EditorController:
     def save_preset(self, path: str):
         if self.pending or not self.recipe or not self.baseline:
             raise EditorError('Finalize pelo menos uma edição antes de salvar um preset.')
+        if any(op.get('target',{}).get('kind') == 'observed' for op in self.recipe):
+            raise EditorError('Há edições em veículos que surgiram depois da referência inicial e não podem ser '
+                              'recriados por esta receita. Use Salvar estado… (.p2s) para manter o cenário, '
+                              'ou conecte novamente para iniciar uma receita com a cena atual.')
         destination = Path(path)
         payload = {'format': 'burnout3-current-event-recipe', 'version': 1,
                    'profile': 'SLUS-21050/BEBF8793', 'baseline': self.baseline,

@@ -1,6 +1,6 @@
 # Caminhos e velocidade do tráfego
 
-Atualização de 14/11/2026 para Burnout 3 USA `SLUS-21050` / CRC `BEBF8793`
+Atualização de 15/11/2026 para Burnout 3 USA `SLUS-21050` / CRC `BEBF8793`
 no PCSX2 1.7.2521. Esta etapa melhora a leitura e a edição do evento carregado;
 não cria a malha de uma nova rua nem altera os recursos do ISO.
 
@@ -68,10 +68,18 @@ estado físico podem deixar de ter um controle de tráfego editável.
 
 ## Alterar o alvo
 
-1. Pause o PCSX2 e selecione um veículo ou cabine com controle disponível.
-2. Preencha **Alvo nominal (km/h)** e clique em **Aplicar velocidade**.
+1. Pause o PCSX2 e selecione um ou mais veículos com controle disponível.
+   Use **Ctrl** para escolher vários ou **Shift** para selecionar um intervalo.
+   **Selecionar aptos para velocidade** reúne os registros habilitados da lista.
+2. Preencha **Alvo nominal (km/h)** e clique em **Aplicar velocidade**, ou
+   **Aplicar aos N selecionados** quando houver mais de um. Todos recebem o
+   mesmo alvo; se algum registro estiver bloqueado, a seleção inteira é recusada.
 3. Retome o jogo para observar a resposta do controlador. Compare alvo e
    seguimento na próxima leitura pausada, especialmente se houver uma fila.
+
+Em caminhões, selecione a cabine, sem incluir a carga como alvo separado.
+A linha em foco continua sendo a referência para mover ou acrescentar veículos;
+essas ações não são multiplicadas pela seleção de velocidade.
 
 O alvo **zero** solicita parada através do controle normal do jogo. Ele não
 zera diretamente a velocidade física ou o avanço atual. Aumentar o alvo
@@ -84,9 +92,11 @@ admitido pelo criador pesquisado do editor. Isso corresponde a aproximadamente
 universalmente validada. O modo experimental admite alvos maiores finitos e
 representáveis em float32, com o aviso de risco mantido.
 
-A alteração muda somente **um float de alvo**. O editor verifica pausa,
+A alteração muda somente **um float de alvo por veículo**. O editor verifica pausa,
 associação entre objeto e nó, proprietário, caminho, estado do nó, tipo e valor
-anterior. Ele mantém a física e os campos calculados sob controle do jogo.
+anterior de todos os selecionados antes de enviar as escritas numa única ação.
+Uma falha de transporte ainda pode interromper a escrita: não se trata de uma
+transação atômica. Ele mantém a física e os campos calculados sob controle do jogo.
 Não altera diretamente o avanço, a aceleração, o campo `+0x24` ou a carga.
 
 **Salvar configuração** conserva a ação de velocidade na receita JSON, junto
@@ -94,6 +104,12 @@ das demais ações. A receita exige sua referência inicial correspondente; uma
 ação experimental exige que o modo experimental esteja ligado ao carregá-la.
 Um estado `.p2s` conserva um instante da sessão. Reiniciar ou trocar de evento
 pode reconstruir os valores originais do tráfego.
+
+Um veículo observado depois da referência inicial, sem criação confirmada na
+receita, ainda pode ser editado quando passa nas verificações do perfil. Essa
+edição vale para a sessão; **Salvar configuração** recusa a receita que dependa
+dele. Use `.p2s` para guardar o instante ou inicie uma nova sessão a partir de
+uma referência que já contenha o veículo.
 
 ## Base da interpretação e validação restante
 
@@ -105,8 +121,10 @@ Depois, `0x00162e80` integra a progressão usando esse avanço, o delta do jogo
 em `0x0052267c` e o comprimento do segmento. Essa sequência fundamenta a
 distinção entre alvo, seguimento e movimento físico observado.
 
-Preparar patches protegidos e passar nos testes automatizados não demonstra
-resposta real de todos os modelos, calibração física em km/h ou estabilidade
-em cenas densas. O novo controle e a visualização precisam desses ensaios.
+O usuário confirmou que a revisão anterior com caminhos e velocidade funcionou.
+A seleção múltipla e a correção da espera do lote pertencem à revisão seguinte;
+esse relato não as valida. Preparar patches protegidos e passar nos testes
+automatizados não demonstra resposta real de todos os modelos, calibração
+física em km/h ou estabilidade em cenas densas.
 Os resultados sobre muitos carros batidos e renderização são tratados
 separadamente em [high-density-experiments.md](high-density-experiments.md).
