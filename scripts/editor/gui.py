@@ -474,7 +474,9 @@ class EditorApp:
         self.project_canvas.bind('<Configure>',self._project_resize)
         project_tab.columnconfigure(0, weight=1)
         project_tab.columnconfigure(1, weight=1)
-        ttk.Label(project_tab, text='Nome para novo projeto').grid(row=0, column=0, columnspan=2, sticky='w')
+        ttk.Label(project_tab, text='Nome para novo projeto').grid(row=0, column=0, sticky='w')
+        ttk.Button(project_tab, text='Eventos nativos…', command=self.open_native_events).grid(
+            row=0, column=1, sticky='e')
         self.project_name_entry = ttk.Entry(project_tab, textvariable=self.project_name)
         self.project_name_entry.grid(row=1, column=0, columnspan=2, sticky='ew', pady=(5, 10))
         self.new_project_button = ttk.Button(project_tab, text='Criar projeto…', command=self.create_project)
@@ -1302,6 +1304,7 @@ class EditorApp:
 
     def _invalidate_profile(self) -> None:
         self.profile_valid = False
+        self.native_identity = None
         self.routes = {}
         if hasattr(self.table, 'selection') and hasattr(self.table, 'selection_remove'):
             self.table.selection_remove(*self.table.selection())
@@ -1366,6 +1369,7 @@ class EditorApp:
         self.poll_id = self.root.after(60, self._poll)
 
     def _snapshot(self, snapshot: dict[str, Any], selected_id: int | None = None) -> None:
+        self.native_identity = snapshot.get('native_identity')
         current = self.selected()
         selected_ids = {vehicle['id'] for vehicle in self.selected_vehicles()}
         chosen_model = self.model_choices.get(self.model_choice.get())
@@ -1907,6 +1911,17 @@ class EditorApp:
     def confirm_project_base(self) -> None:
         self._confirm_project(base=True)
 
+    def open_native_events(self) -> None:
+        from editor.native_events_ui import NativeEventsWindow
+        window = getattr(self, 'native_window', None)
+        if window is None or not window.winfo_exists():
+            self.native_window = NativeEventsWindow(
+                self.root, lambda: getattr(self, 'native_identity', None)
+                if self.connected and self.profile_valid and self.core_paused is True else None)
+        else:
+            window.lift()
+            window.focus_set()
+
     def open_project(self) -> None:
         if not self._project_ready():
             return
@@ -1981,6 +1996,9 @@ class EditorApp:
             messagebox.showinfo('Criação em andamento',
                 'Finalize a criação antes de fechar. Se a operação falhou, recarregue um '
                 'estado limpo no PCSX2 e clique em Conectar novamente.', parent=self.root)
+            return
+        window = getattr(self, 'native_window', None)
+        if window is not None and window.winfo_exists() and not window.close():
             return
         self._submit('Fechando o editor…', self.controller.close, lambda _value: self._finish_close())
 

@@ -17,7 +17,7 @@ import tempfile
 import time
 
 from .pine import PineClient, Status, Patch, PineError, PineNotPaused, PineTransportError, PineRemoteError
-from . import profile, spawncode, routes, speed
+from . import native_identity, profile, spawncode, routes, speed
 
 
 class EditorError(ValueError):
@@ -497,6 +497,7 @@ class EditorController:
             info = speed.summarize(snap.vehicles[row['id']])
             row.update(speed_info=info,can_set_speed=info['can_set_speed'])
         public['routes'] = routes.build_network(snap)
+        public['native_identity'] = native_identity.read_identity(snap.memory)
         if self.client.status() is not Status.PAUSED:
             return {'status':'O PCSX2 foi retomado durante a leitura. Pause e atualize novamente.',
                     'core_paused':False,'pending':False}

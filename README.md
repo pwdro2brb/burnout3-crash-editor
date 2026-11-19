@@ -17,8 +17,11 @@ Há suporte experimental
 a cabine com carga, limitado a pares nativos já carregados. A integração real confirmou leitura,
 reposicionamento e criação pelo controlador; o usuário também relatou presença
 e colisão da van preparada pela interface no Grand Slam.
-Os projetos guardam estados locais; não existe editor dentro do jogo,
-gravação de eventos nos arquivos do ISO ou criação de locais novos.
+Em **Projeto → Eventos nativos…**, o editor também abre os 100 eventos de Crash
+da extração USA. Dá para ver as vias da pista, trocar a ordem dos modelos em
+um grupo, mudar as metas das medalhas e ajustar quantas batidas ativam o
+Crashbreaker. A exportação gera arquivos separados ou uma nova cópia da ISO.
+O catálogo abre com o PCSX2 fechado. Veja o [guia de eventos nativos](docs/native-crash-events.md).
 
 Os ensaios anteriores em cópias de save states confirmaram reposicionamento e
 criação no Grand Slam. O usuário relatou ter visto e atingido o veículo
@@ -59,8 +62,10 @@ exportações de análise nem Ghidra/JDK/PCSX2.
 
 - Python 3.10 ou posterior, usando somente a biblioteca padrão. A interface
   gráfica também exige Tcl/Tk, normalmente incluído no instalador do Python para Windows.
-- Para o editor externo: Burnout 3 USA `SLUS-21050`, CRC `BEBF8793`, no PCSX2
+- Para editar a sessão em andamento: Burnout 3 USA `SLUS-21050`, CRC `BEBF8793`, no PCSX2
   **1.7.2521**, com PINE habilitado numa instalação de teste.
+- Para editar o evento no disco, use a extração USA com as pastas `DATA` e
+  `TRACKS`. Para gerar uma ISO, forneça também a imagem correspondente.
 - Para análise nativa: Ghidra com a extensão Emotion Engine Reloaded e linguagem
   `r5900:LE:32:default`. A instalação usada na pesquisa foi Ghidra 12.2 com JDK 25
   e extensão v2.1.39 correspondente. As ferramentas não são baixadas pelos scripts.
