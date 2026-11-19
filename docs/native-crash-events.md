@@ -46,8 +46,11 @@ Essa combinação foi exportada e iniciada no PCSX2 1.7.2521. A comparação
 integral das imagens encontrou dez bytes diferentes nos dois arquivos previstos.
 Após o boot, a tabela carregada pelo próprio jogo continha a chave do Grand Slam,
 as metas de $310.000, $200.000 e $60.000 e o contador de seis batidas. A ordem
-dos dois modelos foi conferida no arquivo da pista. O efeito visual e o momento
-da ativação da explosão aguardam confirmação durante a rodada.
+dos dois modelos foi conferida no arquivo da pista. O jogador iniciou o teste e
+confirmou que a rodada funcionou. A identificação visual de cada modelo trocado
+e o instante exato da ativação do Crashbreaker não foram registrados separadamente.
+O próximo teste rastreia o primeiro carro vermelho até a sua origem no evento.
+[Histórico dos testes](contexto-do-projeto.md) · [Plano de desenvolvimento](plano-de-desenvolvimento.md)
 
 ## Como os dados foram conferidos
 

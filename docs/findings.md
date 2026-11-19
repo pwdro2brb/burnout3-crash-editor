@@ -1,5 +1,7 @@
 # Achados e limites da pesquisa
 
+Este documento preserva os resultados das primeiras investigações. A pesquisa posterior identificou diretórios de eventos e geometria dentro dos BGD. A edição de Grand Slam também permitiu conferir o registro de `STAGEHED.BIN` na tabela carregada após o boot. Consulte o [histórico consolidado](contexto-do-projeto.md) e a [edição nativa de eventos](native-crash-events.md) para o estado atual.
+
 Este resumo contém fatos estruturais e nomes inferidos, sem bytes do jogo,
 pseudocódigo, saves ou dumps. Observações estáticas e observações históricas de
 save states não devem ser tratadas como testes de uma modificação em execução.

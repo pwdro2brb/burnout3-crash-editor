@@ -1,5 +1,7 @@
 # Burnout 3 Crash Editor — pesquisa experimental
 
+O jogador confirmou o teste do **Grand Slam editado na ISO**. A próxima etapa é identificar a origem do primeiro carro vermelho e tornar sua posição editável no arquivo do evento. Consulte o [histórico do projeto e dos testes](docs/contexto-do-projeto.md) e o [plano de desenvolvimento com as oito issues](docs/plano-de-desenvolvimento.md).
+
 Ferramentas próprias para pesquisar e desenvolver um editor de eventos do
 Crash Mode de Burnout 3: Takedown. Há uma **interface externa experimental**
 para identificar modelos, reposicionar veículos e acrescentar lotes de
@@ -268,7 +270,7 @@ Outros modelos, impactos e persistência após reiniciar o evento ainda precisam
 de investigação. Detalhes em [docs/repositioning-milestone.md](docs/repositioning-milestone.md)
 e [docs/moving-traffic-reference.md](docs/moving-traffic-reference.md).
 
-## Estado e próximos passos
+## Histórico dos primeiros testes
 
 Consulte [docs/findings.md](docs/findings.md) e o marco de reposicionamento para
 os resultados históricos, e [docs/editor-status.md](docs/editor-status.md) para
@@ -280,7 +282,7 @@ não constitui validação real de cenas densas. Ainda faltam testes de física 
 amplos, confirmar a restauração e repetição dos novos projetos em jogo e
 generalizar os modelos e eventos admitidos. O ciclo de projetos está descrito
 em [custom-event-projects.md](docs/custom-event-projects.md).
-O reempacotamento implementado é de save states, não de recursos do jogo.
+O primeiro protótipo reempacotava save states. A edição nativa acrescentada depois gera uma nova ISO com os recursos editados. [Guia da edição nativa](docs/native-crash-events.md)
 
 A nova referência foi confirmada como **Grand Slam**, incluindo a contagem
 inicial. Um veículo continuou em movimento e manteve um pequeno deslocamento
