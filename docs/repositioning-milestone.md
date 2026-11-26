@@ -1,36 +1,33 @@
-# Primeiro reposicionamento observado
+# First observed repositioning
 
-Em 12/11/2026 foi confirmado um deslocamento reversível de um veículo existente
-no perfil USA pesquisado, usando uma cópia de estado salvo do PCSX2 1.7.2521.0.
-O editor dentro do jogo ainda não existe.
+On 12/11/2026 a reversible move of an existing vehicle was confirmed on the
+researched USA profile, using a copy of a PCSX2 1.7.2521.0 save state.
 
-O alvo foi um carro independente do pool de tráfego. Uma variante inicial só
-mudou a fração lateral do caminho: isso deslocou a matriz de seguimento, mas
-não o corpo físico. A posição visual é reconstruída a partir de dois pontos
-absolutos do objeto, em `+0x00` e `+0x30`.
+The target was an independent car of the traffic pool. A first variant changed
+only the path's lateral fraction: that moved the following matrix but not the
+physical body. The visual position is rebuilt from two absolute points of the
+object, at `+0x00` and `+0x30`.
 
-No teste confirmado foram deslocados os componentes X/Z dos dois pontos e da
-translação da matriz em `+0xa0`, junto da fração lateral do nó em `+0x34`.
-Foram sete floats de entrada; o delta foi
-`(+2.1409912109375, 0, +0.3963623046875)` em unidades de mundo.
+The confirmed test moved the X/Z components of both points and of the matrix
+translation at `+0xa0`, together with the node's lateral fraction at `+0x34`:
+seven input floats, a delta of `(+2.1409912109375, 0, +0.3963623046875)` in world
+units.
 
-Após o passo configurado de 30 quadros, o corpo, a matriz do caminho, o alvo
-armazenado e os limites AABB mantiveram esse delta. A caixa conservou suas
-dimensões e a orientação ficou igual. O próprio jogo atualizou o alvo e os
-limites; eles não foram escritos na variante. Os 253 outros registros do pool
-de objetos ficaram idênticos ao controle, assim como suas matrizes. Um escalar
-de um nó vizinho mudou; sua semântica ainda não está estabelecida.
+After the configured 30-frame step, the body, the path matrix, the stored target
+and the AABB kept that delta. The box kept its size and the orientation was the
+same. The game itself updated the target and the bounds; the variant did not write
+them. The other 253 records of the object pool were identical to the control, as
+were their matrices. One scalar of a neighbouring node changed; its meaning is not
+established.
 
-Na imagem, a diferença ficou restrita ao veículo distante junto ao cruzamento.
-Restaurar a referência devolveu exatamente o viewport de controle. As capturas,
-estados salvos e relatórios de RAM ficam locais, fora deste repositório.
+In the picture, the difference was limited to the distant vehicle near the
+junction. Restoring the reference brought back exactly the control viewport.
+Captures, save states and RAM reports stay local.
 
-O usuário confirmou que veículos estacionados e lentos são parte normal desses
-eventos. Estar parado não indica, por si só, defeito do estado ou do tráfego.
+The user confirmed that parked and slow vehicles are a normal part of these
+events; standing still does not by itself indicate a broken state.
 
-O resultado cobre um reposicionamento horizontal, um veículo independente e
-uma janela curta de simulação. Ainda é necessário testar impacto contra o carro
-deslocado, deslocamentos maiores, outros modelos, rotação, veículos articulados
-e persistência de eventos. Adicionar/remover veículos exige manter recursos,
-listas e física; eventos em locais novos também exigem investigar carregamento
-e colisões dos mapas.
+The result covers a horizontal move, one independent vehicle and a short
+simulation window. Impact against the moved car, larger moves, other models,
+rotation, articulated vehicles and event persistence still need testing.
+Persistence on the disc is now covered by [traffic waves](traffic-waves.md).

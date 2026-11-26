@@ -1,210 +1,176 @@
-# Lotes, caminhões, pausa e preservação
+# Batches, trucks, pause and preservation
 
-Estado de 13/11/2026, para Burnout 3 USA `SLUS-21050` / CRC `BEBF8793` no
-PCSX2 1.7.2521. A ferramenta continua externa e usa os modelos e caminhos
-que o evento já carregou.
+Status of 13/11/2026 for Burnout 3 USA `SLUS-21050` / CRC `BEBF8793` on PCSX2
+1.7.2521. The tool stays external and uses the models and paths the event has
+already loaded. These are live-session edits; for permanent changes on the disc
+see [traffic waves](traffic-waves.md).
 
-## Resultados observados e limites
+## Observed results and limits
 
-O usuário confirmou explicitamente o funcionamento de **ambos** os testes:
-lote de carros e caminhão com carga. O registro local inclui `batch_finished`
-para oito `COMPCAR14` e para um conjunto `HEVYCAR22` + `HEVYCAR27`.
-Essas são evidências de ensaios específicos, sem captura instrumentada do impacto
-ou demonstração de estabilidade prolongada em todos os eventos.
+The user explicitly confirmed that **both** tests worked: the car batch and the
+truck with a trailer. The local log includes `batch_finished` for eight
+`COMPCAR14` and for a `HEVYCAR22` + `HEVYCAR27` set. These are specific trials,
+without an instrumented capture of the impact or proof of long-term stability in
+every event.
 
-Também houve três registros posteriores `batch_not_finalized`: a instância ou
-identidade já não correspondia à solicitação no momento de finalizar. Presença
-no cenário, colisão relatada e finalização técnica são verificações distintas.
-O editor não deve alinhar outro objeto para substituir silenciosamente uma
-referência que expirou.
+There were also three later `batch_not_finalized` records: the instance or
+identity no longer matched the request when finishing. Presence in the scene,
+reported collision and the technical finish are separate checks. The editor
+must never align another object to silently replace an expired reference.
 
-## Revisão técnica da finalização
+## Technical revision of the finish
 
-Na revisão com saída protegida, o último stub do lote restaura o hook original antes
-de sair. A conclusão global só é publicada numa **landing fixa de doze bytes**,
-e a limpeza preserva exatamente essa landing. Assim, se o EE estiver pausado
-nessa saída, a retomada ainda encontra o salto de retorno e seu delay slot;
-o editor não apaga o código em que ele pode continuar executando.
+With the protected exit, the batch's last stub restores the original hook before
+leaving. Global completion is published only to a **fixed twelve-byte landing**,
+and the cleanup preserves exactly that landing. If the EE is paused inside that
+exit, resuming still finds the return jump and its delay slot; the editor never
+erases code that may still be running.
 
-A finalização exige os probes das solicitações e o marcador global de conclusão.
-No formato v2, esse marcador deve conter o token da geração atual, ligado ao
-nonce e conferido contra o histórico conhecido. Uma conclusão de outro lote
-não satisfaz a solicitação atual. O formato v1 com landing é reconhecido
-somente para recuperar uma solicitação antiga já encerrada.
-Os demais bytes temporários são limpos para a baseline canônica com essa pequena
-saída preservada. As verificações dessa sequência incluem pausa após a publicação,
-limpeza e retomada num intérprete de teste.
+The finish needs the request probes and the global completion marker. In format
+v2 that marker holds the current generation's token, tied to the nonce and
+checked against the known history, so a completion from another batch does not
+satisfy the current request. Format v1 with a landing is recognized only to
+recover an old request that already ended. The other temporary bytes are reset
+to the canonical baseline with that small exit preserved. The checks of this
+sequence include pausing after publication, cleanup and resume in a test
+interpreter.
 
-Na rodada anterior, após reabrir o editor com a saída protegida, o usuário confirmou: **“Lote e
-exportação funcionaram”**. A rodada confirmou manualmente o novo fluxo e a
-exportação real. **O arquivo exportado ainda não foi restaurado em teste.**
+After reopening the editor with the protected exit, the user confirmed: **"Batch
+and export worked."** That round confirmed the new flow and the real export
+manually. **The exported file has not been restored in a test yet.**
 
-O registro local posterior inclui oito vans `HEVYCAR33` finalizadas no caminho
-53 e dois pares `HEVYCAR22` + `HEVYCAR27` em cada um dos caminhos 34 e 53.
-Também houve uma recusa posterior de perfil porque as estruturas de tráfego
-não passaram na verificação, mantendo uma criação pendente. Esse registro não
-estabelece travamento ou falha geral; as verificações de perfil continuam
-podendo bloquear operações.
+The later local log includes eight `HEVYCAR33` vans finished on path 53 and two
+`HEVYCAR22` + `HEVYCAR27` pairs on each of paths 34 and 53. A later profile
+refusal (traffic structures failed the check) left a creation pending; it does
+not establish a freeze or a general failure.
 
-Passaram **157 testes distribuíveis** e **40 privados**: 19 do controlador e
-21 do perfil. Os testes e relatos cobrem esses casos e não demonstram estabilidade universal.
+At that point 157 distributable and 40 private tests passed. The lateral move of
+sets is a candidate and needs its own test after moving. **A fourth tanker, its
+collisions and explosions remain unvalidated.**
 
-O movimento lateral de conjuntos é candidato e precisa de teste próprio após
-o deslocamento. A restauração do `.p2s` exportado ainda não foi testada.
-**O quarto caminhão-tanque, suas colisões e explosões
-continuam sem validação.**
+## Pausing and resuming without relying on Esc
 
-## Pausar e retomar sem depender de Esc
+After connecting, **Pause PCSX2** and **Resume** appear when the editor
+identifies the process behind its own PINE connection and the compatible menu of
+the Windows PCSX2. The result is confirmed through the PINE state. This does not
+add a pause command to PINE; the button uses the emulator's native menu. A
+request without confirmation is never repeated automatically.
 
-Depois de conectar, os botões **Pausar PCSX2** e **Retomar** aparecem quando
-o editor identifica o processo da própria conexão PINE e o menu compatível
-do PCSX2 Windows. O resultado é confirmado pelo estado PINE. Isso não introduz
-um comando de pausa no protocolo PINE; o botão usa o menu nativo do emulador.
-Uma solicitação sem confirmação não é repetida automaticamente.
+The main frame can be hidden while the GS window is open; the target stays tied
+to the connection's process. If the button is not available, use **System →
+Pause** in the right emulator and check **Game paused** in the editor. The
+game's own **Start** pause is not enough.
 
-O frame principal pode ficar oculto enquanto a janela GS está aberta. Essa
-ocultação não transforma a janela GS em outro alvo: a identificação permanece
-vinculada ao processo da conexão. Se o botão não estiver disponível, use
-**Sistema → Pausar** no emulador correto e confira **Jogo pausado** no editor.
-A pausa do menu do jogo com **Start** não é suficiente.
+In the researched installation **Hide window when paused** was unticked
+(`CloseOnEsc=disabled` in `PCSX2_ui.ini`), which keeps the game window visible
+while paused. The setting was changed through the PCSX2 interface and is never
+changed by the editor. Only change it in the installation used for tests.
 
-Na instalação pesquisada, foi desmarcada a opção **Ocultar a janela quando
-estiver em pausa**, correspondente a `CloseOnEsc=disabled` em `PCSX2_ui.ini`.
-Isso mantém a janela do jogo visível ao pausar; o nome da chave não significa
-que Esc seja a única forma de pausa. A preferência foi alterada pela interface
-do PCSX2 e não é modificada automaticamente pelo editor. Faça o ajuste somente
-na instalação que pretende usar para os testes.
+## One cycle for the whole batch
 
-## Um ciclo para o lote inteiro
+1. Pause PCSX2 and refresh the list.
+2. Select the reference, the model and an amount from **1 to 8**.
+3. Enter the distance between creations: **8 to 50** units for independent types
+   1/2/3, **30 to 50** for type-5 buses, trucks or references of those types.
+   These are game units, not established metres.
+4. Prepare the batch and click **Resume** once.
+5. When asked, click **Pause PCSX2** to finish all creations. Wait for the
+   confirmation before driving.
 
-1. Pause o PCSX2 e atualize a lista.
-2. Selecione a referência, o modelo e a quantidade de **1 a 8**.
-3. Informe a distância entre as criações. Independentes 1/2/3 usam **8 a 50** unidades;
-   ônibus tipo 5, caminhão ou referência desses tipos usa **30 a 50**. Esses valores não são metros estabelecidos.
-4. Prepare o lote e clique em **Retomar** uma vez.
-5. Quando o editor solicitar, clique em **Pausar PCSX2** para finalizar todas
-   as criações. Aguarde a confirmação antes de dirigir.
+There is no manual resume/pause per vehicle. While a creation is pending the
+yellow banner stays and new edits are blocked. On the **Continue** intro screen
+the event must start for the game to run the traffic update.
 
-A quantidade não exige uma sequência manual de retomar/pausar por veículo.
-Enquanto houver criação pendente, o banner amarelo permanece e novas edições
-ficam bloqueadas. Na apresentação **Continue**, o evento precisa começar para
-o jogo executar a atualização do tráfego.
+Eight is the limit of this editor operation, not the engine's capacity. Space
+behind the reference, objects, nodes and collision records are shared
+resources; a batch can be refused even with free objects if there is no
+compatible stretch or combination.
 
-O limite de oito é o limite desta operação do editor, não uma capacidade total
-do motor. Espaço atrás da referência, objetos, nós e colisões continuam sendo
-recursos compartilhados. Um lote pode ser recusado mesmo com objetos livres
-se não houver trecho ou combinação compatível.
+## Cab and trailer
 
-## Cabine e carga
+The creator uses **primary type 4 + secondary type 11**, with separate model IDs.
+The interface only offers native pairs observed with both resources loaded. When
+you pick a cab, **Truck trailer** appears; trailers are not in the main creation
+list. If the target is already a validated set, its native trailer can be
+preselected; otherwise the choice is explicit.
 
-O criador usa **primário tipo 4 + secundário tipo 11**, com IDs de modelos
-separados. A interface oferece somente pares nativos observados com os dois
-recursos carregados. Ao escolher uma cabine, aparece **Carga do caminhão**;
-a carga fica fora da lista principal de criação. Se o alvo já for um conjunto
-validado, seu modelo de carga nativo pode ser preselecionado. Nos demais casos,
-a escolha é explícita.
+**Sets = 3** asks for three cabs with their three trailers, not three loose
+objects. Each pair uses two objects and their physics records, but one path node.
+Several tankers in the original design do not establish a general limit of three;
+the research did not find such a limit in the routines examined. Damage and
+explosion effects need separate trials.
 
-**Conjuntos = 3** solicita três cabines com suas três cargas, não três objetos
-isolados. Cada par usa dois objetos e seus registros físicos, mas um nó de
-caminho. A presença de vários tanques no desenho original não estabelece um
-limite geral de três; a pesquisa não encontrou esse limite nas rotinas examinadas.
-Os efeitos de dano e explosão exigem ensaios separados.
+The composite reposition prepares **eleven protected floats**: X/Z of the cab's
+points and translation, X/Z of the trailer's rear point and translation, plus the
+node's lateral fraction. It keeps the link, the Y coordinates and the trailer's
+null first point (type 11). It is offered only when the admitted layout is
+recognized; implementing it does not prove physical stability after the move.
 
-O reposicionamento composto prepara **onze floats protegidos**: X/Z dos pontos
-e da translação da cabine, X/Z do ponto traseiro e da translação da carga, mais
-a fração lateral do nó. Preserva o vínculo, as coordenadas Y e o primeiro ponto
-nulo da carga tipo 11. Esse método só é oferecido quando o layout admitido é
-reconhecido; a sua implementação não comprova estabilidade física após mover.
+## Type-3 vans and type-5 buses
 
-## Vans de tipo 3 e ônibus de tipo 5
+The profile admits consistent native associations of `HEVYCAR17/18` to type 3 and
+of `HEVYCAR19/21` to type 5, with the same guards as other independent vehicles
+(two initialized, non-degenerate physics points, coherent render and collider,
+valid path and admitted lists/occupancy) and a valid following movement.
 
-O perfil admite associações nativas consistentes de `HEVYCAR17/18` a tipo 3
-e de `HEVYCAR19/21` a tipo 5. Esses independentes passam pelos mesmos guardas
-de dois pontos físicos inicializados e não degenerados, render e collider
-coerentes, caminho válido e listas/ocupação admitidas. A referência também
-precisa de movimento de seguimento válido.
+`HEVYCAR20` that is only loaded stays blocked without an active, consistent type-5
+association; the **Bus** label in the catalogue does not authorize an instance
+without that evidence. Special types 6 to 10 remain outside the editor. **A real
+bus-creation test is still pending.** Type-3 vans keep the 8–50 range; a bus chosen
+or used as a reference needs 30–50. A type-5 bus request in v2 format was prepared
+in this phase; preparation does not demonstrate a finished creation.
 
-`HEVYCAR20` apenas carregado continua bloqueado sem uma associação ativa
-consistente ao tipo 5. O nome **Bus** no catálogo não autoriza uma instância
-sem essa evidência. Tipos especiais 6 a 10 continuam fora do editor.
-**O teste real de criação de ônibus ainda está pendente.** Vans de tipo 3
-mantêm o intervalo de 8 a 50 unidades; ônibus escolhido ou usado como
-referência exige 30 a 50.
+## Finishing a restored request
 
-Uma solicitação de ônibus tipo 5 em formato v2 foi preparada nesta fase e
-aguardava a retomada do tráfego pelo usuário. Preparação não demonstra criação
-finalizada, movimento ou colisão no emulador real.
+Saving and then reloading a state from before the cleanup can bring an old
+temporary routine back into memory; that was the diagnosis of the pending request
+investigated in this phase. The real recovery changed only the 4 KiB temporary
+area; the object, node and matrix regions stayed byte-identical and no vehicle was
+repositioned.
 
-## Finalizar uma solicitação restaurada
+With the game paused, **Finish pending request** compares the request with the
+local log and its canonical build. It only cleans v1/v2 landing-based requests that
+already returned control to the game, with the original hook, completed probes and
+a matching completion marker. Unknown code, a missing log or incomplete execution
+stay blocked. The cleanup keeps the existing vehicles; the old request's alignment
+and recipe are not recovered. The recovery needs an explicit click: the automatic
+poll never repeats a creation nor cleans a restored request.
 
-Salvar e depois recarregar um estado anterior à limpeza pode recolocar uma
-rotina temporária antiga na memória. Esse foi o diagnóstico da pendência
-investigada nesta fase. A recuperação real alterou somente a área temporária
-de 4 KiB; as regiões classificadas de objetos, nós e matrizes ficaram idênticas
-byte a byte. Nenhum veículo foi reposicionado.
+## Oncoming traffic
 
-Com o jogo pausado, **Finalizar pendência** compara a solicitação com o registro
-local e sua construção canônica. Só limpa solicitações v1/v2 baseadas na landing
-que já devolveram o controle ao jogo, com hook original, probes concluídos e
-marcador de conclusão correspondente. Código desconhecido, registro ausente ou execução incompleta
-continuam bloqueados. A limpeza preserva os veículos existentes; o alinhamento
-e a receita da solicitação antiga não são recuperados.
+The controller does not block by direction relative to the player. The reference
+needs a valid path, an admitted link and initialized physics, with coherent
+orientation, following speed and progression. In the reads that started this
+investigation, oncoming cars still had zeroed physics points and zero following
+speed, which explains those blocks without classifying all oncoming traffic as
+incompatible.
 
-Essa recuperação exige o clique explícito. O auto-poll não repete a criação
-nem limpa uma solicitação antiga restaurada. A GUI mantém a conexão se a
-identidade foi confirmada e apenas o perfil falhou, deixando **Finalizar
-pendência** acessível mesmo sem seleção. Depois de uma limpeza bem-sucedida,
-uma falha na leitura mantém o aviso e desabilita a lista e mutações até
-**Atualizar lista** retornar dados válidos.
+## JSON recipe and `.p2s` state
 
-## Tráfego na contramão
-
-O controlador não bloqueia pelo sentido relativo ao jogador. A referência
-precisa de caminho válido, vínculo admitido e física inicializada, com valores
-coerentes de orientação, velocidade de seguimento e progressão. Nas leituras
-que motivaram a investigação, os carros da contramão ainda tinham pontos físicos
-zerados e velocidade de seguimento zero. Isso explica aqueles bloqueios sem
-classificar toda a contramão como incompatível. Selecione o objeto para consultar
-o motivo de bloqueio; não trate posição finita, por si só, como física pronta.
-
-## Receita JSON e estado `.p2s`
-
-| Arquivo | O que conserva | Como reutilizar |
+| File | What it keeps | How to reuse it |
 | --- | --- | --- |
-| JSON de **Salvar configuração** | Receita de ações e referência inicial | Recarregar exatamente o estado inicial, conectar e abrir a receita |
-| `.p2s` de **Salvar estado…** | Captura da sessão editada do emulador | Carregar o jogo correspondente e restaurar o arquivo pelo PCSX2 |
+| JSON from **Save configuration…** | Recipe of actions and initial reference | Reload exactly the initial state, connect and open the recipe |
+| `.p2s` from **Save state…** | Capture of the edited emulator session | Load the matching game and restore the file in PCSX2 |
 
-A exportação de estado exige pausa confirmada e nenhuma criação pendente.
-O destino sugerido é `outputs/events/` na pasta do projeto, com nome único
-de data/hora. Após concluir, o rodapé mostra **Arquivo:** e o caminho retornado.
-Escolha um destino novo: a implementação recusa substituir arquivos existentes,
-procura um slot livre da instalação portátil e verifica o arquivo antes de
-copiá-lo. O reconhecimento de uma solicitação PINE de salvar não é tratado
-como conclusão imediata. O usuário confirmou a exportação real; restaurar esse
-arquivo ainda precisa de validação manual.
-O editor não restaura o `.p2s` automaticamente.
+Exporting a state needs a confirmed pause and nothing pending. The suggested
+destination is `outputs/events/` with a unique date-time name; afterwards the
+footer shows **File:** and the returned path. The implementation refuses to
+replace existing files, looks for a free slot of the portable installation and
+verifies the file before copying it. The user confirmed a real export; restoring
+that file still needs manual validation.
 
-Se os dez slots estiverem ocupados, a exportação pelo botão é recusada antes
-de substituir qualquer estado. Essa foi a situação da sessão atual. Use o
-menu do PCSX2 **Sistema → Salvar estado → Arquivo…** e escolha um destino
-**novo** com extensão `.p2s`. Uma cópia de controle salva por essa rota manual
-foi validada como ZIP com memória EE de 32 MiB. Isso não comprova o botão PINE
-de exportação numa sessão com todos os slots ocupados.
+If all ten slots are taken the button refuses before replacing any state. Use
+**System → Save state → File…** in PCSX2 with a **new** `.p2s` destination. A control
+copy saved that way was validated as a ZIP with 32 MiB of EE memory.
 
-Para restaurar no PCSX2 wx 1.7.2521: com o jogo correspondente aberto, use
-**Sistema → Carregar estado → Arquivo…**, selecione o `.p2s` onde foi salvo e
-clique em **Abrir**. O jogo volta ao instante salvo. Pause e conecte o editor
-como nova sessão antes de editar; se o arquivo trouxer uma pendência antiga,
-use o procedimento explícito acima.
+To restore in PCSX2 wx 1.7.2521: with the matching game open, use **System → Load
+state → File…**, select the `.p2s` and click **Open**. Pause and connect the editor
+as a new session before editing. The file menu item and the `.p2s` dialog are in
+[PCSX2 wx 1.7.2521's code](https://github.com/PCSX2/pcsx2/blob/v1.7.2521/pcsx2/gui/MainMenuClicks.cpp#L792).
 
-O item de arquivo e o diálogo `.p2s` estão no
-[código oficial do PCSX2 wx 1.7.2521](https://github.com/PCSX2/pcsx2/blob/v1.7.2521/pcsx2/gui/MainMenuClicks.cpp#L792).
+None of these formats writes the layout to ISO resources. **Restart**, changing
+event or loading another state can recreate the traffic.
 
-Nenhum desses formatos grava o layout em recursos do ISO ou em um novo
-Crash Event persistente. **Restart**, troca de evento ou outro estado podem
-recriar o tráfego. O estado salvo é uma forma de restaurar uma sessão; não é
-equivalente a modificar o evento original do jogo.
-
-O [guia de primeiro uso](editor-quickstart.md) cobre a sequência básica, e
-[traffic-capacity-and-trucks.md](traffic-capacity-and-trucks.md) registra a
-investigação de capacidade, pares e tanques.
+The [first-use guide](editor-quickstart.md) covers the basic sequence, and
+[traffic-capacity-and-trucks.md](traffic-capacity-and-trucks.md) records the
+capacity, pairs and tanker research.

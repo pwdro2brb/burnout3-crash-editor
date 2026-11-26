@@ -44,10 +44,10 @@ class _Target:
 
 def _listener_pid_from_table(data: bytes, port: int) -> int | None:
     if len(data) < 4:
-        raise PauseControlError('A lista de conexões ficou incompleta.')
+        raise PauseControlError('The connection list was incomplete.')
     count = struct.unpack_from('<I', data)[0]
     if count > (len(data) - 4) // 24:
-        raise PauseControlError('A lista de conexões ficou incompleta.')
+        raise PauseControlError('The connection list was incomplete.')
     owners = set()
     loopback = int.from_bytes(socket.inet_aton('127.0.0.1'), 'little')
     for index in range(count):
@@ -62,7 +62,7 @@ class WindowsAPI:
     """Small native adapter; instantiate only for an explicit capability check."""
     def __init__(self):
         if os.name != 'nt':
-            raise PauseControlError('O controle de pausa está disponível somente no Windows.')
+            raise PauseControlError('The pause control is only available on Windows.')
         import ctypes
         self.ctypes = ctypes
         self.kernel = ctypes.WinDLL('kernel32', use_last_error=True)
@@ -102,23 +102,23 @@ class WindowsAPI:
         # remote, IPv6 or a different port as ownership of this endpoint.
         result = self.iphelper.GetExtendedTcpTable(None, ctypes.byref(size), 0, 2, 3, 0)
         if result not in (0, 122) or not 4 <= size.value <= 1048576:
-            raise PauseControlError('Não foi possível identificar o processo da conexão PINE.')
+            raise PauseControlError('Could not identify the process of the PINE connection.')
         buffer = ctypes.create_string_buffer(size.value)
         result = self.iphelper.GetExtendedTcpTable(buffer, ctypes.byref(size), 0, 2, 3, 0)
         if result:
-            raise PauseControlError('A lista de conexões mudou. Confira o PCSX2 antes de tentar novamente.')
+            raise PauseControlError('The connection list changed. Check PCSX2 before trying again.')
         return _listener_pid_from_table(buffer.raw[:size.value], port)
 
     def process_image(self, pid: int) -> str:
         ctypes = self.ctypes
         handle = self.kernel.OpenProcess(0x1000, 0, pid)  # QUERY_LIMITED_INFORMATION
         if not handle:
-            raise PauseControlError('Não foi possível verificar o executável do emulador.')
+            raise PauseControlError("Could not verify the emulator's executable.")
         try:
             size = ctypes.c_uint32(32768)
             buffer = ctypes.create_unicode_buffer(size.value)
             if not self.kernel.QueryFullProcessImageNameW(handle, 0, buffer, ctypes.byref(size)):
-                raise PauseControlError('Não foi possível verificar o executável do emulador.')
+                raise PauseControlError("Could not verify the emulator's executable.")
             return buffer.value
         finally:
             self.kernel.CloseHandle(handle)
@@ -147,49 +147,49 @@ class WindowsAPI:
                 windows.append(int(hwnd))
             return 1
         if not self.user.EnumWindows(collect, 0):
-            raise PauseControlError('Não foi possível verificar a janela principal do PCSX2.')
+            raise PauseControlError("Could not verify PCSX2's main window.")
         if not windows:
-            raise PauseControlError('A janela principal do PCSX2 não foi encontrada com os menus compatíveis desta versão.')
+            raise PauseControlError("PCSX2's main window was not found with this version's compatible menus.")
         if len(windows) != 1:
-            raise PauseControlError('Há mais de uma janela principal compatível no processo PCSX2. Nenhum comando foi enviado.')
+            raise PauseControlError('There is more than one compatible main window in the PCSX2 process. No command was sent.')
         return windows[0]
 
     def post_pause_toggle(self, hwnd: int, pid: int) -> None:
         if not self._matching_window(hwnd, pid):
-            raise PauseControlError('A janela do PCSX2 mudou. Nenhum comando foi enviado.')
+            raise PauseControlError('The PCSX2 window changed. No command was sent.')
         state = self.user.GetMenuState(self.user.GetMenu(hwnd), PAUSE_MENU_ID, 0)
         if state == 0xFFFFFFFF or state & 3:  # MF_DISABLED / MF_GRAYED
-            raise PauseControlError('A pausa do PCSX2 está temporariamente indisponível. Aguarde a operação atual terminar e confira o emulador.')
+            raise PauseControlError("PCSX2's pause is temporarily unavailable. Wait for the current operation to finish and check the emulator.")
         if not self.user.PostMessageW(hwnd, WM_COMMAND, PAUSE_MENU_ID, 0):
-            raise PauseControlError('O Windows não aceitou o comando de pausa do PCSX2.')
+            raise PauseControlError("Windows did not accept PCSX2's pause command.")
 
 
 class WindowPauseControl:
     def __init__(self, client, port: int, *, adapter: WindowAdapter | None = None,
                  timeout: float = 2.0, clock=time.monotonic, sleeper=time.sleep):
         if type(port) is not int or not 1 <= port <= 65535:
-            raise ValueError('A porta precisa estar entre 1 e 65535.')
+            raise ValueError('The port must be between 1 and 65535.')
         if (isinstance(timeout, bool) or not isinstance(timeout, (int, float))
                 or not math.isfinite(timeout) or not 0 < timeout <= 10):
-            raise ValueError('O tempo de confirmação precisa estar entre 0 e 10 segundos.')
+            raise ValueError('The confirmation time must be between 0 and 10 seconds.')
         self.client, self.port, self.adapter = client, port, adapter
         self.timeout, self.clock, self.sleeper = float(timeout), clock, sleeper
 
     def _target(self) -> _Target:
         if getattr(self.client, 'host', None) != '127.0.0.1' or getattr(self.client, 'port', None) != self.port:
-            raise PauseControlError('O controle de pausa exige a mesma conexão PINE local do editor.')
+            raise PauseControlError("The pause control needs the editor's own local PINE connection.")
         if self.adapter is None:
             self.adapter = WindowsAPI()
         pid = self.adapter.listener_pid(self.port)
         if type(pid) is not int or pid <= 0:
-            raise PauseControlError('Não há um único PCSX2 identificado na porta PINE configurada.')
+            raise PauseControlError('There is no single PCSX2 identified on the configured PINE port.')
         image = self.adapter.process_image(pid)
         name = ntpath.basename(image).lower()
         if not ntpath.isabs(image) or not name.startswith('pcsx2') or not name.endswith('.exe'):
-            raise PauseControlError('O processo da conexão PINE não é um executável PCSX2 compatível.')
+            raise PauseControlError('The process of the PINE connection is not a compatible PCSX2 executable.')
         hwnd = self.adapter.main_window(pid)
         if type(hwnd) is not int or hwnd <= 0:
-            raise PauseControlError('Não foi encontrada uma única janela PCSX2 com o menu de pausa compatível.')
+            raise PauseControlError('No single PCSX2 window with the compatible pause menu was found.')
         return _Target(pid, ntpath.normcase(image), hwnd)
 
     def supports(self) -> bool:
@@ -207,21 +207,21 @@ class WindowPauseControl:
 
     def _confirm_target(self, expected: _Target):
         if self._target() != expected:
-            raise PauseControlError('A sessão do PCSX2 mudou. Nenhum comando adicional será enviado.')
+            raise PauseControlError('The PCSX2 session changed. No further command will be sent.')
 
     def _status(self) -> Status:
         try:
             state = self.client.status()
         except PineError as exc:
-            raise PauseControlError('Não foi possível confirmar a pausa pela conexão PINE. Confira o PCSX2.') from exc
+            raise PauseControlError('Could not confirm the pause through the PINE connection. Check PCSX2.') from exc
         if state not in (Status.RUNNING, Status.PAUSED):
-            raise PauseControlError('Carregue o jogo antes de usar o controle de pausa.')
+            raise PauseControlError('Load the game before using the pause control.')
         return state
 
     def set_paused(self, paused: bool) -> dict[str, bool]:
         """Set a target state with at most one toggle; never retry uncertainty."""
         if type(paused) is not bool:
-            raise ValueError('Informe se o emulador deve ficar pausado.')
+            raise ValueError('State whether the emulator should stay paused.')
         target = self._target()
         desired = Status.PAUSED if paused else Status.RUNNING
         before = self._status()
@@ -237,5 +237,5 @@ class WindowPauseControl:
                 return {'core_paused': paused, 'changed': True}
             remaining = deadline - self.clock()
             if remaining <= 0:
-                raise PauseControlError('O PCSX2 não confirmou a mudança de pausa. Confira seu estado; o comando não será repetido.')
+                raise PauseControlError('PCSX2 did not confirm the pause change. Check its state; the command will not be repeated.')
             self.sleeper(min(0.05, remaining))

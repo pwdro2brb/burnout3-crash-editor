@@ -20,23 +20,23 @@ REFINE_STEPS = 40
 
 def _number(value, label):
     if type(value) not in (int, float) or not math.isfinite(value):
-        raise profile.ProfileError(f'{label} precisa ser um número finito.')
+        raise profile.ProfileError(f'{label} must be a finite number.')
     try:
         rounded = struct.unpack('<f', struct.pack('<f', value))[0]
     except (OverflowError, struct.error) as error:
-        raise profile.ProfileError(f'{label} está fora do intervalo numérico do jogo.') from error
+        raise profile.ProfileError(f"{label} is outside the game's numeric range.") from error
     if not math.isfinite(rounded):
-        raise profile.ProfileError(f'{label} está fora do intervalo numérico do jogo.')
+        raise profile.ProfileError(f"{label} is outside the game's numeric range.")
     return float(value)
 
 
 def _references(state, reference_id, x, z):
     if reference_id is not None and type(reference_id) is not int:
-        raise profile.ProfileError('Selecione uma referência válida para o posicionamento.')
+        raise profile.ProfileError('Select a valid reference for the placement.')
     if reference_id is not None:
         row = state.vehicles.get(reference_id)
         if not row or not row.get('can_reference') or not row.get('initialized'):
-            raise profile.ProfileError('A referência precisa de caminho e física inicializados.')
+            raise profile.ProfileError('The reference needs an initialized path and physics.')
         rows = [row]
     else:
         rows = [row for row in state.vehicles.values()
@@ -51,13 +51,13 @@ def _references(state, reference_id, x, z):
                 or row.get('path_valid') is False or not isinstance(position,(list,tuple))
                 or len(position) != 3 or any(type(v) not in (int,float) or not math.isfinite(v) for v in position)):
             if reference_id is not None:
-                raise profile.ProfileError('A referência não tem um caminho carregado válido.')
+                raise profile.ProfileError('The reference has no valid loaded path.')
             continue
         rank = (math.hypot(position[0]-x,position[2]-z),row['id'])
         if path not in paths or rank < paths[path][0]:
             paths[path] = (rank,row)
     if not paths:
-        raise profile.ProfileError('Nenhum caminho tem uma referência com física inicializada.')
+        raise profile.ProfileError('No path has a reference with initialized physics.')
     return [paths[path][1] for path in sorted(paths)]
 
 
@@ -76,9 +76,9 @@ def project_target(state, reference_id, x, z, *, experimental=False):
     """
     x,z = _number(x,'X'),_number(z,'Z')
     if type(experimental) is not bool:
-        raise profile.ProfileError('O modo experimental precisa estar ligado ou desligado.')
+        raise profile.ProfileError('Experimental mode must be on or off.')
     if getattr(state,'core_paused',True) is not True:
-        raise profile.ProfileError('Pause o PCSX2 antes de escolher a posição.')
+        raise profile.ProfileError('Pause PCSX2 before choosing the position.')
     rows = _references(state,reference_id,x,z)
     steps_budget = max(8,COARSE_BUDGET//len(rows))
     coarse = []
@@ -93,12 +93,12 @@ def project_target(state, reference_id, x, z, *, experimental=False):
         across = geometry['lane']
         divisor = across[0]**2+across[2]**2
         if not math.isfinite(divisor) or divisor <= 1e-12:
-            raise profile.ProfileError('O caminho não tem largura utilizável no mapa X/Z.')
+            raise profile.ProfileError('The path has no usable width in the X/Z map.')
         raw_lateral = ((x-left[0])*across[0]+(z-left[2])*across[2])/divisor
         lateral = raw_lateral if experimental else max(0.0,min(1.0,raw_lateral))
         point = [left[k]+lateral*across[k] for k in range(3)]
         if not all(math.isfinite(v) for v in point+[lateral]):
-            raise profile.ProfileError('A projeção excedeu o intervalo numérico admitido.')
+            raise profile.ProfileError('The projection exceeded the admitted numeric range.')
         distance = math.hypot(x-point[0],z-point[2])
         return dict(distance=distance,progress=progress,lateral=lateral,
                     raw_lateral=raw_lateral,point=point,context=context)
@@ -117,11 +117,11 @@ def project_target(state, reference_id, x, z, *, experimental=False):
         except (KeyError,TypeError,ValueError,OverflowError) as error:
             if reference_id is not None:
                 if isinstance(error,profile.ProfileError): raise
-                raise profile.ProfileError('Os dados da referência não permitem projetar a posição.') from error
+                raise profile.ProfileError("The reference's data does not allow projecting the position.") from error
             failures.append(str(error))
     if not coarse:
         detail = failures[0] if failures else 'Nenhuma geometria admitida.'
-        raise profile.ProfileError('Não foi possível projetar a posição: '+detail)
+        raise profile.ProfileError('Could not project the position: '+detail)
     coarse.sort(key=lambda result:(result['distance'],result['context']['path'],result['progress']))
     best = coarse[0]
     # Refine several coarse neighborhoods, including path endpoints. This is
@@ -153,7 +153,7 @@ def project_target(state, reference_id, x, z, *, experimental=False):
         if len(brackets) >= REFINE_CANDIDATES: break
     context,row = best['context'],best['context']['row']
     progress = struct.unpack('<f',struct.pack('<f',best['progress']))[0]
-    lateral = struct.unpack('<f',struct.pack('<f',_number(best['lateral'],'Posição lateral')))[0]
+    lateral = struct.unpack('<f',struct.pack('<f',_number(best['lateral'],'Lateral position')))[0]
     final = evaluate(context,min(context['count']-1,max(0.0,progress)))
     # Quantize the fraction used by a future node write, then recompute the
     # displayed point with that same value rather than a double-only estimate.
@@ -163,10 +163,10 @@ def project_target(state, reference_id, x, z, *, experimental=False):
     other = profile.lane(state.memory,context['path'],final['progress'],1.0)
     derivative = [(1-lateral)*geometry['derivative'][k]+lateral*other['derivative'][k] for k in range(3)]
     if not all(math.isfinite(v) for v in derivative) or math.sqrt(sum(v*v for v in derivative)) <= 1e-9:
-        raise profile.ProfileError('O caminho não tem orientação utilizável na posição escolhida.')
-    speed,spacing = _number(row['speed'],'Velocidade'),_number(row['spacing_scalar'],'Espaçamento')
+        raise profile.ProfileError('The path has no usable orientation at the chosen position.')
+    speed,spacing = _number(row['speed'],'Speed'),_number(row['spacing_scalar'],'Spacing')
     if not 0 <= speed <= 240 or not 0 <= spacing <= 10000:
-        raise profile.ProfileError('Os parâmetros nativos da referência estão fora do intervalo admitido.')
+        raise profile.ProfileError("The reference's native parameters are outside the admitted range.")
     return dict(path=context['path'],progression=final['progress'],lateral=lateral,
         point=point,error_distance=math.hypot(x-point[0],z-point[2]),
         requested_point=[x,z],reference_id=row['id'],descriptor=geometry['descriptor'],

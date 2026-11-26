@@ -1,177 +1,103 @@
-# Achados e limites da pesquisa
+# Research findings and limits
 
-Este documento preserva os resultados das primeiras investigações. A pesquisa posterior identificou diretórios de eventos e geometria dentro dos BGD. A edição de Grand Slam também permitiu conferir o registro de `STAGEHED.BIN` na tabela carregada após o boot. Consulte o [histórico consolidado](contexto-do-projeto.md) e a [edição nativa de eventos](native-crash-events.md) para o estado atual.
+This page keeps the results of the first investigations. Later research identified
+the event directories, the path geometry inside the BGD files and the
+[traffic waves](traffic-waves.md); the Grand Slam edit also allowed checking the
+`STAGEHED.BIN` record in the table loaded after boot. See the
+[project history](project-history.md) and [native event editing](native-crash-events.md)
+for the current state.
 
-Este resumo contém fatos estruturais e nomes inferidos, sem bytes do jogo,
-pseudocódigo, saves ou dumps. Observações estáticas e observações históricas de
-save states não devem ser tratadas como testes de uma modificação em execução.
+This summary contains structural facts and inferred names, without game bytes,
+pseudocode, saves or dumps. Static observations and historical save-state
+observations must not be treated as tests of a running modification.
 
-## Perfil estudado
+## Researched profile
 
-- Executável USA `SLUS_210.50`, ELF32 little-endian MIPS/PS2 R5900.
-- SHA-256 do executável estudado:
-  `e118dba952bf9fde6a04ee284bb1f06fa0bb49c9e04bbe762af1039dcc443c66`.
-- Tabela de símbolos vazia; nomes de funções usados na análise são automáticos
-  ou inferidos. Ghidra com extensão R5900 produziu análise e pseudocódigo.
-- O reconhecimento do ELF pelo REA não significa suporte de descompilação pelo
-  seu adaptador; a pesquisa usou diretamente scripts do Ghidra.
+- USA executable `SLUS_210.50`, ELF32 little-endian MIPS/PS2 R5900.
+- SHA-256 `e118dba952bf9fde6a04ee284bb1f06fa0bb49c9e04bbe762af1039dcc443c66`.
+- Empty symbol table; function names are automatic or inferred. Ghidra with the R5900
+  extension produced the analysis and pseudocode.
 
-## Recursos
+## Resources
 
-- `GLOBALUS.BIN`: header de 16 bytes, 4.006 offsets uint32LE absolutos e
-  ascendentes para textos UTF-16LE. O leitor exporta índices/offsets/textos apenas
-  para uma pasta local ignorada.
-- Há 36 `GAMEDATA.BGD`. Os examinados possuem marcador de versão 9 e o texto
-  `B3tGameDataGame`. Seu formato de registros e fixups ainda não foi recuperado.
-- As amostras de `CRASH*.RWS` analisadas são bancos sonoros, não layouts de tráfego.
-- O loader lê `TLIST.BIN` em bloco de 4.096 bytes. O header começa com `(4, 36)`;
-  o significado completo não está estabelecido.
-- O candidato `STAGEHED.BIN` possui 377 registros em base `0x278`, stride `0x3e0`,
-  corroborados pela análise e por ordinais exatos em todos os registros.
-  Cada registro tem seis slots de `0x98`, dois IDs de 64 bits por slot e arrays
-  numéricos ainda parcialmente desconhecidos. Há lógica de seleção de veículos
-  e variantes; nenhuma coordenada de spawn de tráfego foi identificada ali.
-- A ligação exata do global de runtime ao buffer de STAGEHED permanece pendente.
-  O ponteiro candidato era zero nos dois saves históricos examinados. Os 168
-  bytes finais do recurso não foram classificados como padding.
+- `GLOBALUS.BIN`: 16-byte header, 4,006 absolute ascending uint32LE offsets to
+  UTF-16LE strings.
+- 36 `GAMEDATA.BGD` files. Those examined have version marker 9 and the text
+  `B3tGameDataGame`. The path section, the event directory and the event blocks
+  (model groups and traffic waves) are now decoded; other sections are not.
+- The `CRASH*.RWS` samples analysed are sound banks, not traffic layouts.
+- The loader reads `TLIST.BIN` as a 4,096-byte block; its header starts with `(4, 36)`.
+- `STAGEHED.BIN` holds 377 records at base `0x278`, stride `0x3e0`, confirmed by the
+  analysis and by exact ordinals in every record. Each record has six `0x98` slots
+  with two 64-bit IDs per slot; the goals and the Crashbreaker count are at
+  `+0x3A0…+0x3AC`. No traffic coordinates live there: spawn data are in the track's
+  event block.
 
-## Pool de tráfego candidato
+## Candidate traffic pool
 
-Análise estática propôs o layout abaixo, corroborado estruturalmente por dois
-save states históricos do perfil USA, e novamente em estados fornecidos depois:
+Static analysis proposed the layout below, confirmed structurally by every save state
+examined since:
 
-| Estrutura | Endereço / stride |
+| Structure | Address / stride |
 | --- | --- |
 | Manager | `0x00527440` |
-| Objetos | `0x00539c10` / `0x180`, 254 posições |
-| Nodes | `0x00551910` / `0x50`, 254 posições |
-| Matrizes | `0x00556870` / `0x50` |
-| Translação visual do objeto | objeto `+0xa0` |
-| Dois pontos físicos absolutos | objeto `+0x00` e `+0x30` |
-| Translação na matriz de seguimento | matriz `+0x30` |
+| Objects | `0x00539c10` / `0x180`, 254 entries |
+| Nodes | `0x00551910` / `0x50`, 254 entries |
+| Matrices | `0x00556870` / `0x50` |
+| Object visual translation | object `+0xa0` |
+| Two absolute physics points | object `+0x00` and `+0x30` |
+| Translation in the following matrix | matrix `+0x30` |
 
-Índices próprios, listas livres, partições livre/alocado, bitmaps, flags,
-contadores e backlinks conferiram nas capturas examinadas. Nas capturas anteriores,
-as contagens de objetos foram 4 e 46; há componentes com links pai/filho, portanto isso não equivale ao
-número de veículos independentes ou visíveis. Alguns componentes tinham node
-nulo. A associação espacial foi ligada a um veículo na tela no teste descrito
-em [repositioning-milestone.md](repositioning-milestone.md).
+The manager's first word points to the loaded event block; `+0x363a0` holds the next
+wave's start time and `+0x363b1` the wave index (see [traffic waves](traffic-waves.md)).
 
-O primeiro teste visual isolado confirmou que os dois saves anteriores restauravam telas
-de resultados do Crash Mode. **Aqueles dois não eram referências anteriores ao GO.** Não foi
-aplicado patch espacial ou de geração de veículos naquela etapa. Comparar quatro palavras de código no save não prova que
-todo o estado esteja sem modificações.
+Indices, free lists, free/allocated partitions, bitmaps, flags, counters and
+backlinks matched the captures examined. Object counts include parent/child
+components, so they are not the number of independent or visible vehicles. Some
+components had a null node. The first two saves examined restored Crash results
+screens, not references before GO.
 
-Na segunda atualização, novos estados fornecidos pelo usuário apresentaram
-respectivamente 16 objetos/16 nós e 13 objetos/9 nós alocados. As quatro palavras
-de código de controle coincidiam com o ELF estudado e duas áreas reservadas
-conhecidas estavam zeradas. Esses controles localizados não demonstram ausência
-de toda modificação possível. As cenas carregadas foram observadas depois:
-uma via tropical com curva e um trecho urbano com caminhão de bombeiros.
-**Não foi confirmada uma contagem inicial ou referência anterior ao GO**;
-essa classificação não foi inferida apenas pelos números do pool.
+## First milestone, 12/11/2026
 
-## Primeiro marco confirmado em 12/11/2026
+An independent car was repositioned in a copy of a save state. Changing only the
+lateral fraction moved the following matrix without moving the body. The confirmed
+test coordinated X/Z of both physics points and of the visual translation with the
+node's lateral parameter. The move persisted over the configured 30-frame step and
+the collision box updated itself. See [repositioning-milestone.md](repositioning-milestone.md).
 
-Um carro independente foi reposicionado em uma cópia de estado salvo. Alterar
-só a fração lateral mudou a matriz de seguimento, sem deslocar o corpo. O teste
-confirmado coordenou X/Z dos dois pontos físicos e da translação visual com o
-parâmetro lateral do nó. O deslocamento persistiu pelo passo configurado de 30
-quadros e a caixa de colisão se atualizou automaticamente.
+## Moving traffic in Grand Slam
 
-Os demais registros de objetos ficaram idênticos ao controle. A diferença de
-pixels ficou localizada no carro distante e restaurar a referência devolveu o
-viewport original. Isso não comprova um impacto contra o carro reposicionado
-nem estabilidade prolongada. O protótipo portátil gera apenas novas cópias de
-save state; não há editor dentro do jogo.
+The next reference restored the Grand Slam intro and countdown. In an approach state
+an independent vehicle with initialized anchors got a horizontal offset of about 0.51
+units and a new lateral fraction. After 30 and 120 configured frames the states
+showed real movement, persistent lateral separation and automatic AABB and Y
+updates. In a later variant with a larger offset the user reported a visible change
+and working collision on the "first red car" — since identified as Grand Slam's wave-1
+`COMPCAR14` on path P21. See [moving-traffic-reference.md](moving-traffic-reference.md).
 
-## Tráfego em movimento no Grand Slam
+## First additional vehicle
 
-A referência seguinte restaurou a introdução do Grand Slam e sua contagem
-inicial. Num estado de aproximação, um veículo independente com âncoras
-inicializadas recebeu um deslocamento horizontal de cerca de 0,51 unidade e
-uma nova fração lateral do caminho. Após passos configurados de 30 e 120
-quadros, a comparação dos estados mostrou movimento real das posições,
-separação lateral persistente e atualização automática do AABB e de Y.
+A local trial called the game's own creation routine to add an independent instance
+to Grand Slam. Counts went from 12/10 objects/nodes to 13/11 with one more collision
+descriptor; free lists, bitmaps, backlinks, the path chain/grid and the collision
+records passed. The user reported that the car appeared and the collision worked. See
+[vehicle-creation-milestone.md](vehicle-creation-milestone.md).
 
-Os outros registros dos pools de objetos, nós e matrizes ficaram iguais entre
-controle e variante, assim como os outros descritores ativos de colisão.
-Isso não estabelece igualdade de toda a RAM: existem diferenças fora das
-regiões classificadas. Numa variante posterior com deslocamento maior, o
-usuário relatou mudança visível e colisão funcionando, identificando o candidato
-como o primeiro carro vermelho. A associação dessa cor ao índice interno e
-um impacto instrumentado ainda não foram estabelecidos. Método e limites em
-[moving-traffic-reference.md](moving-traffic-reference.md).
+## Catalogue and external editor
 
-Objetos distantes podem estar ativos com os dois pontos físicos ainda zerados.
-O protótipo recusa âncoras degeneradas; estar ativo e ter coordenadas finitas
-não basta para usar esse caso de reposicionamento.
+The 40 traffic identifiers were decoded in base 40 and tied to the game's own label
+table and resources (`COMPCAR14` is **Car**, `HEVYCAR33`/`HEVYCAR35` **Van**,
+`HEVYCAR20` **Bus**). The external editor lists vehicles, shows their positions from
+above, applies lateral offsets and prepares batches; a real PINE integration confirmed
+reading, repositioning and creation, and the user confirmed batches, trucks with
+trailers and state export. Details in [editor-status.md](editor-status.md).
 
-## Primeiro veículo adicional — resultado parcial
+## Traffic waves (26/11/2026)
 
-Um ensaio local chamou a rotina original de criação para acrescentar uma
-instância independente ao Grand Slam. Após o passo configurado de 30 quadros,
-o retorno apontava para o novo objeto 12/nó 10. As contagens passaram de
-12/10 objetos/nós para 13/11, com um descritor de colisão adicional. Objetos
-incluem componentes articulados; isso não equivale a 13 carros independentes.
+Crash traffic is scripted per event: waves with start times, lanes and vehicle
+records, in the event block of `GAMEDATA.BGD`. Established by static analysis, by
+comparing the loaded block with the disc, by savestate snapshots and by a controlled
+mutation in an isolated emulator. See [traffic-waves.md](traffic-waves.md).
 
-Listas livres, bitmaps, backlinks, cadeia/grid do caminho e registros de
-colisão/endpoints examinados passaram. Uma cópia posterior removeu o código
-temporário, preservou a instância criada e alinhou somente o objeto novo cerca
-de 10,85 unidades atrás do alvo. Depois de assumir a direção, o usuário
-relatou que o carro adicional apareceu e a colisão funcionou. Esse resultado
-manual não constitui uma captura instrumentada do impacto. Não há prova de
-120 quadros para a criação, movimento temporal após o alinhamento ou
-persistência após reiniciar o evento.
-
-Método e limites em [vehicle-creation-milestone.md](vehicle-creation-milestone.md).
-Esse ensaio usou um criador local. A ferramenta externa acrescentada depois
-está descrita em [editor-status.md](editor-status.md); ainda não há editor
-dentro do jogo.
-
-## Catálogo e editor externo do evento atual
-
-Os 40 identificadores de tráfego foram decodificados em base 40 e associados
-à tabela de rótulos do próprio jogo e aos recursos correspondentes. O carro
-do ensaio anterior usa `COMPCAR14`, classificado como **Car**. `HEVYCAR33` e
-`HEVYCAR35` são **Van**; `HEVYCAR20` é **Bus**. O catálogo identifica os
-modelos carregados, inclusive aqueles cuja criação ainda está bloqueada.
-
-A interface externa lista veículos, mostra suas posições em vista de cima,
-aplica deslocamento lateral e prepara lotes de 1 a 8 atrás de uma referência.
-Uma integração real por PINE confirmou leitura e reposicionamento. O
-controlador também criou `HEVYCAR33` como objeto independente de tipo 2,
-com nó, pontos físicos inicializados e lateral alinhada; o hook original e
-a área temporária foram restaurados. Isso não demonstra a colisão dessa
-van, a persistência no evento ou a validação de todos os modelos.
-
-Na rodada seguinte preparada pela interface, o usuário relatou presença e
-colisão da van no Grand Slam. O cancelamento após recarregar o estado e a
-finalização técnica do ensaio separado estão distinguidos no registro abaixo.
-
-O fluxo pela interface e o teste manual desta versão estão documentados em
-[editor-status.md](editor-status.md) e no [guia](editor-quickstart.md).
-
-A versão seguinte inclui cabine tipo 4 com carga tipo 11, limitada aos pares
-nativos carregados. O usuário confirmou que lote de carros e caminhão com
-carga funcionaram; o registro local inclui finalização de oito `COMPCAR14` e
-de um conjunto `HEVYCAR22` + `HEVYCAR27`, além de finalizações posteriores
-recusadas por mudança de instância/identidade. O movimento composto segue
-candidato. Após reabrir a revisão com finalização protegida, o usuário confirmou
-o lote e a exportação `.p2s` reais. Restaurar o arquivo exportado e testar um
-quarto tanque seguem pendentes. A validação passou em 122 testes distribuíveis
-e 35 privados (19 do controlador e 16 do perfil). Registros posteriores incluem
-novos lotes finalizados e uma recusa estrutural de perfil ainda pendente;
-não estabelecem estabilidade universal nem demonstram um travamento.
-Pausa por botões, lotes e preservação estão em
-[batches-trucks-and-pause.md](batches-trucks-and-pause.md).
-
-## Próximas verificações
-
-1. Medir movimento após o alinhamento e registrar um impacto instrumentado.
-2. Ampliar a duração e os modelos dos ensaios de reposicionamento/criação.
-3. Investigar persistência no evento, capacidade e edição de locais.
-
-Este repositório é uma base de pesquisa experimental. Não comprova que todos os
-locais do jogo possam hospedar eventos Crash nem que um editor dentro do jogo
-possa ser implementado apenas alterando os arquivos já identificados.
+This repository is an experimental research base. It does not prove that every
+location of the game can host Crash events.

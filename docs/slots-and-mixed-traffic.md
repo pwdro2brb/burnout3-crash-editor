@@ -1,82 +1,75 @@
-# Slots, referências paradas e lotes alternados
+# Slots, standing references and alternating batches
 
-Esta revisão acrescenta arquivamento de slots e criação com modelos alternados.
-Os fluxos novos ainda precisam de confirmação no PCSX2 em execução; os ensaios
-automatizados usam arquivos temporários e memória copiada.
+This revision adds slot archiving and creation with alternating models. The new
+flows still need confirmation in a running PCSX2; the automated trials use
+temporary files and copied memory.
 
-## Liberar um slot preservando o save
+## Free a slot while keeping the save
 
-1. Conecte o editor ao PCSX2 e pause o emulador. Finalize qualquer criação
-   pendente antes de administrar os arquivos de estado.
-2. Na aba **Projeto**, clique em **Gerenciar slots…**. A lista mostra os dez
-   índices usados pelo editor, os arquivos encontrados e seu tamanho.
-3. Selecione um slot ocupado e use **Arquivar e liberar selecionado**. Confira
-   os caminhos apresentados antes de confirmar.
-4. Aguarde a confirmação. A cópia fica em `editor-slot-backups/slotNN-…`, dentro
-   da instalação portátil reconhecida. O caminho completo aparece na resposta.
+1. Connect the editor to PCSX2 and pause the emulator. Finish any pending creation
+   before managing state files.
+2. In the **Project** tab, click **Manage slots…**. The list shows the ten slot
+   indices used by the editor, the files found and their size.
+3. Select an occupied slot and use **Archive and free selected**. Check the paths
+   shown before confirming.
+4. Wait for the confirmation. The copy goes to `editor-slot-backups/slotNN-…` inside
+   the recognized portable installation; the full path appears in the reply.
 
-O arquivamento copia e verifica todos os arquivos reconhecidos daquele slot
-antes de liberar seus nomes originais. As versões nas pastas principal e
-específica do jogo, quando ambas existem, ficam separadas em `flat/` e
-`nested/` dentro do backup. O arquivo `backup.json` relaciona os caminhos e
-hashes. Outros slots e a configuração do emulador são preservados.
+Archiving copies and verifies every recognized file of that slot before freeing
+its original names. Versions in the main and game-specific folders, when both
+exist, are kept apart as `flat/` and `nested/` inside the backup, and `backup.json`
+lists the paths and hashes. Other slots and the emulator configuration are kept.
 
-A ação não apaga definitivamente o save: o `.p2s` arquivado pode ser escolhido
-em **Sistema → Carregar estado → Arquivo…** no PCSX2. Guarde a pasta do backup.
-Um estado danificado ou vazio pode ser arquivado para liberar o slot, mas
-preservar seus bytes não o torna carregável.
+This does not permanently delete the save: the archived `.p2s` can be picked with
+**System → Load state → File…** in PCSX2. Keep the backup folder. A damaged or
+empty state can be archived to free the slot, but keeping its bytes does not make
+it loadable.
 
-Links, redirecionamentos e arquivos acima do tamanho admitido são bloqueados.
-Se o emulador for retomado ou os arquivos mudarem durante o processo, a
-operação para e preserva as cópias. Se parte do slot já tiver sido arquivada,
-a mensagem informa isso; não repita automaticamente. Atualize a lista e
-confira o backup. Liberação de arquivo não é uma transação atômica com ações
-externas feitas no emulador.
+Links, redirects and files above the admitted size are blocked. If the emulator is
+resumed or the files change during the process, the operation stops and keeps the
+copies. If part of the slot was already archived, the message says so; do not
+repeat automatically. Freeing files is not atomic with external emulator actions.
 
-## Usar veículos parados e na contramão
+## Using standing and oncoming vehicles
 
-Estar na contramão em relação ao jogador não é um motivo de bloqueio do
-perfil. A referência usa seu próprio caminho e orientação. Um controlador de
-tráfego com avanço zero também pode servir de referência quando caminho,
-parâmetros e física estão válidos.
+Driving against the player is not a reason for the profile to block a vehicle; the
+reference uses its own path and orientation. A traffic controller with zero
+progress can also be a reference when its path, parameters and physics are valid.
 
-Selecione o veículo e confira a explicação dos detalhes quando uma ação estiver
-desabilitada. Um carro parado no trânsito pode ter um caminho válido; um
-objeto estacionário do cenário pode não ter nó ou caminho de tráfego.
-Esses casos não são equivalentes. Cargas vinculadas continuam sendo editadas
-pela cabine, e tipos físicos ainda não reconhecidos permanecem bloqueados.
-Não há liberação indiscriminada de qualquer objeto nem movimento livre fora
-dos caminhos pesquisados.
+Select the vehicle and read the details when an action is disabled. A car stopped
+in traffic can have a valid path; a parked scenery object may have no traffic node
+or path. Linked trailers are still edited through the cab, and physical types not
+recognized yet stay blocked. Nothing is enabled indiscriminately, and there is no
+free movement outside the researched paths.
 
-## Criar um lote com modelos alternados
+## Create a batch with alternating models
 
-1. Pause e selecione uma referência habilitada.
-2. No painel **Adicionar veículos atrás**, escolha **Alternar modelos** e
-   **Escolher modelos alternados…**.
-3. Marque pelo menos dois modelos com **Ctrl/Shift** e confirme **Usar seleção**.
-   A ordem mostrada se repete no lote: por exemplo, carro → van → carro → van.
-4. Defina distância e quantidade e use **Adicionar veículos atrás**. Retome e
-   pause para concluir cada grupo, como nos lotes anteriores.
+1. Pause and select an enabled reference.
+2. In **Add vehicles behind**, choose **Alternate models** and **Choose
+   alternating models…**.
+3. Pick at least two models with **Ctrl/Shift** and confirm with **Use selection**.
+   The order shown repeats in the batch, e.g. car → van → car → van.
+4. Set distance and amount and use **Add vehicles behind**. Resume and pause to
+   finish each group, as with the earlier batches.
 
-Só entram na seleção os modelos independentes carregados e admitidos pela
-leitura atual. Na interface, caminhões com carga continuam em **Modelo único**,
-com a carga nativa compatível. Ônibus podem exigir o espaçamento de veículos
-grandes. O lote é validado antes da primeira escrita; uma escolha inválida
-não é ignorada silenciosamente.
+Only independent models that are loaded and admitted by the current read can be
+selected. Trucks with trailers stay in **Single model**, with a compatible native
+trailer. Buses may need the large-vehicle spacing. The batch is validated before
+the first write; an invalid choice is never silently skipped. Normal mode is still
+limited to eight per group; alternating models do not raise the game's safe
+collision limit.
 
-O modo normal continua limitado a oito por grupo. Pedidos ampliados passam
-pelas verificações de capacidade e pela fila experimental; modelos alternados
-não aumentam o limite seguro de colisões do jogo.
+## Experimental visual variation
 
-## Variação visual experimental
+**Original (0)** keeps the native argument used before. **Alternate variants
+(0–7)** passes different values to the native creator across the batch. The
+effect on colour depends on the model and still needs confirmation: there is no
+proven mapping from index to colour, no guarantee of eight different colours, and
+the option only affects new vehicles of the batch.
 
-**Original (0)** conserva o valor do argumento nativo usado anteriormente.
-**Alternar variações (0–7)** passa valores diferentes ao criador nativo ao longo
-do lote. O efeito na cor depende do modelo e ainda precisa de confirmação.
-Não há associação comprovada entre cada índice e uma cor, nem garantia de oito
-cores diferentes ou de que todos os veículos mudem de pintura. A opção atua
-nos novos veículos do lote; não repinta automaticamente os já presentes.
+The same 0–7 index is the `colour` field of [traffic waves](traffic-waves.md):
+original events use values 0–7 on many vehicles.
 
-Receitas de ações registram o modelo e a variação de cada criação confirmada.
-Projetos continuam preservando a cena por seus estados `.p2s` locais. Nenhum
-save, backup ou recurso do jogo é incluído no repositório.
+Action recipes record the model and variant of each confirmed creation. Projects
+keep the scene through their local `.p2s` states. No save, backup or game resource
+is included in the repository.

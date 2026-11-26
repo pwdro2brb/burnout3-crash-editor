@@ -113,7 +113,7 @@ class WindowPauseTests(unittest.TestCase):
         self.assertEqual(pause.emulator_root(), Path(r'c:\test'))
         self.assertEqual(api.commands, [])
         api.owners = [123, 456]
-        with self.assertRaisesRegex(PauseControlError, 'sessão.*mudou'):
+        with self.assertRaisesRegex(PauseControlError, 'session changed'):
             pause.emulator_root()
         self.assertEqual(api.commands, [])
 
@@ -137,7 +137,7 @@ class WindowPauseTests(unittest.TestCase):
 
     def test_timeout_does_not_retry_toggle(self):
         pause, api, _client = control([Status.RUNNING])
-        with self.assertRaisesRegex(PauseControlError, 'não será repetido'):
+        with self.assertRaisesRegex(PauseControlError, 'will not be repeated'):
             pause.set_paused(True)
         self.assertEqual(api.commands, [(77, 123)])
 
@@ -145,7 +145,7 @@ class WindowPauseTests(unittest.TestCase):
         api = FakeAdapter()
         api.owners = [123, 456]
         pause, api, _client = control([Status.RUNNING], api)
-        with self.assertRaisesRegex(PauseControlError, 'sessão.*mudou'):
+        with self.assertRaisesRegex(PauseControlError, 'session changed'):
             pause.set_paused(True)
         self.assertEqual(api.commands, [])
 
@@ -156,7 +156,7 @@ class WindowPauseTests(unittest.TestCase):
                 setattr(client, field, value)
                 with patch.object(api, 'listener_pid', wraps=api.listener_pid) as discover:
                     self.assertFalse(pause.supports())
-                    with self.assertRaisesRegex(PauseControlError, 'mesma conexão'):
+                    with self.assertRaisesRegex(PauseControlError, 'own local PINE connection'):
                         pause.set_paused(True)
                     discover.assert_not_called()
                 self.assertEqual(api.commands, [])
@@ -165,7 +165,7 @@ class WindowPauseTests(unittest.TestCase):
         api = FakeAdapter()
         api.owners = [123, 123, 456]
         pause, api, _client = control([Status.RUNNING, Status.PAUSED], api)
-        with self.assertRaisesRegex(PauseControlError, 'sessão.*mudou'):
+        with self.assertRaisesRegex(PauseControlError, 'session changed'):
             pause.set_paused(True)
         self.assertEqual(api.commands, [(77, 123)])
 
@@ -226,7 +226,7 @@ class NativeWrapperFakeTests(unittest.TestCase):
         user = FakeUser32({77: FakeUser32.window(pause_state=2)})
         api = fake_windows_adapter(user)
         self.assertEqual(api.main_window(123), 77)
-        with self.assertRaisesRegex(PauseControlError, 'temporariamente indisponível'):
+        with self.assertRaisesRegex(PauseControlError, 'temporarily unavailable'):
             api.post_pause_toggle(77, 123)
         self.assertEqual(user.commands, [])
 
@@ -239,11 +239,11 @@ class NativeWrapperFakeTests(unittest.TestCase):
 
     def test_none_and_multiple_matching_frames_have_distinct_errors(self):
         api = fake_windows_adapter(FakeUser32({}))
-        with self.assertRaisesRegex(PauseControlError, 'não foi encontrada'):
+        with self.assertRaisesRegex(PauseControlError, 'was not found'):
             api.main_window(123)
         user = FakeUser32({77: FakeUser32.window(), 88: FakeUser32.window(menu=400)})
         api = fake_windows_adapter(user)
-        with self.assertRaisesRegex(PauseControlError, 'mais de uma'):
+        with self.assertRaisesRegex(PauseControlError, 'more than one'):
             api.main_window(123)
         self.assertEqual(user.commands, [])
 
@@ -256,14 +256,14 @@ class NativeWrapperFakeTests(unittest.TestCase):
         for window in windows:
             with self.subTest(window=window):
                 api = fake_windows_adapter(FakeUser32({77: window}))
-                with self.assertRaisesRegex(PauseControlError, 'não foi encontrada'):
+                with self.assertRaisesRegex(PauseControlError, 'was not found'):
                     api.main_window(123)
 
     def test_target_identity_is_checked_again_immediately_before_post(self):
         api = fake_windows_adapter()
         self.assertEqual(api.main_window(123), 77)
         api.user.windows[77]['pid'] = 456
-        with self.assertRaisesRegex(PauseControlError, 'janela.*mudou'):
+        with self.assertRaisesRegex(PauseControlError, 'window changed'):
             api.post_pause_toggle(77, 123)
         self.assertEqual(api.user.commands, [])
 

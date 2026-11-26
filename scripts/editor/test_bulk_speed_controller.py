@@ -40,7 +40,7 @@ class BulkSpeedControllerTests(unittest.TestCase):
         with patch.object(client,'apply_patch',wraps=client.apply_patch) as applied:
             result=editor.set_speeds([9,10,11],0)
         self.assertFalse(result['pending'])
-        self.assertIn('3 veículo(s)',result['message'])
+        self.assertIn('3 vehicle(s)',result['message'])
         applied.assert_called_once()
         self.assertEqual(len(applied.call_args.args[0]),3)
         allowed={row['node']+offset for row in state.vehicles.values() for offset in range(4)}
@@ -96,7 +96,7 @@ class BulkSpeedControllerTests(unittest.TestCase):
         self.assertEqual(state.memory.read(state.vehicles[11]['node'],'<f')[0],40.)
         with tempfile.TemporaryDirectory() as folder:
             path=Path(folder)/'unreplayable.json'
-            with self.assertRaisesRegex(c.EditorError,'Salvar estado'):
+            with self.assertRaisesRegex(c.EditorError,'Save state'):
                 editor.save_preset(str(path))
             self.assertFalse(path.exists())
 
@@ -109,7 +109,7 @@ class BulkSpeedControllerTests(unittest.TestCase):
             path=Path(folder)/'unreplayable.json'
             path.write_text(json.dumps(dict(format='burnout3-current-event-recipe',version=1,
                 profile='SLUS-21050/BEBF8793',baseline=c._fingerprint(state),operations=operations)),encoding='utf8')
-            with self.assertRaisesRegex(c.EditorError,'Referência'):
+            with self.assertRaisesRegex(c.EditorError,'reference'):
                 editor.load_preset(str(path))
         self.assertEqual(client.writes,[])
         self.assertEqual(editor.recipe,[])
@@ -117,11 +117,11 @@ class BulkSpeedControllerTests(unittest.TestCase):
     def test_ambiguous_bulk_write_blocks_edits_without_recording_success(self):
         editor,client,_state=self.fixture()
         with patch.object(client,'apply_patch',side_effect=PineVerificationError('Partial write')):
-            with self.assertRaisesRegex(c.EditorError,'não puderam ser confirmadas'):
+            with self.assertRaisesRegex(c.EditorError,'could not be confirmed'):
                 editor.set_speeds([9,10,11],30)
         self.assertTrue(editor.unsafe)
         self.assertEqual(editor.recipe,[])
-        with self.assertRaisesRegex(c.EditorError,'última escrita'):
+        with self.assertRaisesRegex(c.EditorError,'last write'):
             editor.set_speeds([9,10,11],20)
 
 

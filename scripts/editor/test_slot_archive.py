@@ -74,7 +74,7 @@ class SlotArchiveTests(unittest.TestCase):
         for slot in (True,-1,10,2.0,'2'):
             with self.subTest(slot=slot),self.assertRaises(slots.SlotArchiveError):
                 slots.archive_slot(root,slot)
-        with self.assertRaisesRegex(slots.SlotArchiveError,'já está livre'):
+        with self.assertRaisesRegex(slots.SlotArchiveError,'already free'):
             slots.archive_slot(root,2)
         self.assertFalse((root/'editor-slot-backups').exists())
 

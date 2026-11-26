@@ -1,385 +1,347 @@
-# Editor do evento atual — primeiro uso
+# Current-event editor — first use
 
-Esta interface externa edita o evento que está carregado no PCSX2. A interface
-permite identificar os veículos presentes, deslocar um veículo na
-largura da via, acrescentar lotes atrás de uma referência e criar um veículo
-num ponto X/Z aproximado a caminhos carregados. Mostra a geometria pesquisada
-das vias de tráfego e permite ajustar o alvo nominal de velocidade dos registros
-admitidos. O modo normal usa grupos de
-1 a 8; o modo experimental permite pedidos maiores sujeitos à capacidade. Caminhões
-com carga usam somente pares nativos já carregados pelo jogo.
+This external window edits the event that is loaded in PCSX2. It can identify
+the vehicles present, move a vehicle across the width of its lane, add batches
+behind a reference vehicle and create a vehicle at an X/Z point snapped to the
+loaded paths. It draws the researched traffic-lane geometry and can change the
+nominal speed target of supported records. Normal mode works in groups of 1 to
+8; experimental mode accepts larger requests, limited by the game's capacity.
+Trucks with trailers only use native cab/trailer pairs already loaded by the game.
 
-O perfil pesquisado é Burnout 3 USA, `SLUS_210.50`, no PCSX2 1.7.2521. Outros
-executáveis e versões do emulador exigem validação própria. Use uma cópia de
-teste do emulador e preserve uma referência do evento antes de editar.
+These are **session** edits: they live in RAM and disappear when the event
+restarts. To change an event permanently on the disc, use
+[native event editing](native-crash-events.md) and [traffic waves](traffic-waves.md).
 
-## Abrir e conectar
+The researched profile is Burnout 3 USA, `SLUS_210.50`, on PCSX2 1.7.2521.
+Other executables and emulator versions need their own validation. Use a test
+copy of the emulator and keep a reference state of the event before editing.
 
-1. Tenha Python 3.10 ou posterior com Tcl/Tk. O editor não instala dependências.
-2. No PCSX2 de teste, habilite PINE e carregue o jogo e o evento que deseja editar.
-   Na versão pesquisada, a configuração fica em `inis/PCSX2_vm.ini`, na seção
-   `[EmuCore]`: `EnablePINE=enabled`. Se editar esse arquivo, feche o emulador
-   antes, preserve uma cópia e reinicie-o depois. Altere somente a instalação
-   de teste. A porta padrão é 28011 e a conexão é local.
-3. Abra **Abrir Editor.cmd** na pasta do projeto e clique em **Conectar / nova sessão**.
-4. Se aparecerem, use **Pausar PCSX2** e **Retomar** no editor. Esses botões
-   identificam a instalação da conexão PINE e confirmam a pausa pelo emulador.
-   Sem eles, use **Sistema → Pausar** no PCSX2 correto. **Start**, no menu de
-   pausa do jogo, não substitui a pausa do núcleo.
-5. Selecione um veículo em **Veículos presentes** para ver seu modelo e posição.
-   Use **Atualizar lista** para reler a sessão atual. Após carregar outro estado
-   ou evento, clique em **Conectar / nova sessão** antes de iniciar uma receita.
+## Open and connect
 
-Ao selecionar um veículo bloqueado, os detalhes explicam se ele é um
-componente vinculado, um tipo ainda não habilitado ou se o jogo ainda não
-inicializou sua física. Estar listado não significa estar pronto para editar.
+1. Install Python 3.10 or later with Tcl/Tk. The editor installs nothing.
+2. In the test PCSX2, enable PINE and load the game and the event to edit. In
+   the researched version the setting is in `inis/PCSX2_vm.ini`, section
+   `[EmuCore]`: `EnablePINE=enabled`. Close the emulator before editing that
+   file, keep a copy and restart it afterwards. Only change the test
+   installation. The default port is 28011 and the connection is local only.
+3. Open **Open Editor.cmd** in the project folder and click **Connect / new session**.
+4. When shown, use **Pause PCSX2** and **Resume** in the editor. They identify
+   the installation behind the PINE connection and confirm the pause through
+   the emulator. Otherwise use **System → Pause** in the right PCSX2 window.
+   **Start** in the game's own pause menu does not replace a core pause.
+5. Select a vehicle in **Vehicles present** to see its model and position.
+   **Refresh list** re-reads the current session. After loading another state
+   or event, click **Connect / new session** before starting a recipe.
 
-Em janelas baixas, use a barra vertical do painel direito para alcançar os
-controles de velocidade, modelo e carga. A roda sobre o mapa continua reservada
-ao zoom; o botão direito desloca a vista.
+When you select a blocked vehicle, the details say whether it is a linked
+component, a type that is not enabled yet, or whether the game has not
+initialized its physics. Being listed does not mean being ready to edit.
 
-## Criar um projeto de evento
+On short windows, use the right panel's scrollbar to reach the speed, model and
+trailer controls. The mouse wheel over the map is reserved for zoom; drag with
+the right button to pan.
 
-Na aba **Projeto**, dê um nome ao evento e use **Criar projeto…** com o PCSX2
-pausado antes da batida. A referência original fica preservada. Edite os
-veículos e finalize os lotes; **Testar cena** salva a versão e retoma o jogo.
-Para repetir, pause e use **Voltar ao início**, que restaura a última cena
-editada salva. **Restaurar base original** recupera a referência sem substituir
-essa cena. Para reabrir o trabalho, selecione `event.b3event.json` em
-**Abrir projeto…**.
-
-O fluxo automático precisa de um slot livre e não substitui saves existentes.
-Se todos estiverem ocupados, **Gerenciar slots…** oferece **Arquivar e liberar
-selecionado**, depois de mostrar os caminhos e preservar cópias verificadas
-no backup. A seção **Alternativa sem slot livre** também permite
-salvar/carregar um `.p2s` pelo menu do PCSX2 e importar/conferir essa cena no
-editor. O arquivo escolhido precisa corresponder à memória pausada verificada.
-Veja o [guia de projetos](custom-event-projects.md) para o procedimento completo.
-Os projetos conservam estados locais; o fluxo novo ainda precisa de confirmação
-de restauração e repetição no jogo.
-
-Para misturar veículos no lote, escolha **Alternar modelos** no painel de
-criação e marque dois ou mais modelos carregados. A sequência se repete na
-quantidade solicitada. **Alternar variações (0–7)** é uma opção de aparência
-experimental; ainda não há uma tabela de cores por modelo. A referência pode
-estar parada, desde que caminho e física estejam válidos. Consulte o
-[guia de slots e lotes alternados](slots-and-mixed-traffic.md).
-
-Se a identidade do jogo foi confirmada, mas o perfil de tráfego é recusado,
-o editor mantém a conexão e desabilita a edição. Com o jogo pausado, **Finalizar
-pendência** continua disponível, sem exigir seleção de veículo. Uma limpeza
-bem-sucedida permanece informada mesmo se a leitura seguinte ainda falhar;
-use **Atualizar lista** para liberar a edição somente após uma leitura válida.
-
-Uma nova conexão limpa a receita de ações que ainda está no editor. Salve a
-configuração antes de iniciar outra sessão, caso queira conservar essa receita.
-
-O editor não inicia nem controla a direção do veículo no PCSX2. Se a conexão
-falhar, confira se o jogo está carregado e se o PINE da instalação de teste
-está habilitado. Evite manter dois emuladores usando a mesma porta PINE.
-
-Também é possível abrir pelo terminal, a partir da pasta do projeto:
+You can also start the editor from a terminal in the project folder:
 
 ```powershell
 python -B scripts/editor/run_editor.py
 ```
 
-Para uma porta local diferente, use `--port 28112`. No PCSX2 wx pesquisado,
-o ajuste de porta feito pelo diálogo PINE não permanece após reiniciar.
+Use `--port 28112` for a different local port. In the researched wx PCSX2, a
+port set in the PINE dialog does not survive a restart.
 
-Para manter a janela do jogo visível ao pausar, desmarque **Ocultar a janela
-quando estiver em pausa** nas configurações do PCSX2 de teste. Na instalação
-pesquisada, isso corresponde a `CloseOnEsc=disabled` em `PCSX2_ui.ini`.
-O editor não altera essa preferência automaticamente. Consulte os detalhes
-de [pausa e preservação](batches-trucks-and-pause.md).
+To keep the game window visible while paused, untick **Hide window when
+paused** in the test PCSX2 (`CloseOnEsc=disabled` in `PCSX2_ui.ini` in the
+researched install). The editor never changes that setting. See
+[pause and preservation](batches-trucks-and-pause.md).
 
-## Identificar e escolher o modelo
+## Create an event project
 
-O identificador do carro usado no primeiro ensaio foi **COMPCAR14**. A tabela
-de rótulos do próprio jogo o classifica como **Car**. O catálogo também distingue
-categorias como Van, Bus, táxi e carretas; isso não identifica um fabricante
-ou um modelo real de automóvel.
+In the **Project** tab, name the event and use **Create project…** with PCSX2
+paused before the crash. The original reference is kept. Edit the vehicles and
+finish the batches; **Test scene** saves the version and resumes the game. To
+repeat, pause and use **Back to start**, which restores the last saved scene.
+**Restore original base** brings back the reference without replacing that
+scene. To reopen the work, select `event.b3event.json` in **Open project…**.
 
-A lista de criação oferece **Mesmo modelo do selecionado** e os modelos
-carregados e admitidos pelo perfil. Há tipos independentes 1/2/3/5 e conjuntos
-nativos de cabine tipo 4 com carga tipo 11. Ao escolher uma cabine, a interface
-mostra **Carga do caminhão** e somente combinações observadas e carregadas.
-A carga não é oferecida como veículo avulso. Vans `HEVYCAR17/18` de tipo 3 e
-ônibus `HEVYCAR19/21` de tipo 5 são admitidos quando há associação nativa
-consistente e física pronta. `HEVYCAR20` apenas carregado, sem essa associação,
-continua bloqueado. Tipos especiais 6 a 10 não estão habilitados. O teste real
-de criação de ônibus ainda está pendente.
+The automatic flow needs a free slot and never replaces existing saves. If all
+slots are taken, **Manage slots…** offers **Archive and free selected**, after
+showing the paths and keeping verified copies in the backup folder. The
+**Alternative without a free slot** section lets you save/load a `.p2s` through
+the PCSX2 menu and import/check that scene in the editor; the chosen file must
+match the verified paused memory. See the [project guide](custom-event-projects.md).
+Restoring and repeating projects in game still needs confirmation.
 
-Nos independentes, o perfil exige dois pontos físicos inicializados e não
-degenerados, coerência com a posição renderizada e o collider, além de caminho
-e ocupação válidos. Um veículo distante com pontos zerados continua bloqueado.
+To mix vehicles in a batch, choose **Alternate models** in the creation panel
+and pick two or more loaded models; the sequence repeats up to the requested
+amount. **Alternate variants (0–7)** is an experimental look option; there is
+no colour table per model yet. The reference may be standing still as long as
+its path and physics are valid. See [slots and mixed batches](slots-and-mixed-traffic.md).
 
-A aba **Catálogo carregado** mostra todos os modelos encontrados, sua categoria
-e o estado da criação: **Disponível**, **Disponível com caminhão** ou
-**Criação não validada**. Assim é possível
-identificar um ônibus carregado mesmo quando ele não aparece na escolha de criação.
+If the game identity is confirmed but the traffic profile is refused, the
+editor stays connected with editing disabled. With the game paused, **Finish
+pending request** remains available without selecting a vehicle. A successful
+cleanup stays reported even if the next read still fails; **Refresh list**
+re-enables editing only after a valid read.
 
-## Visualizar os caminhos
+A new connection clears the recipe of actions held by the editor. Save the
+configuration before starting another session if you want to keep it.
 
-1. Pause o PCSX2 e use **Atualizar lista**. Selecione um veículo e abra
-   **Vista de cima**.
-2. Ative **Mostrar vias** para ver bordas, centro e identificadores `P0`, `P1`
-   etc. A via do veículo selecionado fica destacada; **Caminho** a enquadra.
-   **Enquadrar** ajusta a vista ao conjunto mostrado. Use a roda para aproximar
-   e arraste com o botão direito para deslocar a vista.
-3. As setas indicam a **progressão do caminho**. Uma seta tracejada não comprova
-   o sentido atual do tráfego. Caminhos candidatos sem veículo associado têm
-   rótulo `P?`, cor mais clara e uso atual não confirmado.
-4. Clique num ponto de veículo para selecioná-lo. O jogador aparece em vermelho
-   com sua direção, quando essa referência está disponível. **Marcar posição**
-   mantém o significado X/Z do mapa ao aproximar ou deslocar a vista.
+The editor never starts the emulator or drives the car. If the connection
+fails, check that the game is loaded and that PINE is enabled in the test
+installation. Do not run two emulators on the same PINE port.
 
-As faixas mostram a geometria de seguimento do tráfego pesquisada na memória;
-não são a malha de asfalto ou uma garantia de superfície dirigível. Ruas em
-alturas diferentes podem se sobrepor na vista X/Z. Um caminho candidato visível
-não libera a criação por ponto: ela continua exigindo referência móvel válida.
-Se a leitura exceder seu orçamento ou omitir dados inválidos, o aviso informa
-que a visualização é parcial. A vista corresponde à última leitura pausada,
-atualizada com a lista; não acompanha os carros continuamente.
+## Identify and choose a model
 
-## Consultar e ajustar a velocidade
+The car used in the first test was **COMPCAR14**, labelled **Car** by the
+game's own label table. The catalogue also tells apart Van, Bus, Taxi and
+trailers; this does not identify a real manufacturer or car model.
 
-1. Pause o PCSX2, atualize a lista e selecione um ou mais veículos. Use **Ctrl**
-   para escolher vários, **Shift** para um intervalo ou **Selecionar aptos para
-   velocidade** para reunir os registros habilitados. A coluna
-   **Nominal km/h A/S** mostra alvo e seguimento; os detalhes apresentam os
-   nomes completos. Registros sem nó reconhecido mostram indisponível.
-2. Quando o perfil admitir a alteração, preencha **Alvo nominal (km/h)** e
-   clique em **Aplicar velocidade** ou **Aplicar aos N selecionados**. O mesmo
-   alvo vale para todos os selecionados. Um registro bloqueado impede a ação
-   inteira; ele não é ignorado. Zero é aceito; um alvo positivo pode ser
-   reaplicado posteriormente. No modo normal, o máximo nominal é 386,24256 km/h,
-   correspondente ao teto de controle pesquisado; isso não significa que o carro
-   consiga atingir esse valor.
-3. Para caminhão com carga, selecione a cabine. O editor não grava velocidade
-   numa carga avulsa. Aguarde a confirmação e use **Retomar** para observar.
+The creation list offers **Same model as selected** and the loaded models the
+profile admits: independent types 1/2/3/5 and native type-4 cabs with type-11
+trailers. When you pick a cab, **Truck trailer** shows only observed and loaded
+combinations. A trailer is never offered on its own. Type-3 vans
+`HEVYCAR17/18` and type-5 buses `HEVYCAR19/21` are admitted when they have a
+consistent native association and ready physics. `HEVYCAR20` that is only
+loaded, without that association, stays blocked. Special types 6 to 10 are not
+enabled. A real bus-creation test is still pending.
 
-A linha em foco continua sendo a referência das ações de posição e criação;
-selecionar vários não move nem acrescenta vários alvos por essas ações.
+For independent vehicles the profile requires two initialized, non-degenerate
+physics points, consistency with the rendered position and the collider, and a
+valid path and occupancy. A distant vehicle with zeroed points stays blocked.
 
-O alvo é o pedido ao controlador de tráfego, e o seguimento é um valor
-recalculado pelo jogo. Uma fila, um obstáculo ou um veículo sobreposto pode
-reduzir o avanço, apesar de o alvo permanecer alto. A escala km/h é **nominal**,
-derivada dos campos pesquisados; não é uma medição física calibrada da carroceria.
-O editor altera o alvo e deixa o jogo recalcular o seguimento. A leitura é feita
-com o emulador pausado, não por um velocímetro contínuo.
+The **Loaded catalogue** tab lists every model found, its category and its
+creation status: **Available**, **Available with truck** or **Creation not
+validated**, so you can identify a loaded bus even when it cannot be created.
 
-Receitas JSON também registram alterações do alvo de velocidade para o mesmo
-estado inicial. A exigência de ativar o modo experimental ao carregar ações
-experimentais permanece. Consulte [caminhos e velocidade](routes-and-speed.md)
-para a evidência e os limites dessa interpretação.
+## View the paths
 
-## Mover um veículo
+1. Pause PCSX2 and use **Refresh list**. Select a vehicle and open **Top view**.
+2. Turn on **Show lanes** to see edges, centre and `P0`, `P1`… labels. The
+   selected vehicle's lane is highlighted; **Path** frames it and **Fit** fits
+   everything. Use the wheel to zoom and drag with the right button to pan.
+3. Arrows show the **path direction**. A dashed arrow does not prove the current
+   traffic direction. Candidate paths with no associated vehicle are labelled
+   `P?`, drawn lighter, and their current use is not confirmed.
+4. Click a vehicle dot to select it. The player appears in red with its
+   heading when available. **Mark position** keeps X/Z meaning while zooming
+   or panning.
 
-1. Clique em **Pausar PCSX2** ou pause pelo menu do emulador e atualize a lista.
-2. Selecione um veículo disponível para edição.
-3. Ajuste **Posição na largura da via** e clique em **Aplicar posição**.
-4. Use **Retomar** para continuar e observar.
+The lanes show the traffic-following geometry found in memory; they are not
+the road mesh and do not guarantee a drivable surface. Roads at different
+heights can overlap in the X/Z view. A visible candidate path does not enable
+creation at a point: that still needs a valid moving reference. If a read
+exceeds its budget or skips invalid data, a notice says the view is partial.
+The view matches the last paused read; it does not follow the cars live.
 
-O controle de 0% a 100% percorre a largura do caminho. Ele não corresponde
-necessariamente a uma faixa de trânsito ou a uma borda de colisão da pista.
-A posição longitudinal é mantida. Comece com alterações pequenas; alguns
-objetos distantes ainda não têm seus pontos físicos atualizados e não podem
-ser editados por este método.
+## Check and change speed
 
-Para um caminhão habilitado, selecione a cabine: a edição candidata move os
-dados da cabine e da carga em conjunto, preservando o vínculo. O movimento e
-a colisão após esse reposicionamento composto ainda exigem validação própria.
-Tráfego na contramão também pode servir de referência quando a física e o
-caminho estiverem inicializados; a direção relativa ao jogador não é o bloqueio.
+1. Pause PCSX2, refresh the list and select one or more vehicles. Use **Ctrl**
+   to pick several, **Shift** for a range, or **Select speed-eligible**. The
+   **Nominal km/h A/S** column shows target and follow values; the details
+   show the full names. Records without a recognized node show unavailable.
+2. When the profile allows it, fill **Nominal target (km/h)** and click **Apply
+   speed** or **Apply to the N selected**. The same target applies to all; one
+   blocked record blocks the whole action instead of being skipped. Zero is
+   accepted and a positive target can be applied later. In normal mode the
+   nominal maximum is 386.24256 km/h, the researched control ceiling; the car
+   may not be able to reach it.
+3. For a truck with a trailer, select the cab. The editor never writes speed to
+   a trailer on its own. Wait for the confirmation and use **Resume** to watch.
 
-## Adicionar um lote ou caminhão com carga
+The focused row remains the reference for position and creation actions;
+selecting several does not move or add several targets with those actions.
 
-Os intervalos abaixo são do modo normal, com o toggle experimental desligado.
+The target is the request to the traffic controller; the follow value is
+recomputed by the game. A queue, an obstacle or an overlapping vehicle can
+reduce progress while the target stays high. The km/h scale is **nominal**,
+derived from the researched fields, not a calibrated physical measurement.
+The read happens with the emulator paused, not from a live speedometer.
 
-1. Com o emulador pausado, selecione o veículo de referência.
-2. Escolha o modelo, **Quantidade** de 1 a 8 e **Distância atrás**. Para os
-   independentes 1/2/3, o valor inicial é 10 e o intervalo é de 8 a 50 unidades do jogo.
-3. Para uma cabine, escolha também a carga compatível. **Conjuntos** conta
-   pares completos, não componentes. A carga nativa do alvo só é preselecionada
-   quando seu vínculo foi validado. Para ônibus tipo 5, caminhão ou referência desses tipos,
-   a distância mínima é 30; a interface ajusta o valor menor para 30.
-4. Clique em **Adicionar veículos atrás** ou **Adicionar conjuntos atrás**.
-   Use **Retomar** uma vez para executar o lote. Não repita o clique de criação.
-5. Quando o editor solicitar, clique em **Pausar PCSX2**. O editor acompanha
-   a operação e finaliza o lote nessa pausa, sem um ciclo manual por veículo.
-   Faça essa pausa logo após o aviso, antes que o novo veículo saia do trecho
-   ou que o evento recrie seu tráfego. Se estiver na tela de apresentação
-   **Continue**, é preciso iniciar o evento para a rotina de tráfego executar.
-6. Aguarde a confirmação no editor. Depois use **Retomar** para jogar e
-   testar presença, movimento e colisão. As distâncias são unidades do jogo,
-   sem equivalência estabelecida em metros.
+JSON recipes also record speed-target changes for the same initial state, and
+experimental actions still require experimental mode when loading. See
+[paths and speed](routes-and-speed.md) for the evidence and limits.
 
-Confira também **Jogo pausado** no editor e `<PAUSED>` no título da janela
-do jogo. Se houver duas instalações abertas, pausar a outra janela do PCSX2
-não pausa a sessão à qual o editor está conectado.
+## Move a vehicle
 
-A faixa amarela **CRIAÇÃO PENDENTE** permanece até a finalização. O aviso de
-que o veículo foi criado ainda exige a segunda pausa, antes de dirigir.
-Se o veículo já mudou ou saiu do cenário, o editor pode encerrar com
-**Atenção: ... Código temporário removido. Alinhamento não confirmado.**
-Nesse caso ele limpa somente sua rotina temporária, libera a interface e
-não inclui essa criação na receita JSON. Ele não move outro veículo para
-tentar corrigir uma referência antiga.
+1. Click **Pause PCSX2** (or pause from the emulator menu) and refresh the list.
+2. Select a vehicle that is available for editing.
+3. Adjust **Position across the lane width** and click **Apply position**.
+4. Use **Resume** to continue and watch.
 
-Se todas as criações já retornaram, mas a física ainda não permite confirmar
-o alinhamento, a espera fica limitada a cinco segundos a partir da primeira
-verificação pausada dessa etapa. Depois, o editor remove apenas o código
-temporário reconhecido, conserva os veículos que o jogo criou e cancela a fila
-restante. O lote não entra na receita. **Finalizar pendência** permite encerrar
-essa espera imediatamente, desde que a rotina já tenha devolvido o controle ao
-jogo. Código ativo, desconhecido ou sem prova de conclusão continua bloqueado.
+The 0%–100% control spans the path width; it is not necessarily a traffic lane
+or a collision edge. The position along the path is kept. Start with small
+changes; some distant objects have no updated physics points yet and cannot be
+edited this way.
 
-Durante uma criação em andamento, não carregue outro estado, troque de evento
-ou feche o editor. A mensagem da interface indica a etapa necessária. Se uma
-operação falhar, siga a mensagem exibida. Se for pedido um estado limpo, recarregue
-a referência anterior, pause o emulador e clique em **Conectar / nova sessão**.
-A criação anterior não é repetida automaticamente. Repetir uma ação sem saber
-seu resultado pode acrescentar outra instância.
+For an enabled truck, select the cab: the candidate edit moves cab and trailer
+together, keeping the link. Movement and collision after that combined move
+still need their own validation. Oncoming traffic can also be a reference when
+its physics and path are initialized; the direction relative to the player is
+not what blocks it.
 
-## Modo experimental e pedidos maiores
+## Add a batch or a truck with a trailer
 
-1. Preserve um estado de controle antes de testar. Ative **Modo experimental:
-   ampliar quantidade e distância** e leia o aviso persistente de alto risco de
-   travamento, congelamento e perda de física.
-2. Informe uma distância positiva e finita. O teto de 50 e os mínimos de 8/30
-   deixam de ser restrições do editor nesse modo; o fim do caminho continua
-   sendo respeitado. Distâncias pequenas podem sobrepor veículos.
-3. A quantidade aceita pedidos de até 253, mas o pedido precisa caber nos
-   objetos, nós e registros de colisão disponíveis. Não são 253 carros
-   garantidos; um conjunto cabine/carga consome dois objetos.
-4. Pedidos maiores usam uma fila em grupos de até oito. Faça **Retomar →
-   Pausar PCSX2** e aguarde a confirmação de cada grupo. O rodapé informa o
-   próximo grupo e a fila restante. Não repita o clique de criação.
-5. **Cancelar fila** descarta as operações restantes. Ele não remove veículos
-   já criados nem desfaz o grupo que já foi preparado; finalize esse grupo
-   conforme a mensagem antes de voltar a editar.
+These ranges are for normal mode, with the experimental toggle off.
 
-O aviso permanece visível enquanto o modo estiver ativo. O editor mostra
-contagens de objetos ativos, física pronta, objetos/nós livres e fila; pode
-avisar quando objetos de uma referência deixam de ter física inicializada.
-Esses dados não estabelecem uma capacidade segura de impacto. Se um objeto
-perder física, não trate a quantidade livre no pool como prova de que ele
-continuará funcionando; restaure a referência de controle para comparar.
+1. With the emulator paused, select the reference vehicle.
+2. Choose the model, **Amount** from 1 to 8 and **Distance behind**. For
+   independent types 1/2/3 the default is 10 and the range is 8 to 50 game units.
+3. For a cab, also choose a compatible trailer; the amount then counts complete
+   sets. The target's native trailer is preselected only when its link was
+   validated. For type-5 buses, trucks, or references of those types the minimum
+   distance is 30; the interface raises smaller values to 30.
+4. Click **Add vehicles behind** or **Add sets behind**. Use **Resume** once to
+   run the batch. Do not click the creation button again.
+5. When asked, click **Pause PCSX2**. The editor follows the operation and
+   finishes the whole batch in that pause. Pause soon after the notice, before
+   the new vehicle leaves the stretch or the event recreates its traffic. On the
+   **Continue** intro screen you must start the event for the traffic routine to run.
+6. Wait for the confirmation, then **Resume** to play and test presence,
+   movement and collision. Distances are game units with no established metre
+   equivalence.
 
-Este modo não corrige o assert VIF relatado e não amplia estruturas do motor.
-O erro e a observação de falhas após mais de cinquenta carros estão descritos em
-[muitos veículos e testes experimentais](high-density-experiments.md). O relato
-não demonstra um limite universal de cinquenta.
+Also check **Game paused** in the editor and `<PAUSED>` in the game window
+title. With two installations open, pausing the other PCSX2 window does not
+pause the session the editor is connected to.
 
-## Criar no ponto marcado
+The yellow **CREATION PENDING** bar stays until the finish. The "vehicle
+created" message still needs the second pause before driving. If the vehicle
+already changed or left the scene, the editor may end with **Warning: …
+Temporary code removed. Alignment not confirmed.** It then only cleans its own
+temporary routine, releases the interface and leaves that creation out of the
+JSON recipe. It never moves another vehicle to fix an old reference.
 
-1. Pause o PCSX2, atualize a lista e selecione uma referência com caminho e
-   física válidos. Escolha o modelo carregado e, se for caminhão, a carga compatível.
-2. Abra **Vista de cima**. Clique em **Marcar posição** e depois no mapa; o alvo
-   aparece com X/Z. Também é possível digitar X e Z diretamente nos campos.
-3. Clique em **Adicionar no ponto**. Essa ação prepara um veículo ou conjunto,
-   usando o modelo escolhido no painel lateral; a quantidade do lote atrás
-   não multiplica a criação no ponto.
-4. Siga **Retomar → Pausar PCSX2**, aguarde a finalização e só então retome para
-   observar presença, movimento e colisão.
+If all creations returned but physics still does not allow confirming the
+alignment, the wait is limited to five seconds from the first paused check of
+that step. The editor then removes only the recognized temporary code, keeps
+the vehicles the game created and cancels the rest of the queue; the batch is
+left out of the recipe. **Finish pending request** ends that wait immediately
+once the routine has returned control to the game. Active, unknown or unproven
+code stays blocked.
 
-O ponto X/Z é projetado de forma aproximada no melhor caminho entre aqueles
-que têm referências prontas na sessão. No modo normal a posição é ajustada à
-largura admitida da via, e pontos muito distantes são recusados. O modo
-experimental admite lateral fora dessa largura, com risco maior de física
-inválida; ele ainda precisa de um caminho reconhecido.
+While a creation is in progress, do not load another state, change event or
+close the editor. If an operation fails, follow the message. If a clean state is
+requested, reload the previous reference, pause the emulator and click
+**Connect / new session**. The previous creation is never repeated automatically;
+repeating an action without knowing its result may add another instance.
 
-Não há seleção de altura Y ou busca de terreno. O mapa desenha caminhos de
-tráfego pesquisados, sem malha de asfalto e sem carregar locais ausentes,
-por isso o resultado pode diferir do clique.
-Essa criação não teleporta um veículo existente. Quando um objeto fora da via
-ainda tiver física e layout admitidos, o modo experimental pode liberar
-**Aplicar posição** para tentar retorná-lo à largura de 0% a 100%. Ele continua
-sem servir de referência para novas criações enquanto estiver fora do perfil normal.
+## Experimental mode and larger requests
 
-## Finalizar uma pendência antiga
+1. Keep a control state before testing. Turn on **Experimental mode: larger
+   amounts and distances** and read the persistent warning about freezes and
+   lost physics.
+2. Enter a positive, finite distance. The 50-unit ceiling and the 8/30 minimums
+   stop being editor limits in this mode; the end of the path is still respected.
+   Small distances can overlap vehicles.
+3. The amount accepts up to 253, but the request must fit the free objects,
+   nodes and collision records. That is not 253 guaranteed cars; a cab/trailer
+   set uses two objects.
+4. Larger requests run as a queue in groups of up to eight. Do **Resume →
+   Pause PCSX2** and wait for the confirmation of each group. The footer shows
+   the next group and the remaining queue. Do not click creation again.
+5. **Cancel queue** drops the remaining operations. It does not remove vehicles
+   already created nor undo the group already prepared; finish that group as
+   the message says before editing again.
 
-1. Pause o PCSX2 e confira **Jogo pausado**.
-2. Clique em **Finalizar pendência**, mesmo se a lista estiver bloqueada ou vazia.
-3. Leia o resultado no rodapé. Se a solicitação for reconhecida e já tiver
-   devolvido o controle ao jogo, o editor limpa somente a área temporária admitida.
-4. Clique em **Atualizar lista**. Se o perfil continuar inválido, restaure uma
-   referência limpa pelo PCSX2 antes de editar.
+The warning stays visible while the mode is on. The editor shows counts of
+active objects, ready physics, free objects/nodes and queue, and can warn when
+objects of a reference lose initialized physics. These numbers do not
+establish a safe crash capacity. The VIF assert reported after dense scenes is
+not fixed by this mode; see [high-density experiments](high-density-experiments.md).
+That report does not prove a universal fifty-car limit.
 
-Um estado feito antes da limpeza pode restaurar a rotina temporária antiga.
-Para recuperar uma solicitação antiga sem acompanhamento na sessão atual,
-o editor exige o registro local correspondente e o payload
-canônico de um formato reconhecido, com prova de conclusão. Código desconhecido
-ou sem prova continua bloqueado. A ação não alinha veículos nem recupera a
-receita daquela solicitação. A recuperação de solicitações antigas é explícita;
-o auto-poll não repete o comando de criação nem faz essa limpeza por conta própria.
+## Create at a marked point
 
-## Guardar a configuração
+1. Pause PCSX2, refresh the list and select a reference with a valid path and
+   physics. Choose the loaded model and, for a truck, a compatible trailer.
+2. Open **Top view**, click **Mark position** and then the map; the target
+   appears with X/Z. You can also type X and Z.
+3. Click **Add at point**. This prepares one vehicle or set with the model
+   chosen in the side panel; the batch amount does not multiply it.
+4. Do **Resume → Pause PCSX2**, wait for the finish, then resume to watch
+   presence, movement and collision.
 
-**Salvar configuração** gera um JSON local com os dados usados pelo editor.
-**Abrir configuração** aplica a configuração admitida pelo perfil ao evento
-atual. Ela exige **exatamente o mesmo estado inicial**, anterior às edições,
-usado para preparar a receita. Recarregue essa referência e pause o emulador,
-inicie uma nova sessão no editor e abra o JSON. Uma receita que cria veículos
-exige as mesmas etapas de retomar e pausar descritas acima.
+The X/Z point is projected onto the best path among those with ready
+references in the session. In normal mode the position is snapped to the
+admitted lane width and far points are refused. Experimental mode allows a
+lateral position outside that width, with a higher risk of invalid physics; it
+still needs a recognized path. There is no Y height choice or terrain search,
+so the result can differ from the click. This never teleports an existing
+vehicle. When an off-lane object still has admitted physics and layout,
+experimental mode may enable **Apply position** to try to bring it back into
+the 0%–100% width; it still cannot be a reference for new creations.
 
-Se a receita contiver ações experimentais, ative o toggle e leia o aviso antes
-de abri-la. Com o modo desligado, o controlador recusa essas ações; um JSON
-não pode ativar o risco por conta própria. A receita ainda exige os mesmos
-modelos carregados, referências válidas e estado inicial.
+## Finish an old pending request
 
-Veículos que aparecerem depois da referência inicial, sem criação confirmada
-na receita, podem ser editados quando o perfil os admitir. Se alguma ação usar
-essa referência observada, o editor recusa salvar o JSON para não prometer um
-replay que não consegue reconstruir. Use um `.p2s` para conservar a sessão,
-ou **Conectar / nova sessão** para adotar o cenário atual como nova referência.
+1. Pause PCSX2 and check **Game paused**.
+2. Click **Finish pending request**, even if the list is blocked or empty.
+3. Read the result in the footer. If the request is recognized and has already
+   returned control to the game, the editor cleans only the admitted temporary area.
+4. Click **Refresh list**. If the profile stays invalid, restore a clean
+   reference in PCSX2 before editing.
 
-**Salvar estado…** exporta um arquivo `.p2s` da sessão editada, com o emulador
-pausado e nenhuma criação pendente. Escolha um nome novo. O botão só aparece
-quando a instalação portátil pode ser identificada. A implementação usa um slot
-livre, verifica o arquivo gerado e recusa substituir estados e destinos existentes.
-O diálogo sugere `outputs/events/` na pasta do projeto e um nome com data/hora,
-sem colisão com arquivos locais. O rodapé mostra **Arquivo:** com o caminho
-retornado após exportar.
-**O usuário confirmou a exportação real; o arquivo exportado ainda não foi
-restaurado em teste.** Na sessão atual, os dez slots estão ocupados: o botão
-recusa a exportação para preservar esses arquivos. Nesse caso, salve pelo próprio
-PCSX2 em **Sistema → Salvar estado → Arquivo…**, escolhendo um destino **novo**
-com extensão `.p2s`, por exemplo dentro de `outputs/events/`. Uma cópia de
-controle salva por essa rota manual passou na verificação de ZIP e memória EE.
-Isso não é um teste do botão de exportação nessa sessão com todos os slots cheios.
+A state saved before the cleanup can bring back the old temporary routine. To
+recover an old request not followed by the current session, the editor needs
+the matching local log and the canonical payload of a recognized format with
+proof of completion. Unknown or unproven code stays blocked. The action does
+not align vehicles or recover that request's recipe, and the automatic poll
+never repeats the creation command or performs this cleanup on its own.
 
-Para reabrir:
+## Keep the configuration
 
-1. Deixe o jogo correspondente aberto no PCSX2.
-2. Na janela principal do PCSX2, escolha **Sistema → Carregar estado → Arquivo…**.
-3. Selecione o `.p2s` onde foi salvo e clique em **Abrir**. Isso restaura o instante salvo.
-4. Pause o emulador e conecte o editor como nova sessão antes de editar.
+**Save configuration…** writes a local JSON with the data the editor used.
+**Open configuration…** applies it to the current event. It requires **exactly
+the same initial state** (before the edits) that was used to prepare the
+recipe: reload that reference, pause, start a new session and open the JSON.
+Recipes that create vehicles need the same resume/pause steps as above.
 
-O editor não carrega esse arquivo automaticamente. Se ele trouxer uma pendência
-antiga, siga a seção **Finalizar uma pendência antiga** acima.
+If the recipe contains experimental actions, turn the toggle on and read the
+warning before opening it; a JSON cannot enable the risk by itself. The recipe
+still needs the same loaded models, valid references and initial state.
 
-O JSON não contém os recursos do jogo e não substitui um save state. A edição
-vale para os dados da sessão atual: **Restart** do jogo, troca de evento ou
-carregamento de outro estado podem recriar o tráfego e descartar a alteração.
-O `.p2s` preserva uma sessão para restaurar; ele não grava um novo evento no ISO
-nem transforma um **Restart** em execução persistente do layout. Preserve estados
-de teste separadamente. Ainda não há gravação persistente
-dos arquivos de Crash Events, criação de mapas ou editor dentro do jogo.
+Vehicles that appeared after the initial reference, without a confirmed
+creation in the recipe, can be edited when the profile admits them. If an
+action uses such a reference, the editor refuses to save the JSON rather than
+promise a replay it cannot rebuild. Use a `.p2s` to keep the session, or
+**Connect / new session** to adopt the current scene as a new reference.
 
-O protocolo e a pausa exigida foram conferidos no
-[PINE oficial do PCSX2 v1.7.2521](https://github.com/PCSX2/pcsx2/blob/v1.7.2521/pcsx2/PINE.cpp).
-As mensagens de sucesso da interface não substituem a observação no jogo.
+**Save state…** exports a `.p2s` of the edited session, with the emulator paused
+and nothing pending. Choose a new name. The button only appears when the
+portable installation can be identified. It uses a free slot, verifies the
+written file and refuses to replace existing states or destinations. The dialog
+suggests `outputs/events/` with a date-time name; the footer shows **File:** with
+the exported path. The user confirmed a real export; restoring that exported
+file has not been tested yet. When all ten slots are taken the button refuses
+to export. Then save from PCSX2 with **System → Save state → File…** to a
+**new** `.p2s` (for example inside `outputs/events/`). A control copy saved
+that way passed the ZIP and EE-memory checks.
 
-Após a confirmação anterior de lote e exportação, o usuário também relatou que
-as novas mudanças da revisão com caminhos e velocidade funcionaram. Em seguida,
-confirmou também o funcionamento da correção da espera pela física e da seleção
-múltipla de velocidade. A restauração do `.p2s` exportado ainda precisa ser
-confirmada. Bloqueios de perfil ainda podem impedir uma operação; os relatos
-não demonstram estabilidade de todos os cenários.
+To reopen it:
 
-O fluxo de lotes, caminhões, pausa e arquivos está em
-[batches-trucks-and-pause.md](batches-trucks-and-pause.md). As restrições,
-o erro de proteção e a investigação de caminhões estão em
+1. Keep the matching game open in PCSX2.
+2. In the main PCSX2 window choose **System → Load state → File…**.
+3. Select the `.p2s` and click **Open**. This restores the saved moment.
+4. Pause the emulator and connect the editor as a new session before editing.
+
+The editor never loads that file automatically. If it brings back an old
+pending request, follow **Finish an old pending request** above.
+
+The JSON contains no game resources and does not replace a save state. Session
+edits apply to the current RAM only: **Restart**, changing event or loading
+another state can recreate the traffic and drop them. The `.p2s` keeps a session
+to restore; it does not write a new event to the ISO.
+
+The protocol and the required pause were checked against the
+[official PCSX2 v1.7.2521 PINE code](https://github.com/PCSX2/pcsx2/blob/v1.7.2521/pcsx2/PINE.cpp).
+Success messages in the interface do not replace watching the game.
+
+After the earlier batch and export confirmation, the user also reported that the
+paths-and-speed revision worked, and later that the physics-wait fix and the
+multi-selection speed change worked. Restoring the exported `.p2s` still needs
+confirmation. Profile blocks can still stop an operation; these reports do not
+prove stability in every scenario.
+
+Batches, trucks, pause and files: [batches-trucks-and-pause.md](batches-trucks-and-pause.md).
+Restrictions, the protection error and the truck investigation:
 [traffic-capacity-and-trucks.md](traffic-capacity-and-trucks.md).

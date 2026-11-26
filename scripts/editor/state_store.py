@@ -43,7 +43,7 @@ def _present(path: Path) -> bool:
 def _states_directory(emulator_root: Path) -> Path:
     root = Path(emulator_root).resolve(strict=True)
     if not root.is_dir() or not (root/'portable.ini').is_file():
-        raise StateStoreError('Selecione a cópia portátil do PCSX2 usada pelo editor.')
+        raise StateStoreError('Select the portable PCSX2 copy used by the editor.')
     raw = (root/'inis'/'PCSX2_ui.ini').read_bytes()
     encoding = 'utf-16' if raw.startswith((codecs.BOM_UTF16_LE, codecs.BOM_UTF16_BE)) else 'utf-8-sig'
     try:
@@ -54,7 +54,7 @@ def _states_directory(emulator_root: Path) -> Path:
             # Never repair a NUL inside a key/value or followed by more config.
             if ((first_nul > 0 and text[first_nul-1] not in '\r\n')
                     or any(char not in '\0\r\n' for char in text[first_nul:])):
-                raise StateStoreError('O INI contém um caractere nulo dentro da configuração.')
+                raise StateStoreError('The INI contains a null character inside the configuration.')
             text = text[:first_nul]
         parser = configparser.ConfigParser(interpolation=None)
         # wxFileConfig permits root keys before the first named section.
@@ -67,12 +67,12 @@ def _states_directory(emulator_root: Path) -> Path:
         elif default in ('disabled', 'false', 'no', '0'):
             value = folders.get('Savestates', '').strip()
             if not value:
-                raise StateStoreError('A pasta de estados não foi definida no PCSX2 portátil.')
+                raise StateStoreError('The states folder is not set in the portable PCSX2.')
             folder = Path(value)
         else:
-            raise StateStoreError('A opção de pasta de estados do PCSX2 não foi reconhecida.')
+            raise StateStoreError("PCSX2's states folder option was not recognized.")
     except (UnicodeError, configparser.Error, KeyError) as error:
-        raise StateStoreError('Não foi possível ler a pasta de estados do PCSX2 portátil.') from error
+        raise StateStoreError("Could not read the portable PCSX2's states folder.") from error
     return (folder if folder.is_absolute() else root/folder).resolve()
 
 
@@ -94,19 +94,19 @@ def _signature(path: Path):
 
 def _valid_archive(path: Path):
     if not _regular_file(path):
-        raise StateStoreError('O estado temporário não é um arquivo regular.')
+        raise StateStoreError('The temporary state is not a regular file.')
     size = path.stat().st_size
     if not 0 < size <= MAX_ARCHIVE_SIZE:
-        raise StateStoreError('O tamanho do estado temporário não foi reconhecido.')
+        raise StateStoreError("The temporary state's size was not recognized.")
     with zipfile.ZipFile(path) as archive:
         members = archive.infolist()
         if len(members) > 256 or sum(entry.file_size for entry in members) > MAX_UNCOMPRESSED_SIZE:
-            raise StateStoreError('O arquivo de estado ultrapassa os limites desta versão.')
+            raise StateStoreError('The state file exceeds the limits of this version.')
         ee = [entry for entry in members if entry.filename == 'eeMemory.bin']
         if len(ee) != 1 or ee[0].file_size != EE_MEMORY_SIZE:
-            raise StateStoreError('O arquivo não contém uma memória EE completa de 32 MiB.')
+            raise StateStoreError('The file does not contain a complete 32 MiB EE memory.')
         if archive.testzip() is not None:
-            raise StateStoreError('A integridade do arquivo de estado não conferiu.')
+            raise StateStoreError("The state file's integrity did not check out.")
 
 
 def _sha256(path: Path) -> str:
@@ -127,7 +127,7 @@ def _copy_exclusive(source: Path, destination: Path):
 
 def _paused(client):
     if client.status() is not Status.PAUSED:
-        raise StateStoreError('Pause o PCSX2 antes de exportar o estado editado.')
+        raise StateStoreError('Pause PCSX2 before exporting the edited state.')
 
 
 def _wait_capture(client, candidates, timeout):
@@ -139,7 +139,7 @@ def _wait_capture(client, candidates, timeout):
         _paused(client)
         found = [path for path in candidates if _present(path)]
         if len(found) > 1:
-            raise StateStoreError('Mais de um arquivo apareceu para o slot. Os arquivos foram preservados.')
+            raise StateStoreError('More than one file appeared for the slot. The files were kept.')
         if found:
             source = found[0]
             current = (source, _signature(source))
@@ -156,7 +156,7 @@ def _wait_capture(client, candidates, timeout):
         else:
             stable, previous = 0, None
         time.sleep(min(POLL_INTERVAL, max(0.0, deadline-time.monotonic())))
-    message = 'O PCSX2 não concluiu um arquivo de estado válido dentro do prazo. Os arquivos foram preservados.'
+    message = 'PCSX2 did not finish a valid state file in time. The files were kept.'
     if last_error:
         message += f' {last_error}'
     raise StateStoreError(message)
@@ -170,18 +170,18 @@ def export_state(client, emulator_root: Path, destination: Path, timeout: float 
     complete only after SHA-256 readback; no ambiguous request is repeated.
     """
     if type(timeout) not in (int, float) or not math.isfinite(timeout) or not 0 < timeout <= 20:
-        raise StateStoreError('Use um prazo maior que zero e de até 20 segundos.')
+        raise StateStoreError('Use a timeout greater than zero and up to 20 seconds.')
     requested_destination = Path(destination)
     if _present(requested_destination):
-        raise StateStoreError('O arquivo de destino já existe. Escolha outro nome.')
+        raise StateStoreError('The destination file already exists. Choose another name.')
     destination = requested_destination.resolve()
     if destination.suffix.lower() != '.p2s':
-        raise StateStoreError('Escolha um arquivo com extensão .p2s.')
+        raise StateStoreError('Choose a file with the .p2s extension.')
     try:
         _paused(client)
         states = _states_directory(Path(emulator_root))
         if _present(destination):
-            raise StateStoreError('O arquivo de destino já existe. Escolha outro nome.')
+            raise StateStoreError('The destination file already exists. Choose another name.')
         selected = None
         for slot in range(9, -1, -1):
             candidates = _candidates(states, slot)
@@ -189,27 +189,27 @@ def export_state(client, emulator_root: Path, destination: Path, timeout: float 
                 selected = slot, candidates
                 break
         if selected is None:
-            raise StateStoreError('Todos os dez slots já têm arquivos. Nenhum estado existente será substituído. '
-                'No PCSX2, use Sistema → Salvar estado → Arquivo… e escolha um arquivo .p2s novo.')
+            raise StateStoreError('All ten slots already have files. No existing state will be replaced. '
+                'In PCSX2, use System → Save state → File… and choose a new .p2s file.')
         slot, candidates = selected
         if destination in candidates:
-            raise StateStoreError('Escolha um destino diferente do slot temporário do PCSX2.')
+            raise StateStoreError("Choose a destination other than PCSX2's temporary slot.")
         destination.parent.mkdir(parents=True, exist_ok=True)
         # Recheck both names immediately before queuing; the ACK is not completion.
         _paused(client)
         if any(_present(path) for path in candidates):
-            raise StateStoreError('O slot escolhido foi ocupado. Nenhuma solicitação foi enviada.')
+            raise StateStoreError('The chosen slot became occupied. No request was sent.')
         client.request_save_state(slot)
         source, signature = _wait_capture(client, candidates, float(timeout))
         source_hash = _sha256(source)
         if _signature(source) != signature or [p for p in candidates if _present(p)] != [source]:
-            raise StateStoreError('O estado mudou antes da cópia. Os arquivos foram preservados.')
+            raise StateStoreError('The state changed before the copy. The files were kept.')
         _paused(client)
         _copy_exclusive(source, destination)
         if _sha256(destination) != source_hash or _sha256(source) != source_hash or _signature(source) != signature:
-            raise StateStoreError('A cópia não pôde ser confirmada. Os arquivos foram preservados.')
+            raise StateStoreError('The copy could not be confirmed. The files were kept.')
     except (OSError, zipfile.BadZipFile, EOFError) as error:
-        raise StateStoreError('Não foi possível exportar o estado. Arquivos eventualmente criados foram preservados.') from error
+        raise StateStoreError('Could not export the state. Any files created were kept.') from error
 
     removed = False
     try:
@@ -221,9 +221,9 @@ def export_state(client, emulator_root: Path, destination: Path, timeout: float 
             removed = True
     except OSError:
         pass
-    message = 'Estado editado exportado e cópia verificada.'
+    message = 'Edited state exported and copy verified.'
     if not removed:
-        message += ' O arquivo temporário do slot foi preservado.'
+        message += " The slot's temporary file was kept."
     return {'message': message, 'path': str(destination), 'sha256': source_hash,
             'saved_slot': slot, 'temporary_removed': removed, 'warning': not removed,
             'temporary_path': None if removed else str(source)}

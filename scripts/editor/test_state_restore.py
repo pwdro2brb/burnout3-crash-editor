@@ -146,7 +146,7 @@ class StateRestoreTests(unittest.TestCase):
                 path=root/'sstates'/store.STATE_NAME.format(slot=slot)
                 path.parent.mkdir(parents=True,exist_ok=True)
                 path.write_bytes(bytes([slot]))
-            with self.assertRaisesRegex(restore.RestoreError,'Todos os dez') as caught:
+            with self.assertRaisesRegex(restore.RestoreError,'All ten') as caught:
                 restore.restore_state(client,root,source)
             self.assertFalse(caught.exception.uncertain)
             self.assertEqual(client.requests,[])
@@ -178,7 +178,7 @@ class StateRestoreTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             root,_ini,source,_target,client=self.fixture(Path(folder))
             client.after_load=lambda:client.current_identity.update(game_crc='00000000')
-            with self.assertRaisesRegex(restore.RestoreError,'perfil') as caught:
+            with self.assertRaisesRegex(restore.RestoreError,'profile') as caught:
                 restore.restore_state(client,root,source)
             self.assertTrue(caught.exception.uncertain)
             self.assertEqual(client.requests,[9])
@@ -335,7 +335,7 @@ class StateRestoreTests(unittest.TestCase):
                 target[restore.PROOF_REGIONS[0][0]]^=1
                 archive(source,target)
                 client.data[:]=target
-                with self.assertRaisesRegex(restore.RestoreError,'assinatura registrada') as caught:
+                with self.assertRaisesRegex(restore.RestoreError,'signature recorded') as caught:
                     if automatic:
                         restore.restore_state(client,root,source,expected_sha256=manifest_hash)
                     else:
@@ -352,7 +352,7 @@ class StateRestoreTests(unittest.TestCase):
             for expected in ('',False,1,'z'*64,'a'*63,'a'*65):
                 for automatic in (False,True):
                     with self.subTest(expected=expected,automatic=automatic):
-                        with self.assertRaisesRegex(restore.RestoreError,'assinatura esperada') as caught:
+                        with self.assertRaisesRegex(restore.RestoreError,'expected signature') as caught:
                             if automatic:
                                 restore.restore_state(client,root,source,expected_sha256=expected)
                             else:

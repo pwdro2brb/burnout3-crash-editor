@@ -38,7 +38,7 @@ class RestoreError(ValueError):
 
 def _paused(client):
     if client.status() is not Status.PAUSED:
-        raise RestoreError('Pause o PCSX2 antes de restaurar o evento.')
+        raise RestoreError('Pause PCSX2 before restoring the event.')
 
 
 def _identity(client):
@@ -47,14 +47,14 @@ def _identity(client):
     crc = identity.get('game_crc','').upper().removeprefix('0X')
     if (serial != 'SLUS21050' or crc != 'BEBF8793'
             or '1.7.2521' not in identity.get('version','')):
-        raise RestoreError('O emulador ou jogo não corresponde ao perfil do projeto.')
+        raise RestoreError("The emulator or game does not match the project's profile.")
     return identity
 
 
 def _read(client, address, length):
     result = client.read_bytes(address,length)
     if not isinstance(result,(bytes,bytearray)) or len(result) != length:
-        raise RestoreError('A leitura da restauração ficou incompleta.')
+        raise RestoreError('The restore read was incomplete.')
     return bytes(result)
 
 
@@ -63,14 +63,14 @@ def _required_hash(value):
         return None
     if (not isinstance(value,str) or len(value) != 64
             or any(char not in '0123456789abcdefABCDEF' for char in value)):
-        raise RestoreError('A assinatura esperada do estado é inválida.')
+        raise RestoreError("The state's expected signature is invalid.")
     return value.lower()
 
 
 def _check_required_hash(actual,required):
     if required is not None and actual != required:
-        raise RestoreError('O estado não corresponde à assinatura registrada no projeto. '
-                           'Nenhum carregamento ou escrita foi solicitado.')
+        raise RestoreError('The state does not match the signature recorded in the project. '
+                           'No load or write was requested.')
 
 
 def _saved_proof(source):
@@ -79,12 +79,12 @@ def _saved_proof(source):
         data = archive.read('eeMemory.bin')
     if any(struct.unpack_from('<I',data,address)[0] != word
            for address,word in ORIGINAL_WORDS.items()):
-        raise RestoreError('O estado não contém o código USA admitido pelo editor.')
+        raise RestoreError('The state does not contain the USA code admitted by the editor.')
     hook = data[spawncode.HOOK:spawncode.HOOK+8]
     cave = data[spawncode.CAVE:spawncode.END]
     if (hook != spawncode.ORIGINAL
             or cave not in (bytes(4096),spawncode.clean_batch_scratch())):
-        raise RestoreError('O estado contém código alterado ou uma criação pendente. Use um estado finalizado.')
+        raise RestoreError('The state contains changed code or a pending creation. Use a finished state.')
     regions = [(address,data[address:address+length]) for address,length in STATIC_PROOF_REGIONS]
     pointer = struct.unpack_from('<I',data,profile.PLAYER_TRANSFORM_POINTER)[0]
     if pointer and pointer % 16 == 0 and pointer <= state_store.EE_MEMORY_SIZE-0x40:
@@ -96,7 +96,7 @@ def _saved_proof(source):
 
 def _target_matches(client, identity, cave, regions):
     if _identity(client) != identity:
-        raise RestoreError('A identidade do emulador mudou durante a restauração.')
+        raise RestoreError("The emulator's identity changed during the restore.")
     if (_read(client,spawncode.HOOK,8) != spawncode.ORIGINAL
             or _read(client,spawncode.CAVE,4096) != cave):
         return False
@@ -122,7 +122,7 @@ def verify_current_state(client, source: Path, *, expected_sha256: str | None = 
     try:
         requested = Path(source)
         if requested.suffix.lower() != '.p2s' or not state_store._regular_file(requested):
-            raise RestoreError('Selecione um arquivo .p2s regular do projeto.')
+            raise RestoreError('Select a regular .p2s file of the project.')
         source = requested.resolve(strict=True)
         signature = state_store._signature(source)
         expected_hash = state_store._sha256(source)
@@ -133,22 +133,22 @@ def verify_current_state(client, source: Path, *, expected_sha256: str | None = 
         for index in range(STABLE_POLLS):
             _paused(client)
             if not _target_matches(client,identity,cave,regions):
-                raise RestoreError('A memória atual não corresponde ao estado selecionado. '
-                                   'Carregue o arquivo pelo menu do PCSX2, pause e confirme novamente.')
+                raise RestoreError('The current memory does not match the selected state. '
+                                   'Load the file from the PCSX2 menu, pause and confirm again.')
             if index+1 < STABLE_POLLS:
                 time.sleep(POLL_INTERVAL)
         if (state_store._signature(source) != signature
                 or state_store._sha256(source) != expected_hash):
-            raise RestoreError('O estado mudou durante a conferência. Nenhuma alteração foi aplicada.')
+            raise RestoreError('The state changed during the check. No change was applied.')
         _check_required_hash(expected_hash,required_hash)
     except RestoreError:
         raise
     except Exception as error:
-        raise RestoreError('Não foi possível conferir o estado selecionado. Nenhuma alteração foi aplicada.') from error
+        raise RestoreError('Could not check the selected state. No change was applied.') from error
     return {'path':str(source),'sha256':expected_hash,'core_paused':True,
             'verified_current':True,
-            'message':'A memória verificada da cena atual corresponde ao arquivo. '
-                      'Nenhum carregamento ou escrita foi solicitado pelo editor.'}
+            'message':"The checked memory of the current scene matches the file. "
+                      'No load or write was requested by the editor.'}
 
 
 def restore_state(client, emulator_root: Path, source: Path, *, timeout: float = 15.0,
@@ -161,14 +161,14 @@ def restore_state(client, emulator_root: Path, source: Path, *, timeout: float =
     When supplied, the manifest digest is checked before any marker or request.
     """
     if type(timeout) not in (int,float) or not 0 < timeout <= 20 or not math.isfinite(timeout):
-        raise RestoreError('Use um prazo maior que zero e de até 20 segundos.')
+        raise RestoreError('Use a timeout greater than zero and up to 20 seconds.')
     required_hash = _required_hash(expected_sha256)
     requested = Path(source)
     uncertain = False
     try:
         # Reject a link before resolve(), which otherwise hides that evidence.
         if requested.suffix.lower() != '.p2s' or not state_store._regular_file(requested):
-            raise RestoreError('Selecione um arquivo .p2s regular do projeto.')
+            raise RestoreError('Select a regular .p2s file of the project.')
         source = requested.resolve(strict=True)
         signature = state_store._signature(source)
         expected_hash = state_store._sha256(source)
@@ -176,14 +176,14 @@ def restore_state(client, emulator_root: Path, source: Path, *, timeout: float =
         cave,regions = _saved_proof(source)
         if (state_store._signature(source) != signature
                 or state_store._sha256(source) != expected_hash):
-            raise RestoreError('O estado mudou durante a validação. Nenhuma restauração foi enviada.')
+            raise RestoreError('The state changed during validation. No restore was sent.')
         _check_required_hash(expected_hash,required_hash)
         _paused(client)
         identity = _identity(client)
         current_cave = _read(client,spawncode.CAVE,4096)
         if (_read(client,spawncode.HOOK,8) != spawncode.ORIGINAL
                 or current_cave not in (bytes(4096),spawncode.clean_batch_scratch())):
-            raise RestoreError('Finalize a criação pendente antes de restaurar o projeto.')
+            raise RestoreError('Finish the pending creation before restoring the project.')
         states = state_store._states_directory(Path(emulator_root))
         selected = None
         for slot in range(9,-1,-1):
@@ -192,8 +192,8 @@ def restore_state(client, emulator_root: Path, source: Path, *, timeout: float =
                 selected = slot,candidates
                 break
         if selected is None:
-            raise RestoreError('Todos os dez slots já têm arquivos. Libere um slot de teste ou carregue '
-                               'o .p2s pelo menu do PCSX2; nenhum arquivo existente foi substituído.')
+            raise RestoreError('All ten slots already have files. Free a test slot or load '
+                               'the .p2s from the PCSX2 menu; no existing file was replaced.')
         slot,candidates = selected
         temporary = candidates[0]
         temporary.parent.mkdir(parents=True,exist_ok=True)
@@ -202,13 +202,13 @@ def restore_state(client, emulator_root: Path, source: Path, *, timeout: float =
                 or state_store._sha256(source) != expected_hash
                 or state_store._signature(source) != signature
                 or [p for p in candidates if state_store._present(p)] != [temporary]):
-            raise RestoreError('O slot ou o estado mudou antes da restauração. Os arquivos foram preservados.')
+            raise RestoreError('The slot or the state changed before the restore. The files were kept.')
 
         _paused(client)
         if (_identity(client) != identity
                 or _read(client,spawncode.HOOK,8) != spawncode.ORIGINAL
                 or _read(client,spawncode.CAVE,4096) != current_cave):
-            raise RestoreError('O jogo mudou antes da restauração. Nenhuma solicitação foi enviada.')
+            raise RestoreError('The game changed before the restore. No request was sent.')
         # This is data in our canonical idle area, never an instruction or hook.
         # Both admitted saved-state templates have zero bytes at this location.
         marker = secrets.token_bytes(16)
@@ -221,20 +221,20 @@ def restore_state(client, emulator_root: Path, source: Path, *, timeout: float =
         client.write_bytes(spawncode.NONCE_ADDRESS,marker)
         if (_read(client,spawncode.CAVE,4096) != bytes(marked)
                 or _read(client,spawncode.HOOK,8) != spawncode.ORIGINAL):
-            raise RestoreError('O marcador de restauração não pôde ser confirmado.')
+            raise RestoreError('The restore marker could not be confirmed.')
         _paused(client)
         # Recheck exclusive slot ownership immediately before the sole request.
         if ([p for p in candidates if state_store._present(p)] != [temporary]
                 or not state_store._regular_file(temporary)
                 or state_store._sha256(temporary) != expected_hash):
-            raise RestoreError('O slot temporário mudou. Nenhuma nova tentativa será enviada.')
+            raise RestoreError('The temporary slot changed. No new attempt will be sent.')
         client.request_load_state(slot)
         deadline = time.monotonic()+float(timeout)
         stable = 0
         while time.monotonic() < deadline:
             status = client.status()
             if status is Status.SHUTDOWN:
-                raise RestoreError('O jogo foi encerrado durante a restauração.')
+                raise RestoreError('The game was closed during the restore.')
             if status is Status.PAUSED and _target_matches(client,identity,cave,regions):
                 stable += 1
                 if stable >= STABLE_POLLS:
@@ -243,14 +243,14 @@ def restore_state(client, emulator_root: Path, source: Path, *, timeout: float =
                 stable = 0
             time.sleep(min(POLL_INTERVAL,max(0.,deadline-time.monotonic())))
         else:
-            raise RestoreError('O PCSX2 não confirmou o estado restaurado dentro do prazo. '
-                               'Não repita automaticamente; recupere uma cena limpa antes de editar.')
+            raise RestoreError('PCSX2 did not confirm the restored state in time. '
+                               'Do not repeat automatically; recover a clean scene before editing.')
     except RestoreError as error:
         if uncertain and not error.uncertain:
             raise RestoreError(str(error),uncertain=True) from error
         raise
     except Exception as error:
-        raise RestoreError('Não foi possível confirmar a restauração. Os arquivos foram preservados.',
+        raise RestoreError('Could not confirm the restore. The files were kept.',
                            uncertain=uncertain) from error
 
     removed = False
@@ -263,9 +263,9 @@ def restore_state(client, emulator_root: Path, source: Path, *, timeout: float =
             removed = True
     except OSError:
         pass
-    message = 'Cena restaurada e memória confirmada. O PCSX2 permanece pausado.'
+    message = 'Scene restored and memory confirmed. PCSX2 stays paused.'
     if not removed:
-        message += ' O arquivo temporário do slot foi preservado.'
+        message += " The slot's temporary file was kept."
     return {'message':message,'path':str(source),'sha256':expected_hash,'loaded_slot':slot,
             'core_paused':True,'temporary_removed':removed,'warning':not removed,
             'temporary_path':None if removed else str(temporary)}

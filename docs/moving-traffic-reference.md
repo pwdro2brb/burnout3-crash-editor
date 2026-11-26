@@ -1,103 +1,92 @@
-# Reposicionamento de tráfego em movimento no Grand Slam
+# Repositioning moving traffic in Grand Slam
 
-Em 12/11/2026 foi aplicado um pequeno deslocamento a um veículo em movimento
-do Grand Slam, numa cópia isolada do PCSX2 1.7.2521.0. A comparação da RAM após
-passos configurados de 30 e 120 quadros confirmou que o corpo continuou andando
-e manteve a separação lateral. As capturas instrumentadas ficaram na aproximação
-da curva do Hotel Grand. Depois, o usuário testou uma variante mais deslocada
-e relatou mudança visível e colisão funcionando; a associação visual ao índice
-interno ainda não foi estabelecida.
+On 12/11/2026 a small offset was applied to a moving vehicle of Grand Slam in an
+isolated copy of PCSX2 1.7.2521.0. Comparing RAM after configured steps of 30 and
+120 frames confirmed that the body kept driving and kept its lateral separation.
+The instrumented captures were taken on the approach to the Hotel Grand bend.
+Later the user tested a variant with a larger offset and reported a visible change
+and working collision.
 
-## Referência e seleção
+**Update (26/11/2026):** the target, object 9 on path 21, has since been
+identified in the event data: it is the fourth vehicle placed by wave 1 on lane
+P21, a `COMPCAR14` (colour 0) at distance 1486.08 — the "first red car". Its
+starting position can now be edited on the disc; see [traffic waves](traffic-waves.md).
 
-O novo slot 1 fornecido pelo usuário restaurou a introdução **Grand Slam** e,
-depois de Continue, a contagem inicial e o GO. A referência preservada tem
-14.309.260 bytes e SHA-256
-`68e2c8429aa8ef5dfb31c62d248fe86467eaba7f7cd8ba696865dc40a4be4476`.
-As referências anteriores também foram preservadas.
+## Reference and selection
 
-Na introdução há 10 objetos e 9 nós ativos; na aproximação usada pelo teste,
-12 objetos e 10 nós. Os invariantes examinados passaram. Quatro palavras de
-código conhecidas coincidem com o ELF pesquisado; isso não prova que todo o
-estado esteja sem modificações.
+The new slot 1 supplied by the user restored the **Grand Slam** intro and, after
+Continue, the countdown and GO. The preserved reference is 14,309,260 bytes,
+SHA-256 `68e2c8429aa8ef5dfb31c62d248fe86467eaba7f7cd8ba696865dc40a4be4476`.
+The earlier references were also preserved.
 
-O alvo foi o objeto independente 9, associado ao nó 8/caminho 21, com dois
-pontos físicos inicializados e descritor de colisão válido. Os objetos 5/6
-formam um conjunto articulado e foram excluídos. Alguns objetos distantes
-possuem âncoras zeradas apesar de estarem ativos: eles ainda não servem como
-entrada deste método. O protótipo agora recusa pares de âncoras degenerados.
+The intro has 10 active objects and 9 nodes; the approach used by the test, 12
+objects and 10 nodes. The examined invariants passed. Four known code words match
+the researched ELF; that does not prove the whole state is unmodified.
 
-## Alteração e comparação
+The target was independent object 9, linked to node 8 / path 21, with two
+initialized physics points and a valid collision descriptor. Objects 5/6 form an
+articulated set and were excluded. Some distant objects are active but have zeroed
+anchors; they cannot be used by this method yet, and the prototype now refuses
+degenerate anchor pairs.
 
-A referência de aproximação tem SHA-256
-`3abef54f23f5029e0eb5e9afbd4de00ffbdce21db5ce03a4111f2635d6a210a9`.
-A variante alterou sete floats: X/Z dos dois pontos físicos e da translação
-atual, além da fração lateral do nó, de aproximadamente 0,4635 para 0,55.
-O delta horizontal efetivo foi `(+0.212890625, -0.462646484375)` em X/Z,
-cerca de 0,51 unidade do jogo. Todos os outros bytes da RAM de entrada e os
-demais membros do ZIP foram preservados.
+## Change and comparison
 
-O deslocamento foi recalculado para o ponto atual do caminho. Reutilizar o
-vetor estimado na introdução produziria outra direção após a curva. A projeção
-local da largura e do AABB ajudou a escolher a variante, mas não substitui um
-teste real de contato com a pista ou com outro veículo.
+The approach reference has SHA-256
+`3abef54f23f5029e0eb5e9afbd4de00ffbdce21db5ce03a4111f2635d6a210a9`. The variant
+changed seven floats: X/Z of both physics points and of the current translation,
+plus the node's lateral fraction, from about 0.4635 to 0.55. The effective
+horizontal delta was `(+0.212890625, -0.462646484375)` in X/Z, about 0.51 game
+units. Every other byte of the input RAM and the other ZIP members were preserved.
 
-Controle e variante foram restaurados separadamente, com os mesmos inputs
-neutros e o mesmo número de comandos de avanço. Os números de quadros abaixo
-são os passos configurados no emulador; um contador interno do jogo não foi
-validado independentemente.
+The offset was recomputed for the current point of the path; reusing the vector
+estimated at the intro would point in another direction after the bend. The local
+projection of width and AABB helped choose the variant but does not replace a real
+contact test with the road or another vehicle.
 
-| Passo configurado | Distância do controle desde o início | Distância da variante desde seu início | Separação entre os carros |
+Control and variant were restored separately with the same neutral inputs and the
+same number of step commands. Frame numbers are the steps configured in the
+emulator; an internal game counter was not validated independently.
+
+| Configured step | Control distance since start | Variant distance since start | Separation between the cars |
 | --- | ---: | ---: | ---: |
-| 30 quadros | 6,716 | 6,713 | 0,513 |
-| 120 quadros | 26,621 | 26,608 | 0,523 |
+| 30 frames | 6.716 | 6.713 | 0.513 |
+| 120 frames | 26.621 | 26.608 | 0.523 |
 
-As distâncias são normas entre posições amostradas, em unidades do jogo,
-não comprimentos integrados de trajetória nem metros estabelecidos.
-A progressão do caminho e os campos candidatos de velocidade ficaram iguais
-entre controle e variante. A fração lateral 0,55 permaneceu nos dois passos.
+Distances are norms between sampled positions in game units, not integrated path
+lengths or established metres. Path progress and the candidate speed fields were
+equal between control and variant, and the 0.55 lateral fraction stayed in both steps.
 
-O jogo atualizou os dois pontos físicos, a transformação, o alvo armazenado e
-o AABB. Y também mudou durante a execução: a diferença entre os corpos ficou
-próxima de -0,0205 e -0,0197 nos dois passos. A orientação e as extensões do
-AABB tiveram pequenas diferenças; o resultado não é uma translação rígida
-exatamente constante numa curva.
+The game updated both physics points, the transform, the stored target and the
+AABB. Y also changed during the run (the difference between the bodies stayed near
+-0.0205 and -0.0197). Orientation and AABB extents differed slightly; the result is
+not an exactly rigid translation in a bend.
 
-Nos dois pares, os 253 outros registros de objetos, os 253 outros nós e suas
-matrizes foram byte a byte iguais. Os 11 descritores dos outros objetos ativos
-também conferiram. A região examinada do gerenciador e o bloco inferido do
-jogador ficaram iguais. Há diferenças fora dessas regiões em RAM não
-classificada; não foi demonstrada ausência global de efeitos.
+In both pairs the other 253 object records, the other 253 nodes and their matrices
+were byte-identical, as were the 11 descriptors of the other active objects, the
+examined manager region and the inferred player block. There are differences in
+unclassified RAM; no global absence of side effects was shown.
 
-Restaurar o controle e repetir 30 quadros devolveu exatamente os mesmos 32 MiB
-de EE RAM do controle anterior. Saves, capturas e relatórios de comparação
-permanecem locais e não são distribuídos neste repositório.
+Restoring the control and repeating 30 frames reproduced exactly the same 32 MiB
+of EE RAM. Saves, captures and comparison reports stay local.
 
-## Variante maior e teste manual
+## Larger variant and manual test
 
-A primeira tentativa manual usou lateral 0,55; o usuário informou que o
-controle respondeu, mas o emulador fechou e a alteração não foi identificada.
-A pedido dele, uma nova cópia usou lateral 0,85, com delta XZ efetivo
-`(+0.95166015625, -2.0672607421875)`, aproximadamente 2,276 unidades.
-A versão anterior foi preservada. O fechamento não teve causa estabelecida.
+The first manual attempt used lateral 0.55; the user said the controls responded
+but the emulator closed and the change was not noticed. At the user's request a new
+copy used lateral 0.85, an effective XZ delta of `(+0.95166015625,
+-2.0672607421875)`, about 2.276 units. The cause of the closing was not established.
 
-O usuário assumiu a direção e relatou: “Vi a mudança e a colisão funcionou”,
-indicando o primeiro carro vermelho como candidato. Esse relato é separado
-das amostras de 30/120 quadros da variante 0,55. Não houve captura instrumentada
-do impacto nem correspondência direta entre cor/modelo visual e objeto 9.
+The user took the wheel and reported: "I saw the change and the collision worked",
+pointing at the first red car. That report is separate from the 30/120-frame samples
+of the 0.55 variant; there was no instrumented capture of the impact.
 
-Um ensaio posterior acrescentou uma instância independente atrás desse alvo;
-veja [vehicle-creation-milestone.md](vehicle-creation-milestone.md).
+A later trial added an independent instance behind this target; see
+[vehicle-creation-milestone.md](vehicle-creation-milestone.md).
 
-## Limites e próximo teste
+## Limits
 
-O resultado confirma um reposicionamento físico limitado de uma instância
-existente em movimento, seguido de confirmação manual de mudança e colisão.
-Falta correlacionar o veículo visual ao índice de RAM, instrumentar um impacto
-e ampliar a duração/modelos antes de generalizar. O usuário realizou o percurso
-no cenário durante o teste manual.
-
-Este teste de reposicionamento não criou uma instância adicional nem alterou
-um recurso persistente do evento. A criação posterior é documentada no marco
-próprio. Uma interface dentro do jogo e locais novos continuam como etapas
-posteriores. O ISO, o executável e os saves originais não foram escritos.
+The result confirms a limited physical repositioning of an existing moving
+instance, followed by a manual confirmation of the change and the collision. An
+instrumented impact and longer runs with more models are still needed before
+generalizing. This test neither created an instance nor changed a persistent
+resource of the event. The ISO, the executable and the original saves were not written.

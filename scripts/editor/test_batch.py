@@ -112,7 +112,7 @@ class BatchControllerTests(unittest.TestCase):
                 editor,client,snap = self.fixture()
                 if selected_bus: snap.vehicles[9]['type'] = 5
                 else: snap.models[CAR]['type'] = 5
-                with self.assertRaisesRegex(c.EditorError,'30 a 50'):
+                with self.assertRaisesRegex(c.EditorError,'30 to 50'):
                     self.stage(editor,client,snap,count=1)
                 self.assertEqual(client.writes,[])
 
@@ -143,7 +143,7 @@ class BatchControllerTests(unittest.TestCase):
             with self.subTest(field=field):
                 editor,client,snap = self.fixture()
                 setattr(snap.memory,field,value)
-                with self.assertRaisesRegex(c.EditorError,'colisão'):
+                with self.assertRaisesRegex(c.EditorError,'collision'):
                     self.stage(editor,client,snap,count=2)
                 self.assertEqual(client.writes,[])
 
@@ -172,7 +172,7 @@ class BatchControllerTests(unittest.TestCase):
                     path.write_text(json.dumps(data),encoding='utf8')
                     with patch.object(profile,'snapshot',return_value=snap), \
                          patch.object(editor,'move',side_effect=AssertionError('No earlier operation may execute')):
-                        with self.assertRaisesRegex(c.EditorError,'30 a 50'):
+                        with self.assertRaisesRegex(c.EditorError,'30 to 50'):
                             editor.load_preset(str(path))
                 self.assertEqual(client.writes,[])
 
@@ -323,7 +323,7 @@ class BatchControllerTests(unittest.TestCase):
         peer = vehicle(8)
         peer['position'] = [170.0, 10.0, 0.0]
         snap.vehicles[8] = peer
-        with self.assertRaisesRegex(c.EditorError, 'veículo existente'):
+        with self.assertRaisesRegex(c.EditorError, 'existing vehicle'):
             self.stage(editor, client, snap)
         self.assertEqual(client.writes, [])
         self.assertIsNone(editor.pending)
@@ -386,7 +386,7 @@ class BatchControllerTests(unittest.TestCase):
         final,_ids = self.publish(editor,client,snap)
         client.store(s.HOOK,editor.pending.hook)
         context,snapshot,_collider,aligned,_journal = self.poll_context(editor,client,final)
-        with context,self.assertRaisesRegex(c.EditorError,'restaurar'):
+        with context,self.assertRaisesRegex(c.EditorError,'without restoring'):
             editor.poll()
         snapshot.assert_not_called()
         aligned.assert_not_called()
@@ -422,7 +422,7 @@ class BatchControllerTests(unittest.TestCase):
                     return [Patch(final.vehicles[12]['address']+0xA0,4,12,112)]
                 context,_snapshot,_collider,_aligned,_journal = self.poll_context(
                     editor,client,final,align=changed_after_snapshot)
-                with context,self.assertRaisesRegex(c.EditorError,'ainda não terminou'):
+                with context,self.assertRaisesRegex(c.EditorError,'has not finished yet'):
                     editor.poll()
                 self.assertEqual(client.writes,[])
                 self.assertEqual(editor.recipe,[])
@@ -626,7 +626,7 @@ class BatchControllerTests(unittest.TestCase):
                     result = editor.poll()
                 self.assertFalse(result['pending'])
                 self.assertTrue(result['warning'])
-                self.assertIn('mantidos', result['message'])
+                self.assertIn('were kept', result['message'])
                 aligned.assert_not_called()
                 self.assertEqual(client.patch_calls, [])
                 self.assert_clean_owned_only(editor, client)

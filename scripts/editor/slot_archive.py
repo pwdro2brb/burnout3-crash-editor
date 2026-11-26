@@ -28,7 +28,7 @@ MAX_SLOT_FILE_BYTES = state_store.MAX_ARCHIVE_SIZE
 
 def _slot(value):
     if type(value) is not int or not 0 <= value <= 9:
-        raise SlotArchiveError('Escolha um slot de 0 a 9.')
+        raise SlotArchiveError('Choose a slot from 0 to 9.')
     return value
 
 
@@ -42,7 +42,7 @@ def _location(emulator_root):
     root = Path(emulator_root).resolve(strict=True)
     states = state_store._states_directory(root)
     if state_store._present(states) and not _directory(states):
-        raise SlotArchiveError('A pasta de estados não é um diretório regular.')
+        raise SlotArchiveError('The states folder is not a regular directory.')
     return root,states
 
 
@@ -50,14 +50,14 @@ def _candidate_issue(states,path):
     # The configured states root is canonical. Do not traverse an optional
     # nested game directory if that child was replaced by a junction/link.
     if path.parent != states and not _directory(path.parent):
-        return 'A pasta do slot é um link ou redirecionamento.'
+        return "The slot's folder is a link or a redirect."
     if not state_store._regular_file(path):
-        return 'O slot contém um link ou arquivo não regular.'
+        return 'The slot contains a link or a non-regular file.'
     info = path.lstat()
     if not 0 <= info.st_size <= MAX_SLOT_FILE_BYTES:
-        return 'O arquivo ultrapassa o tamanho admitido para arquivamento.'
+        return 'The file exceeds the size admitted for archiving.'
     if path.resolve(strict=True) != path:
-        return 'O caminho do slot foi redirecionado.'
+        return "The slot's path was redirected."
     return None
 
 
@@ -81,7 +81,7 @@ def list_slots(emulator_root: Path) -> list[dict]:
     except SlotArchiveError:
         raise
     except (OSError,state_store.StateStoreError) as error:
-        raise SlotArchiveError(f'Não foi possível listar os slots: {error}') from error
+        raise SlotArchiveError(f'Could not list the slots: {error}') from error
 
 
 def _identity(path):
@@ -98,20 +98,20 @@ def _same_source(states,entry):
 
 def _check_sources(states,candidates,entries):
     if [path for path in candidates if state_store._present(path)] != [entry['source'] for entry in entries]:
-        raise SlotArchiveError('Os arquivos do slot mudaram durante o arquivamento.')
+        raise SlotArchiveError("The slot's files changed during archiving.")
     if not all(_same_source(states,entry) for entry in entries):
-        raise SlotArchiveError('Um arquivo do slot mudou durante o arquivamento.')
+        raise SlotArchiveError('A slot file changed during archiving.')
 
 
 def _backup_directory(root,slot):
     parent = root/'editor-slot-backups'
     if state_store._present(parent):
         if not _directory(parent):
-            raise SlotArchiveError('A pasta de cópias dos slots é um link ou redirecionamento.')
+            raise SlotArchiveError('The slot copies folder is a link or a redirect.')
     else:
         parent.mkdir()
     if parent.resolve(strict=True).parent != root:
-        raise SlotArchiveError('A pasta de cópias saiu da instalação do emulador.')
+        raise SlotArchiveError("The copies folder left the emulator's installation.")
     name = f'slot{slot:02d}-'+datetime.now().strftime('%Y%m%d-%H%M%S')+'-'+secrets.token_hex(8)
     directory = parent/name
     directory.mkdir()
@@ -135,16 +135,16 @@ def archive_slot(emulator_root: Path,slot: int,*,guard=None) -> dict:
         candidates = state_store._candidates(states,slot)
         paths = [path for path in candidates if state_store._present(path)]
         if not paths:
-            raise SlotArchiveError('Esse slot já está livre.')
+            raise SlotArchiveError('That slot is already free.')
         entries = []
         for path in paths:
             issue = _candidate_issue(states,path)
             if issue:
-                raise SlotArchiveError(issue+' Nenhum arquivo foi removido.')
+                raise SlotArchiveError(issue+' No file was removed.')
             identity = _identity(path)
             digest = state_store._sha256(path)
             if _identity(path) != identity:
-                raise SlotArchiveError('O slot mudou durante a leitura. Nenhum arquivo foi removido.')
+                raise SlotArchiveError('The slot changed during the read. No file was removed.')
             entries.append(dict(source=path,identity=identity,sha256=digest))
         if guard is not None:
             guard()
@@ -158,7 +158,7 @@ def archive_slot(emulator_root: Path,slot: int,*,guard=None) -> dict:
             state_store._copy_exclusive(entry['source'],destination)
             if (not state_store._regular_file(destination)
                     or state_store._sha256(destination) != entry['sha256']):
-                raise SlotArchiveError('A cópia do slot não pôde ser confirmada.')
+                raise SlotArchiveError("The slot's copy could not be confirmed.")
             entry['backup'] = destination
             backups.append(dict(source=str(entry['source']),path=str(destination),sha256=entry['sha256']))
         if guard is not None:
@@ -179,18 +179,18 @@ def archive_slot(emulator_root: Path,slot: int,*,guard=None) -> dict:
             _check_sources(states,candidates,remaining)
             if not all(state_store._regular_file(e['backup'])
                        and state_store._sha256(e['backup']) == e['sha256'] for e in entries):
-                raise SlotArchiveError('Uma cópia mudou antes de liberar o slot.')
+                raise SlotArchiveError('A copy changed before the slot was freed.')
             if not _same_source(states,entry):
-                raise SlotArchiveError('O arquivo do slot foi substituído antes da remoção.')
+                raise SlotArchiveError("The slot's file was replaced before removal.")
             entry['source'].unlink()
             removed.append(str(entry['source']))
             remaining.remove(entry)
         if any(state_store._present(path) for path in candidates):
-            raise SlotArchiveError('Outro arquivo apareceu no slot; ele foi preservado.')
+            raise SlotArchiveError('Another file appeared in the slot; it was kept.')
     except Exception as error:
-        note = f' Cópias eventualmente criadas foram preservadas em {directory}.' if directory else ''
+        note = f' Any copies created were kept in {directory}.' if directory else ''
         if removed:
-            note += ' Parte do slot já foi arquivada; não repita automaticamente.'
+            note += ' Part of the slot was already archived; do not repeat automatically.'
         raise SlotArchiveError(str(error)+note,partial=bool(removed),archive_directory=directory) from error
     return dict(slot=slot,archive_directory=str(directory),paths=[item['path'] for item in backups],
                 source_paths=removed,backups=backups,

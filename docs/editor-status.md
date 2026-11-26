@@ -1,443 +1,293 @@
-# Editor externo e identificação de modelos
+# Current-event editor: implementation status and model identification
 
-## Slots e tráfego alternado
+This page records what the live-session editor implements, what was observed in
+real runs, and where its limits are. The how-to is in the
+[first-use guide](editor-quickstart.md).
 
-A revisão acrescenta arquivamento verificável de um slot escolhido na aba
-Projeto, lotes com sequência de modelos independentes, parâmetros visuais
-alternados e referências com avanço zero. Não há filtro pela direção do
-jogador; continuam obrigatórios o caminho, a orientação nativa e a física
-admitidos pelo perfil. O motivo de uma ação bloqueada aparece nos detalhes.
+## Slots and mixed batches
 
-Foram executados **380 testes distribuíveis** e **50 testes privados**
-(19 do controlador, 22 do perfil, 7 de velocidade e 2 de projetos), sem falhas.
-Três subcasos de links reais foram pulados por permissão do Windows; a recusa
-de redirecionamentos também é testada com atributos simulados. Os fluxos novos
-ainda precisam de confirmação no jogo.
+The **Project** tab can archive a chosen slot with verified copies, batches can
+use an independent sequence of models and alternating visual parameters, and
+references standing still (zero progress) are admitted. There is no filter on
+the player's direction; the path, native orientation and physics admitted by
+the profile are still required. The reason for a blocked action shows in the
+details.
 
-O arquivamento verifica as cópias e a identidade dos arquivos antes de liberar
-os nomes do slot; outros saves são preservados. O gerenciador exige pausa e
-nenhuma criação pendente, e confere a pausa durante a operação. Uma mudança
-externa interrompe a liberação; cópias e eventuais arquivos restantes são
-preservados. O procedimento não é atômico com ações externas do emulador.
+Archiving verifies the copies and the identity of the files before freeing the
+slot's names; other saves are kept. The manager needs a pause and no pending
+creation, re-checks the pause during the operation, and stops if something
+changes outside; copies and remaining files are kept. It is not atomic with
+external emulator actions.
 
-Os lotes mistos validam cada modelo, tipo, carga e variante, e reservam objetos
-para a sequência inteira antes do primeiro grupo. Receitas registram os itens
-individualmente e os reagrupam na repetição. A recuperação de código temporário
-continua exigindo a correspondência do journal e do payload canônico.
+Mixed batches validate each model, type, trailer and variant and reserve
+objects for the whole sequence before the first group. Recipes record the items
+one by one and regroup them on replay. Recovering temporary code still needs a
+matching journal and canonical payload.
 
-A análise estática e capturas preservadas mostram o argumento visual primário
-no byte `+0xC9` do objeto e índices naturais de 0 a 7. Não foi fechada a ligação
-com a paleta: esses valores não são apresentados como oito cores comprovadas
-por modelo. Cargas têm um argumento visual separado, preservado nesta revisão.
-Instruções e limites em [slots-and-mixed-traffic.md](slots-and-mixed-traffic.md).
+Static analysis and preserved captures show the primary visual argument at
+object byte `+0xC9`, with natural indices 0–7. The link to the colour palette is
+not closed: these values are not presented as eight proven colours per model.
+Trailers have a separate visual argument, preserved by the editor. Details in
+[slots-and-mixed-traffic.md](slots-and-mixed-traffic.md).
 
-Na revisão de 14/11/2026 passaram **241 testes distribuíveis** e **45 testes
-locais com capturas privadas**: 19 do controlador, 21 do perfil e 5 da integração
-de caminhos/velocidade. A prévia de uma referência preservada mostrou 27
-caminhos e o caminho selecionado P21; a leitura e o ajuste de alvo foram
-verificados em memória copiada, sem aplicar mudanças na sessão do jogo.
-A confirmação posterior do usuário de que as novas mudanças funcionaram abrange
-essa revisão. É um relato de uso, sem medição instrumentada da velocidade.
+## Test history
 
-## Revisão de 15/11/2026: finalização e velocidade em grupo
+| Revision | Automated tests | Notes |
+| --- | --- | --- |
+| 13/11/2026 (trucks, guards) | 157 distributable + 40 private | first truck pairs |
+| 14/11/2026 (paths, speed) | 241 + 45 private | offline path/speed checks on preserved memory |
+| 15/11/2026 (finalization, group speed) | 271 + 47 private | the user later confirmed **"Everything is working!"** |
+| 15/11/2026 (event projects v1) | 331 + 49 private | offline only; in-game restore pending |
+| 15/11/2026 (slots, mixed batches) | 380 + 50 private | three real-link subcases skipped by Windows permissions |
+| 19/11/2026 (native editing, Grand Slam ISO) | 424 distributable | the user confirmed the edited ISO worked |
+| 26/11/2026 (traffic waves, English) | 444 distributable | waves module, CLI and tab; full English UI |
 
-Passaram **271 testes distribuíveis** e **47 testes locais com capturas
-privadas**: 19 do controlador, 21 do perfil e 7 da integração de velocidade,
-somando **318 testes**. Essa validação foi offline; os novos ajustes desta
-revisão não receberam ensaio instrumentado no PCSX2 em execução. Posteriormente,
-o usuário confirmou **“Está tudo funcionando!”**, relatando sucesso também com
-a finalização dos lotes e a velocidade em grupo.
+"Private" tests use local captures of game memory and are not distributed.
 
-O usuário relatou que criar vários carros funcionava, mas o editor permanecia
-aguardando a física/PCSX2 e bloqueava novas edições. O fluxo tinha uma espera
-sem limite para atores cuja física ainda não permitia confirmar o alinhamento.
-A revisão limita essa etapa a cinco segundos após a primeira verificação
-pausada com todos os registros concluídos, payload reconhecido, hook original
-e token de conclusão da geração correspondente. Ao expirar, limpa somente o
-código temporário admitido, mantém os veículos nativos, cancela a fila e não
-inclui o lote na receita. A identidade e a conclusão são verificadas novamente
-antes da limpeza. **Finalizar pendência** pode encerrar essa espera imediatamente;
-execução incompleta ou código desconhecido continuam bloqueados.
+### 15/11/2026: finalization and group speed
 
-**Ctrl/Shift** permite selecionar vários registros; **Selecionar aptos para
-velocidade** reúne os habilitados. Uma ação aplica o mesmo alvo nominal a toda
-a seleção, depois de validar todos os registros. Um alvo bloqueado impede o
-envio, sem ser ignorado. Apenas o controle desejado de cada nó é alterado;
-avanço e física continuam calculados pelo jogo. Selecione a cabine em vez da
-carga. A linha em foco continua sendo a referência de posição e criação.
+The user reported that creating several cars worked, but the editor kept
+waiting for physics/PCSX2 and blocked new edits. The flow had an unbounded wait
+for actors whose physics did not yet allow confirming the alignment. The
+revision limits that step to five seconds after the first paused check with all
+records finished, a recognized payload, the original hook and the completion
+token of the matching generation. On timeout it cleans only the admitted
+temporary code, keeps the native vehicles, cancels the queue and leaves the
+batch out of the recipe. Identity and completion are checked again before the
+cleanup. **Finish pending request** ends that wait at once; incomplete
+execution or unknown code stays blocked.
 
-Um ator observado depois da referência inicial pode ser editado se passar no
-perfil, mesmo sem criação confirmada na receita. A receita que dependa dele
-não pode ser salva em JSON; `.p2s` preserva a sessão, ou uma nova conexão pode
-adotar o cenário atual como referência. A confirmação posterior do usuário
-abrange a correção da espera e a seleção múltipla; não valida todos os cenários
-nem a restauração do `.p2s` exportado.
+**Ctrl/Shift** selects several records and **Select speed-eligible** gathers the
+enabled ones. One action applies the same nominal target to the whole selection
+after validating every record; a blocked target stops the action instead of
+being skipped. Only each node's desired control is changed; progress and physics
+stay computed by the game. Select the cab rather than the trailer.
 
-## Projetos de eventos — primeira versão
+An actor seen after the initial reference can be edited if it passes the
+profile, even without a confirmed creation in the recipe. A recipe that depends
+on it cannot be saved as JSON; a `.p2s` keeps the session, or a new connection
+can adopt the current scene as the reference.
 
-Foram executados **331 testes distribuíveis** e **49 testes privados**
-(19 do controlador, 21 do perfil, 7 de velocidade e 2 do ciclo de projetos).
-Não houve falhas; três subcasos com links reais foram pulados por falta de
-permissão do Windows, com a recusa de redirecionamentos coberta também por
-atributos simulados. Os testes privados exercitaram captura, alteração,
-restauração da cena e da base por um transporte em memória, sem abrir o jogo.
+### Event projects, first version
 
-A aba **Projeto** organiza nome, base original e versões da cena editada nos
-mapas existentes. **Testar cena** salva antes de retomar; **Voltar ao início**
-restaura a última cena salva. Abrir um projeto ou restaurar a base inicia uma
-nova sessão de edição, sem reconstruir a receita JSON anterior.
+The **Project** tab organizes the name, the original base and the versions of
+the edited scene. **Test scene** saves before resuming; **Back to start**
+restores the last saved scene. Opening a project or restoring the base starts a
+new editing session without rebuilding the old JSON recipe.
 
-O carregamento automático exige evidência de restauração, além do ACK do PINE,
-e uma leitura válida do perfil antes de liberar escritas. Usa um slot livre
-sem substituir saves. Há uma alternativa manual com `.p2s` salvo/carregado pelo
-menu, seguida da conferência de regiões de memória. Essa prova compara os
-dados selecionados do tráfego, caminhos, jogador e código temporário; não é uma
-comparação integral de todo o estado do PS2. Uma falha ambígua bloqueia edições
-sem repetir o pedido.
+Automatic loading needs restore evidence, besides the PINE ACK, and a valid
+profile read before enabling writes. It uses a free slot without replacing
+saves. There is a manual alternative with a `.p2s` saved/loaded from the menu,
+followed by a check of memory regions. That check compares the selected traffic
+data, paths, player and temporary code; it is not a full comparison of the PS2
+state. An ambiguous failure blocks edits without repeating the request. States
+stay local and the manifest ties hashes to internal files. See
+[custom-event-projects.md](custom-event-projects.md).
 
-Os estados ficam locais, e o manifesto associa hashes a arquivos internos.
-A base e as versões anteriores são preservadas; uma alteração no arquivo
-entre sua validação e uso invalida a operação. O guia e os limites estão em
-[custom-event-projects.md](custom-event-projects.md). A validação desta etapa
-é offline; restauração, repetição e colisão reais ainda precisam de confirmação
-do usuário.
+## What the catalogue identifies
 
-Os testes automatizados cobrem transporte, perfil, fila, cancelamento, projeção
-por ponto, preservação do caminho no replay, retorno lateral experimental,
-visualização de vias e velocidade nominal. A conferência visual e os ensaios
-reais dos fluxos novos permanecem separados dessa validação. Esses resultados
-não comprovam estabilidade com muitos veículos.
+The car used in the first creation was **COMPCAR14**, labelled **Car** by the
+game's label table. The identifier names the game resource; it does not
+establish a real manufacturer or model.
 
-O histórico a partir de 13/11/2026 registra a interface do evento atual ligada
-a uma cópia isolada do PCSX2 real. O usuário relatou: **“A van
-apareceu e a colisão funcionou”**, na rodada preparada pela interface no Grand
-Slam. Esse relato manual não constitui um impacto instrumentado nem comprova
-estabilidade prolongada. Os ensaios anteriores de reposicionamento e criação
-do carro adicional têm seus próprios resultados.
+The 64-bit IDs encode names of up to 12 characters in **base 40**, alphabet
+` -/0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_`, padded with spaces on the right.
+Encoding and decoding the names reproduced exactly the 40 values of the USA
+executable's traffic table, so categories do not depend on guessing.
 
-## O que o catálogo identifica
+The local check compared three sources: the 40 IDs in the ELF table, the
+parallel label-index table resolved through `GLOBALUS.BIN`, and the existence
+of the matching resources. All 40 IDs, indices and resource paths agreed and all
+40 names survived the codec round trip.
 
-O modelo usado na criação anterior foi **COMPCAR14**, classificado como **Car**
-pela tabela de rótulos do jogo. O identificador corresponde ao recurso do jogo;
-ele não estabelece um fabricante ou modelo real de automóvel.
-
-Os IDs de 64 bits codificam nomes com até 12 caracteres em **base 40**. O
-alfabeto é ` -/0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ_`, com espaços de preenchimento
-à direita. Codificar e decodificar os nomes reproduziu exatamente os 40 valores
-da tabela de tráfego do executável USA. Portanto, a identificação de categoria
-não depende de escolher um número aleatório ou adivinhar pela aparência.
-
-A verificação local comparou três fontes: os 40 IDs da tabela do ELF, os
-índices da tabela paralela de rótulos resolvidos em `GLOBALUS.BIN` e a existência
-dos recursos correspondentes. Os 40 IDs, os 40 índices e os 40 caminhos de
-recursos conferiram; os 40 nomes também passaram na ida e volta do codec.
-Os arquivos examinados mantiveram os hashes de origem.
-
-| Modelo | Categoria do jogo | Índice de rótulo | Associação observada no estado examinado |
+| Model | Game category | Label index | Association seen in the examined state |
 | --- | --- | --- | --- |
-| `COMPCAR14` | Car | 1897 | Objetos independentes de tipo 1; inclui a instância criada anteriormente |
-| `HEVYCAR33` | Van | 1925 | Objeto independente de tipo 2 |
-| `HEVYCAR35` | Van | 1927 | Objeto independente de tipo 2 |
-| `HEVYCAR17/18` | Van | 1909/1910 | Associação nativa consistente a tipo 3 nas referências desta etapa |
-| `HEVYCAR19/21` | Bus | 1911/1913 | Associação nativa consistente a tipo 5 nas referências desta etapa |
-| `HEVYCAR20` | Bus | 1912 | Modelo carregado, sem instância independente ativa na referência; criação bloqueada |
+| `COMPCAR14` | Car | 1897 | independent objects of type 1, including the created one |
+| `HEVYCAR33` | Van | 1925 | independent object of type 2 |
+| `HEVYCAR35` | Van | 1927 | independent object of type 2 |
+| `HEVYCAR17/18` | Van | 1909/1910 | consistent native type-3 association |
+| `HEVYCAR19/21` | Bus | 1911/1913 | consistent native type-5 association |
+| `HEVYCAR20` | Bus | 1912 | loaded, no active independent instance; creation blocked |
 
-Para reproduzir a associação estática, a tabela de 40 IDs começa em
-`0x004cdc00` e a de índices em `0x004cdd40`. `COMPCAR14` ocupa o ordinal 3,
-contado a partir de zero, e seu ID é `0x5b55839b95f21600`. O perfil usa o ELF
-USA de SHA-256
-`e118dba952bf9fde6a04ee284bb1f06fa0bb49c9e04bbe762af1039dcc443c66`.
-Os metadados reproduzíveis estão em `scripts/editor/catalog.py`; dumps e
-relatórios locais não fazem parte do repositório.
+To reproduce the static association: the 40-ID table starts at `0x004cdc00` and
+the index table at `0x004cdd40`. `COMPCAR14` is ordinal 3 (from zero) and its ID
+is `0x5b55839b95f21600`. The metadata are in `scripts/editor/catalog.py`; dumps
+and local reports are not part of the repository.
 
-Conhecer a categoria não demonstra que a criação daquele modelo funcione.
-O perfil inicial oferecia somente modelos carregados com associação observada
-a tipos independentes 1 ou 2. A versão seguinte também admite cabine tipo 4
-com carga tipo 11, somente nas combinações nativas observadas e carregadas.
-Uma carga elegível aparece como **Disponível com caminhão**, sem criação
-avulsa. Ônibus e combinações sem validação continuam bloqueados. A
-disponibilidade é calculada para a sessão carregada;
-a lista estática de 40 modelos não significa que todos estejam na memória.
+Knowing the category does not prove that creating the model works. The first
+profile only offered loaded models with an observed association to independent
+types 1 or 2. Later versions also admit type-4 cabs with type-11 trailers, only in
+native, loaded combinations (an eligible trailer shows as **Available with
+truck**, never on its own), and independent types 3 and 5 when the capture holds
+a consistent native association (`HEVYCAR17/18` vans, `HEVYCAR19/21` buses).
+`HEVYCAR20` that is only loaded stays ineligible; eligibility is never inferred
+from the category name. Special types 6 to 10 stay blocked; a real bus-creation
+test is pending. Types 1/2/3/5 need two initialized, non-degenerate physics
+points, an admitted path and coherence with render and collider.
 
-O perfil atual também admite tipos independentes 3 e 5, quando a captura contém
-associação nativa consistente: `HEVYCAR17/18` nas vans de tipo 3 e
-`HEVYCAR19/21` nos ônibus de tipo 5. Na referência desta etapa, `HEVYCAR20`
-está somente carregado e continua inelegível sem essa associação. A habilitação
-não é inferida apenas pelo nome da categoria. Tipos especiais 6 a 10 continuam
-bloqueados; o teste real de criação de ônibus ainda está pendente.
+## Real integration observed
 
-Os independentes 1/2/3/5 exigem dois pontos físicos inicializados e não
-degenerados, caminho admitido e coerência com render e collider. Um modelo
-elegível para criação não torna editável uma instância ainda sem física pronta.
+In the isolated PCSX2 copy the interface connected, read the vehicles and
+applied the lateral control to object 9. The catalogue and the top view were
+checked in the real window, including the player reference.
 
-## Integração real observada
+A controller test created the van **HEVYCAR33** (object 13 / node 11) behind car
+12 of that reference. The final check confirmed type 2, model, path 21,
+initialized physics points and 85% lateral. The original hook and the 4,096
+temporary bytes were left clean. The game also created natural traffic during
+the interval, so the whole pool change is not attributed to the editor.
 
-Na cópia isolada do PCSX2, a interface conectou, leu os veículos e aplicou
-o controle lateral ao objeto 9. Catálogo e vista de cima foram conferidos
-na janela real, incluindo a referência do jogador.
+In the first interface test the object returned by the creation was no longer
+in the active list at finalization; the editor refused to align or clean a
+request it could not confirm any more. Pause soon after the creation notice;
+letting the simulation run can invalidate the reference before the finish.
 
-Um teste do controlador criou a van **HEVYCAR33**, objeto 13/nó 11, atrás
-do carro 12 que já existia na referência desse ensaio. A conferência final
-confirmou tipo 2, modelo, caminho 21, pontos físicos inicializados e lateral
-de 85%. O hook original e os 4096 bytes temporários ficaram limpos. O jogo
-também criou tráfego natural durante o intervalo; a variação total do pool
-não deve ser atribuída somente ao editor.
+In another interface round at the start of Grand Slam, the user confirmed the
+van's presence and collision. The local log shows `HEVYCAR33` prepared behind
+object 9 at 10 units, then the request cancelled after a state reload restored
+the original hook. Reported presence/collision and a logged finish are different
+pieces of evidence.
 
-No primeiro teste pela interface, o objeto retornado pela criação já não
-constava da lista ativa na finalização. O editor recusou alinhar ou limpar
-uma solicitação que não podia mais confirmar. Essa captura não determina
-se houve descarte ao fim do trecho ou reinicialização do evento. Pause
-logo após o aviso de criação; deixar a simulação correr pode invalidar a
-referência antes da finalização.
+### Finishing after the manual test
 
-Na outra rodada pela interface, no início do Grand Slam, o usuário confirmou
-presença e colisão da van. O registro local mostrou preparação de `HEVYCAR33`
-atrás do objeto 9, com distância solicitada de 10 unidades. Depois registrou
-cancelamento da solicitação ao encontrar o hook original e a área temporária
-zerada após recarregamento de estado. Não registrou `spawn_finished` nessa
-rodada: a conclusão técnica de alinhamento/limpeza foi demonstrada no teste
-separado do controlador acima. Presença/colisão relatadas e finalização
-registrada são evidências distintas.
+The user again confirmed that the vehicle was added and worked, while the
+interface still asked to resume or pause. The window showed **Car created** with
+**Game running**: the request had returned from the allocator and was waiting
+for the core pause. When the right copy was paused, validation no longer
+recognized the original instance. The controller now ends that case with a
+warning: after validating the pause, the identity and every immutable byte of
+its own request, it restores only the hook and the temporary area, cancels the
+queue, and neither aligns vehicles nor records the creation in the recipe.
 
-## Finalização após o teste manual
+A local recovery validated the last `HEVYCAR35` request against its recorded
+nonce and the canonical bytes of the routine and removed only the temporary
+code; hashes of the whole object/node/matrix region were identical before and
+after.
 
-O usuário confirmou novamente que o veículo foi adicionado e funcionou no
-jogo, embora a interface ainda pedisse retomar ou pausar. A observação da
-janela mostrou **Carro criado** com **Jogo em execução**: a solicitação já
-havia retornado do alocador e aguardava a pausa do núcleo. Ao pausar a cópia
-correta, a validação já não reconheceu a instância original. Isso explica
-uma pendência de finalização, sem invalidar o relato manual de presença e
-colisão nem provar a causa exata da mudança daquela instância.
+## Available implementation
 
-O controlador passou a encerrar esse caso com aviso. Após validar a pausa,
-a identidade e todos os bytes imutáveis da própria solicitação, ele restaura
-somente o hook e a área temporária, cancela a fila e não alinha veículos nem
-registra a criação na receita. Uma falha na limpeza continua bloqueando
-edições e exige referência limpa. A interface preserva o aviso em âmbar,
-distingue espera do tráfego de espera da pausa e destaca as duas etapas.
-
-Para atualizar a sessão aberta, uma recuperação local validou a última
-solicitação `HEVYCAR35` contra seu nonce registrado e os bytes canônicos da
-rotina. Ela removeu apenas o código temporário; os hashes de toda a região
-de objetos/nós/matrizes antes e depois ficaram iguais. Hook e área temporária
-ficaram limpos, sem carregar outro estado ou alinhar atores. A interface
-atualizada reconectou com **Jogo pausado**, sem criação pendente.
-
-## Implementação disponível
-
-- Interface externa em Tkinter, aberta por `Abrir Editor.cmd`.
-- Conexão PINE local, com validação de PCSX2 1.7.2521 e Burnout 3 USA,
+- External Tkinter interface, opened by `Open Editor.cmd`.
+- Local PINE connection validated for PCSX2 1.7.2521 and Burnout 3 USA
   `SLUS-21050` / CRC `BEBF8793`.
-- Identificação dos veículos presentes e dos modelos carregados.
-- Conexão mantida com perfil inválido após confirmar a identidade do jogo,
-  mantendo **Finalizar pendência** disponível e a edição bloqueada.
-- Vista de cima das posições X/Z e da geometria pesquisada dos caminhos de
-  tráfego, com bordas, centro, setas de progressão e destaque da via selecionada.
-  **Mostrar vias**, **Caminho**, **Enquadrar**, roda e arrasto com botão direito
-  permitem navegar. Candidatos sem veículo associado são marcados `P?`;
-  seu uso atual não é confirmado. A vista mantém alvo por clique e entrada manual
-  para criação; não é a malha de asfalto nem acompanhamento em tempo real.
-- Consulta do alvo e do seguimento em escala nominal km/h, com edição apenas do
-  alvo quando o perfil admite o registro, em um veículo ou seleção múltipla.
-  Zero pode ser aplicado e alterado depois; cabine e carga não recebem escritas
-  independentes de velocidade.
-- Painel direito com barra vertical e rodapé do mapa em duas linhas para manter
-  os controles acessíveis em janelas menores, com quebra de texto ajustada à largura.
-- Reposicionamento lateral de independente com física inicializada e uma
-  edição candidata do conjunto cabine/carga, protegida pelo vínculo nativo.
-- No modo normal, lotes de 1 a 8, usando a rotina do próprio jogo em um ciclo
-  de retomar e pausar; cabine e carga contam como um conjunto.
-- No modo normal, distância de 8 a 50 unidades nos independentes e de 30 a 50 para caminhão
-  ou referência composta e ônibus tipo 5, sem equivalência estabelecida em metros.
-- Modo experimental explícito, com aviso persistente de alto risco de
-  travamento/perda de física, distância positiva sem o teto de 50 e pedidos
-  maiores sujeitos aos recursos disponíveis. A fila é executada em grupos
-  de até oito; **Cancelar fila** remove só o que ainda não foi preparado.
-- Estatísticas de objetos ativos e inicializados, objetos/nós livres e fila,
-  com aviso quando objetos conhecidos deixam de ter física inicializada.
-- Botões **Pausar PCSX2** e **Retomar**, quando a instalação Windows da
-  conexão PINE e seu menu compatível são identificados.
-- Receitas JSON para reaplicar as ações sobre exatamente o mesmo estado inicial.
-- Exportação **Salvar estado…** para `.p2s`, implementada para a instalação
-  portátil; o usuário confirmou a exportação real. O arquivo exportado ainda
-  não foi restaurado em teste. A sugestão fica em `outputs/events/`, com nome
-  único e caminho retornado no rodapé. A restauração usa
-  **Sistema → Carregar estado → Arquivo…** no PCSX2.
+- Identification of the vehicles present and of the loaded models.
+- The connection is kept with an invalid profile once the game identity is
+  confirmed, keeping **Finish pending request** available and editing blocked.
+- Top view of X/Z positions and of the researched traffic-path geometry (edges,
+  centre, direction arrows, highlighted lane). **Show lanes**, **Path**,
+  **Fit**, wheel and right-drag navigate. Candidates with no associated vehicle
+  are marked `P?`.
+- Nominal km/h target and follow values; only the target is edited, on one
+  vehicle or a selection. Zero can be applied and changed later; cab and
+  trailer never get separate speed writes.
+- Scrollable right panel for short windows.
+- Lateral repositioning of independent vehicles with initialized physics, and a
+  candidate edit of the cab/trailer set protected by the native link.
+- Normal mode: batches of 1 to 8 using the game's own routine in one resume/pause
+  cycle; distance 8–50 units for independents and 30–50 for trucks, composite
+  references and type-5 buses.
+- Explicit experimental mode with a persistent warning, positive distances
+  without the 50 ceiling and larger requests limited by real resources, queued in
+  groups of up to eight; **Cancel queue** drops only what was not prepared yet.
+- Counts of active and initialized objects, free objects/nodes and queue.
+- **Pause PCSX2** and **Resume** buttons when the Windows installation behind the
+  PINE connection and its compatible menu are identified.
+- JSON recipes to reapply the actions on exactly the same initial state.
+- **Save state…** export to `.p2s` (confirmed by the user; restoring the exported
+  file is still untested).
 
-Na sessão atual, os dez slots de Burnout 3 já estavam ocupados e a exportação
-por PINE foi recusada para preservar os arquivos existentes. A alternativa
-**Sistema → Salvar estado → Arquivo…**, com destino novo, produziu uma cópia
-de controle validada como ZIP com memória EE de 32 MiB, sem substituir originais.
-Esse resultado é da rota manual de arquivo, não do botão PINE com slots cheios.
-O leitor de configuração aceita padding NUL somente no final do INI UTF-8 sem BOM
-examinado; não ignora NUL interno nem altera a configuração do emulador.
+With all ten Burnout 3 slots taken, the PINE export is refused to protect the
+existing files. **System → Save state → File…** to a new destination produced a
+control copy validated as a ZIP with 32 MiB of EE memory. The INI reader accepts
+NUL padding only at the end of the examined UTF-8 INI without BOM.
 
-O emulador deve estar pausado ao listar e editar. Use **Pausar PCSX2** ou o
-menu **Sistema → Pausar** do emulador correto. A pausa interna com **Start**
-não suspende o núcleo da mesma forma. Para acrescentar um lote, a interface
-prepara a operação durante a pausa; o usuário retoma uma vez para executar
-as criações e pausa novamente para a finalização.
-Só após a confirmação deve retomar para jogar. Os detalhes estão no
-[guia de primeiro uso](editor-quickstart.md).
+The emulator must be paused to list and edit. Controller actions go through a
+single interface worker, and a pending creation blocks new edits. Ambiguous write
+failures are never repeated automatically. Pause checks and read-backs do not make
+an operation a transaction: resuming the emulator during a write can interrupt it.
 
-As ações do controlador passam por um único trabalhador da interface, e uma
-criação pendente bloqueia novas edições. Falhas de escrita ambíguas não são
-repetidas automaticamente. As verificações de pausa e leitura de retorno não
-tornam a operação uma transação: retomar o emulador durante uma escrita pode
-interromper a edição. Uma falha que exigir referência limpa deve ser resolvida
-recarregando essa referência, pausando o emulador e conectando novamente.
+## Batches and cab/trailer sets
 
-## Lotes e conjunto cabine/carga
+The user explicitly confirmed that the car batch and the truck with a trailer
+appeared and worked. The local log includes `batch_finished` for eight `COMPCAR14`
+and for a `HEVYCAR22` + `HEVYCAR27` pair, and three later `batch_not_finalized`
+records after an instance or identity change; those were not aligned as if the old
+reference were still valid.
 
-O usuário confirmou explicitamente que o lote de carros e o caminhão com carga
-apareceram e funcionaram. O registro local inclui `batch_finished` para oito
-`COMPCAR14` e para um par `HEVYCAR22` + `HEVYCAR27`. Também houve três registros
-posteriores `batch_not_finalized`, após mudança da instância ou identidade.
-Esses casos não foram alinhados como se a referência antiga ainda fosse válida.
-Sucessos específicos e bloqueios de segurança não demonstram validade universal.
+The composite move is a candidate implementation: it prepares eleven protected
+values to move cab/trailer without breaking the link. Creating the set does not
+prove movement and collision after that move. A fourth tanker and its explosion
+effects remain unvalidated. See [batches-trucks-and-pause.md](batches-trucks-and-pause.md).
 
-O movimento composto é uma implementação candidata: prepara onze valores
-protegidos para deslocar cabine/carga, sem separar o vínculo. O relato de criação
-do conjunto não comprova movimento e colisão após esse reposicionamento.
-Um quarto caminhão-tanque e seus efeitos de explosão continuam sem validação.
-Detalhes de uso e evidência em [batches-trucks-and-pause.md](batches-trucks-and-pause.md).
+A later revision restores the hook in the last stub and publishes completion only
+to a fixed twelve-byte landing that the cleanup preserves, protecting the EE resume
+if the pause happens while it is still leaving that code. After reopening the
+editor with that builder the user confirmed **"Batch and export worked"**.
 
-A revisão seguinte da finalização restaura o hook no último stub e publica a
-conclusão somente numa landing fixa de doze bytes, preservada pela limpeza.
-Isso protege a retomada do EE caso a pausa ocorra enquanto ele ainda termina
-essa saída. Após reabrir o editor com esse builder, o usuário confirmou:
-**“Lote e exportação funcionaram”**. Essa rodada confirmou manualmente o novo
-fluxo e a exportação real; não incluiu restauração do arquivo exportado.
+Later log reads show eight `HEVYCAR33` vans finished on path 53 and two
+`HEVYCAR22` + `HEVYCAR27` pairs on each of paths 34 and 53. A later read refused
+the profile because the traffic structures failed the check, leaving a pending
+request; that refusal does not establish a freeze or a general failure.
 
-Leituras posteriores do registro local mostram finalização de oito vans
-`HEVYCAR33` no caminho 53 e de dois pares `HEVYCAR22` + `HEVYCAR27` em cada
-um dos caminhos 34 e 53. Um registro ainda posterior recusou o perfil porque
-as estruturas de tráfego não passaram na verificação, mantendo uma pendência.
-Essa recusa não estabelece travamento ou falha geral; os limites de perfil
-continuam ativos mesmo após os ensaios bem-sucedidos.
+## Explicit recovery of restored requests
 
-## Recuperação explícita de solicitações restauradas
+An old pending request was traced to reloading a state saved before the cleanup:
+the temporary routine came back with that state. **Finish pending request**
+recognizes only canonical v1/v2 landing-based payloads with a matching local log
+and proof that the batch returned control to the game. A real recovery changed only
+the 4 KiB temporary area; the object, node and matrix regions stayed byte-identical.
+The v2 format ties the completion to a per-generation token so a publication from
+another batch cannot complete the current one.
 
-O diagnóstico desta etapa ligou uma pendência antiga ao recarregamento de um
-estado feito antes da limpeza: a rotina temporária voltou à memória junto
-com aquele estado. **Finalizar pendência** reconhece apenas payloads canônicos
-v1/v2 baseados na landing, com correspondência no registro local e prova de que
-o lote devolveu o controle ao jogo. Código desconhecido ou execução incompleta
-continua bloqueado.
+A type-5 bus batch in v2 format was prepared; its finish was not confirmed, so bus
+movement, presence and collision in a run remain unconfirmed.
 
-Uma recuperação real alterou somente a área temporária de 4 KiB. As regiões
-classificadas de objetos, nós e matrizes permaneceram idênticas byte a byte;
-nenhum veículo foi reposicionado. Isso encerrou o código antigo, sem recuperar
-seu alinhamento ou sua receita JSON. Os dumps, tokens e hashes privados dessa
-conferência não são distribuídos.
+## Experimental density and creation at a point
 
-O formato v2 liga a publicação de conclusão a um token da geração daquela
-solicitação e evita reutilização do histórico conhecido. Os probes e o token
-esperado precisam concordar: uma publicação de outro lote não conclui o atual.
-O formato v1 com landing permanece reconhecido somente para recuperação
-controlada de uma solicitação antiga já encerrada.
+The user reported lost physics and a freeze / VIF assert in scenes with more than
+fifty added cars and many involved in the same crash. `FQC = 0 on VIF FIFO READ!`
+is an emulator FIFO read with a zero count; it is not a car counter and does not
+prove a general limit of fifty. See [high-density-experiments.md](high-density-experiments.md).
 
-A ação de recuperação é explícita e passa pelo trabalhador da interface.
-Ela continua acessível com perfil de tráfego inválido, sem seleção de veículo.
-Se a limpeza for confirmada e a leitura seguinte falhar, o aviso de sucesso é
-preservado e a lista/edição ficam bloqueadas até uma leitura válida.
+Experimental mode lifts the editor's own limits; it does not enlarge the game's
+fixed structures. Each request accepts at most 253 (the known pool) and must fit
+the real object, node and collision reserves; a cab/trailer set uses two objects.
+Requests above eight run as successive groups of up to eight.
 
-Um novo lote de ônibus tipo 5 em formato v2 foi preparado. A conferência foi
-interrompida antes de confirmar sua finalização; isso não confirma movimento,
-presença visível ou colisão de ônibus em execução.
+**Add at point** creates one vehicle or set per action. X/Z come from the target
+in the top view or the manual fields; the point is snapped to the best loaded path
+with valid references. Normal mode limits the lateral offset to the admitted width
+and refuses far requests; experimental mode allows a wider lateral offset, still
+without terrain search or Y. It is not exact placement on any surface, loading new
+scenery, or teleporting an existing body.
 
-## Densidade experimental e criação no ponto
+## Paths and nominal speed
 
-O usuário relatou perda de física e congelamento/assert VIF em cenas com mais
-de cinquenta carros adicionais e muitos envolvidos no mesmo impacto. O assert
-`FQC = 0 on VIF FIFO READ!` indica uma leitura FIFO com contagem zero no emulador;
-não é um contador de carros nem comprova um teto geral de cinquenta. A pesquisa
-encontrou outros recursos finitos, mas não atribuiu a causa exata da falha.
-As fontes, o escopo estático e as hipóteses estão em
-[high-density-experiments.md](high-density-experiments.md).
+The drawn network includes lanes with an observed reference and candidates found
+through recognized descriptors and geometry; reads are budgeted and incomplete data
+is skipped with a partial-view notice. Edges and centre represent traffic
+following, not the visual mesh or the road collision. Arrows always show geometric
+progression; a traffic direction is only corroborated when the moving reference
+and its orientation pass the checks. The desired-control field and the follow
+progress are separate; the km/h conversion is nominal. See
+[routes-and-speed.md](routes-and-speed.md).
 
-O modo experimental da interface libera limites próprios do editor; não aumenta
-as estruturas fixas do jogo e não corrige o crash. Cada pedido aceita no máximo
-253 por causa do pool conhecido e precisa caber nas reservas reais de objetos,
-nós e colisão. Um conjunto cabine/carga usa dois objetos. Pedidos acima de oito
-viram grupos sucessivos de até oito, com confirmação de retomar/pausar a cada
-grupo; eles não executam centenas de alocações num único frame. Cancelar a fila
-não desfaz veículos criados ou o grupo já preparado.
+An offline check on a preserved reference produced a preview of 27 admitted paths
+with P21 highlighted, leaving the supplied memory bytes untouched.
 
-Com o toggle ativo, uma distância positiva e finita deixa de ter o intervalo
-artificial de 8/30 a 50, e a proteção de proximidade é relaxada. O caminho ainda
-precisa existir e ter trecho utilizável. Identidade, pausa, modelo carregado,
-formato de código, conclusão e limites conhecidos de memória continuam exigidos.
-As estatísticas da interface descrevem os objetos da sessão; não demonstram
-que todos possam participar de uma batida com física completa.
+## Limits
 
-**Adicionar no ponto** usa um único veículo ou conjunto por ação. X/Z podem vir
-do alvo na vista de cima ou dos campos manuais; a implementação aproxima o
-ponto ao melhor caminho entre os carregados que têm referências válidas. No
-modo normal, limita a lateral à largura admitida e recusa um pedido muito
-distante. No experimental, admite uma lateral fora dessa largura, ainda sem
-buscar terreno ou definir Y. O resultado pode diferir do clique: não se trata
-de um posicionamento exato em qualquer superfície, carregamento de cenário
-novo ou teleporte de um corpo existente.
+The live editor uses the models and paths already loaded by the game. Changes stay
+in the current session; they do not write ISO resources. **Restart**, changing
+event or loading another state can recreate the traffic. A JSON preset stores a
+recipe; it does not replace a save state.
 
-Para um objeto deslocado fora da faixa que ainda mantenha o layout e a física
-admitidos, o modo experimental pode oferecer o controle lateral de 0% a 100%
-para tentar trazê-lo de volta. Isso não o torna uma referência normal de criação
-enquanto estiver fora do perfil. Receitas registram a natureza experimental das
-ações; sua carga é recusada com o toggle desligado, sem ativação automática pelo JSON.
+Persistent edits are now possible through the disc: model order, goals and the
+Crashbreaker count ([native events](native-crash-events.md)) and the traffic
+waves themselves ([traffic waves](traffic-waves.md)).
 
-Esses fluxos receberam validação automatizada antes dos ensaios do usuário.
-A confirmação posterior de que as novas mudanças funcionaram é um relato de
-uso, sem demonstrar estabilidade de todos os modos, locais ou cenas densas.
+Automated tests cover the protocol, profile, creation routine, interface flow and
+simulated window/export control. They do not prove impact behaviour, long-term
+stability or every model and level.
 
-## Caminhos e velocidade nominal
-
-A rede desenhada inclui vias com referência observada e candidatos encontrados
-por descritores e geometria reconhecidos. Leituras e amostras são limitadas por
-orçamento; dados incompletos são omitidos e a interface conserva o aviso de
-visualização parcial. Bordas e centro representam o seguimento do tráfego,
-não a malha visual ou a colisão do asfalto. A projeção X/Z pode sobrepor vias em
-alturas diferentes. As setas sempre representam progressão geométrica; um sentido
-de trânsito só é corroborado quando a referência móvel e sua orientação passam
-nas verificações. Candidatos não se tornam referências de criação pelo desenho.
-
-O campo de controle desejado e o avanço de seguimento foram separados. A
-conversão exibida em km/h é nominal; não estabelece que uma unidade do mundo
-seja um metro nem mede o movimento da carroceria. **Aplicar velocidade** altera
-somente o alvo protegido pelo perfil. O seguimento continua sendo calculado
-pelo jogo, inclusive para filas e obstáculos, e a carga usa a cabine como
-referência em vez de receber um alvo avulso.
-
-O alvo zero não impede uma edição posterior de um registro que ainda conserve
-o layout admitido. Essas mudanças também podem ser registradas como ações
-`set_speed` em receitas para o mesmo estado inicial; ações experimentais continuam
-exigindo o toggle explícito ao carregar. A interface consulta uma captura
-pausada e apresenta escala nominal, sem prometer velocímetro contínuo, velocidade
-real calibrada ou estabilidade de uma cena densa. A pesquisa e os limites estão
-em [routes-and-speed.md](routes-and-speed.md).
-
-Uma conferência offline numa referência preservada produziu uma prévia de 27
-caminhos admitidos, com P21 em destaque. Os bytes da memória fornecida à leitura
-permaneceram idênticos. É uma verificação da geometria e da geração da prévia,
-separada de uma captura da interface real ou de um teste de comportamento no jogo.
-
-## Limites e próxima validação
-
-A interface usa os modelos e caminhos já carregados pelo jogo. As alterações
-ocorrem na sessão atual, sem gravar recursos do ISO ou arquivos persistentes de
-Crash Events. Um `.p2s` pretende preservar a sessão para restaurá-la no PCSX2;
-ele não transforma o layout em recurso permanente do jogo. **Restart**, troca de evento e carregamento de outro estado podem
-recriar o tráfego. Um preset JSON guarda uma receita; ele não substitui um
-save state e não resolve a persistência no evento.
-
-Os testes automatizados verificam o protocolo, o perfil, a rotina de criação,
-o fluxo da interface e as simulações de controle de janela/exportação.
-Esses resultados não demonstram impacto,
-estabilidade prolongada ou funcionamento de todos os modelos e níveis.
-A integração e o relato manual acima cobrem somente os ensaios descritos.
-Edição dentro do jogo,
-novos locais de Crash e gravação persistente continuam como etapas futuras.
-
-Os testes posteriores do usuário, o diagnóstico de veículos bloqueados e a
-pesquisa sobre cabine/carga e a hipótese de três tanques estão em
-[traffic-capacity-and-trucks.md](traffic-capacity-and-trucks.md).
+Later user tests, the diagnosis of blocked vehicles and the cab/trailer research
+are in [traffic-capacity-and-trucks.md](traffic-capacity-and-trucks.md).

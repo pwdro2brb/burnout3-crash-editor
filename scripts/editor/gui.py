@@ -1,4 +1,4 @@
-"""Portuguese Tkinter interface for a controller supplied by the launcher.
+"""Tkinter interface for a controller supplied by the launcher.
 
 The controller owns emulator/profile validation and all mutations. Its methods
 are called only on one background worker; this module touches Tk only on the
@@ -67,17 +67,17 @@ def number(text: str, *, positive: bool = False) -> float:
     try:
         value = float(text.strip().replace(',', '.'))
     except ValueError as exc:
-        raise ValueError('Informe um número válido.') from exc
+        raise ValueError('Enter a valid number.') from exc
     if not math.isfinite(value):
-        raise ValueError('Informe um número finito.')
+        raise ValueError('Enter a finite number.')
     if positive and value <= 0:
-        raise ValueError('A distância precisa ser maior que zero.')
+        raise ValueError('The distance must be greater than zero.')
     return value
 
 
 def quantity(text: str, experimental: bool = False) -> int:
     maximum = 253 if experimental else 8
-    message = f'Use uma quantidade inteira entre 1 e {maximum}.'
+    message = f'Use a whole number between 1 and {maximum}.'
     try:
         value = int(text.strip())
     except (AttributeError, TypeError, ValueError) as exc:
@@ -90,14 +90,14 @@ def quantity(text: str, experimental: bool = False) -> int:
 def world_coordinate(text: str) -> float:
     value = number(text)
     if abs(value) > 3.402823466e38:
-        raise ValueError('A coordenada excede o intervalo numérico do jogo.')
+        raise ValueError("The coordinate exceeds the game's numeric range.")
     return value
 
 
 def export_suggestion(directory: Path | None = None) -> Path:
     """Suggest a local name without replacing an existing file or link."""
     folder = Path(directory) if directory is not None else EXPORT_DIRECTORY
-    stem = 'evento-editado-' + datetime.now().strftime('%Y%m%d-%H%M%S')
+    stem = 'edited-event-' + datetime.now().strftime('%Y%m%d-%H%M%S')
     candidate = folder / (stem + '.p2s')
     index = 1
     while candidate.exists() or candidate.is_symlink():
@@ -108,7 +108,7 @@ def export_suggestion(directory: Path | None = None) -> Path:
 
 def project_suggestion(parent: Path) -> Path:
     """Use an unused child directory; the backend creates it exclusively."""
-    stem = 'evento-' + datetime.now().strftime('%Y%m%d-%H%M%S')
+    stem = 'event-' + datetime.now().strftime('%Y%m%d-%H%M%S')
     candidate = Path(parent) / stem
     index = 1
     while candidate.exists() or candidate.is_symlink():
@@ -126,22 +126,22 @@ def coordinate(value: Any) -> str:
 
 
 def model_label(model: dict[str, Any], index: int) -> str:
-    label = str(model.get('label') or f'Modelo sem nome {index + 1}')
+    label = str(model.get('label') or f'Unnamed model {index + 1}')
     category = str(model.get('type_label') or '').strip()
     if category and category not in label:
         label += f' · {category}'
     if model.get('verified') is False:
-        label += ' (nome a confirmar)'
+        label += ' (name to be confirmed)'
     return label
 
 
 def catalog_rows(models: list[dict[str, Any]]) -> list[tuple[str, str, str]]:
     """Include restricted models for identification, without enabling creation."""
-    return [(str(model.get('label') or model.get('id') or f'Modelo {index + 1}'),
-             str(model.get('type_label') or 'Não identificada'),
-             'Disponível' if model.get('eligible') is True else
-             'Disponível com caminhão' if model.get('eligible_as_trailer') is True else
-             'Criação não validada')
+    return [(str(model.get('label') or model.get('id') or f'Model {index + 1}'),
+             str(model.get('type_label') or 'Unidentified'),
+             'Available' if model.get('eligible') is True else
+             'Available with truck' if model.get('eligible_as_trailer') is True else
+             'Creation not validated')
             for index, model in enumerate(models)]
 
 
@@ -150,11 +150,11 @@ def slot_archive_description(row: dict[str,Any]) -> str:
     if (type(slot) is not int or not 0 <= slot <= 9 or row.get('occupied') is not True
             or row.get('blocked') or not isinstance(paths,list) or not paths
             or any(not isinstance(path,str) or not path for path in paths)):
-        raise ValueError('Selecione um slot ocupado que possa ser arquivado.')
-    return (f'Arquivar os arquivos do slot {slot}?\n\n' + '\n'.join(paths)
-            + '\n\nUma cópia verificada ficará na pasta de backups do editor. '
-              'Depois da conferência, esses arquivos sairão dos slots para liberar o espaço. '
-              'Os demais slots serão preservados.')
+        raise ValueError('Select an occupied slot that can be archived.')
+    return (f'Archive the files of slot {slot}?\n\n' + '\n'.join(paths)
+            + '\n\nA verified copy will stay in the editor backups folder. '
+              'After the check, these files will leave the slots to free the space. '
+              'The other slots are kept.')
 
 
 def xz(position: Any) -> tuple[float, float] | None:
@@ -193,18 +193,18 @@ def speed_value(value: Any) -> str:
 def speed_summary(vehicle: dict[str,Any] | None, *, detailed=False) -> str:
     info = (vehicle or {}).get('speed_info')
     if not isinstance(info,dict):
-        return 'Velocidade: não disponível nesta leitura.' if detailed else '—'
+        return 'Speed: not available in this read.' if detailed else '—'
     control,travel = speed_value(info.get('control_value')),speed_value(info.get('travel_value'))
     nominal_target,nominal_travel = info.get('nominal_target_kmh'),info.get('nominal_travel_kmh')
     if type(nominal_target) in (int,float) and math.isfinite(nominal_target):
         target_text,travel_text = speed_value(nominal_target),speed_value(nominal_travel)
         if detailed:
-            return (f'Alvo nominal: {target_text} km/h · Seguimento nominal: {travel_text} km/h\n'
-                    'Escala nominal; o trânsito pode reduzir o avanço.')
+            return (f'Nominal target: {target_text} km/h · Nominal follow: {travel_text} km/h\n'
+                    'Nominal scale; traffic can reduce progress.')
         return f'{target_text} / {travel_text}'
     if detailed:
-        units = str(info.get('units') or 'unidades internas')
-        return f'Controle: {control} · Seguimento: {travel}\n{units}; valores internos não convertidos.'
+        units = str(info.get('units') or 'internal units')
+        return f'Control: {control} · Follow: {travel}\n{units}; internal values not converted.'
     return f'{control} / {travel}'
 
 
@@ -214,11 +214,11 @@ def map_to_world(view: tuple[float, float, float], width: float, height: float,
     cx, cz, span = view
     if (not all(math.isfinite(value) for value in (cx, cz, span, width, height, px, py))
             or span <= 0 or width <= 40 or height <= 50):
-        raise ValueError('A vista de cima ainda não está pronta para marcar uma posição.')
+        raise ValueError('The top view is not ready to mark a position yet.')
     scale = min(width - 40, height - 50) / span
     result = cx + (px - width / 2) / scale, cz + (height / 2 - py) / scale
     if not all(math.isfinite(value) for value in result):
-        raise ValueError('A posição marcada não é finita.')
+        raise ValueError('The marked position is not finite.')
     return result
 
 
@@ -227,14 +227,14 @@ def capacity_summary(snapshot: dict[str, Any]) -> str:
     counts = snapshot.get('capacity') or snapshot.get('counts') or {}
     active = counts.get('active_objects', len(vehicles))
     ready = counts.get('initialized_objects', sum(v.get('initialized') is True for v in vehicles))
-    parts = [f'Objetos ativos: {active}', f'Física pronta: {ready}']
-    for key, label in (('free_objects', 'Objetos livres'), ('free_nodes', 'Nós livres')):
+    parts = [f'Active objects: {active}', f'Physics ready: {ready}']
+    for key, label in (('free_objects', 'Free objects'), ('free_nodes', 'Free nodes')):
         value = counts.get(key)
         if type(value) is int:
             parts.append(f'{label}: {value}')
     queued = counts.get('queued_operations')
     if type(queued) is int:
-        parts.append(f'Na fila: {queued}')
+        parts.append(f'Queued: {queued}')
     warning = counts.get('physics_warning')
     if isinstance(warning, str) and warning:
         parts.append(warning)
@@ -270,13 +270,13 @@ class EditorApp:
         self.player: dict[str, Any] | None = None
         self.jobs: queue.Queue[Any] = queue.Queue()
         self.results: queue.Queue[Any] = queue.Queue()
-        self.status = tk.StringVar(value='Conecte ao emulador com um evento carregado.')
+        self.status = tk.StringVar(value='Connect to the emulator with an event loaded.')
         self.pending_text = tk.StringVar(value='')
         self.connection_text = tk.StringVar(value='Desconectado')
         self.core_text = tk.StringVar(value='')
-        self.selection_text = tk.StringVar(value='Selecione um veículo na lista.')
+        self.selection_text = tk.StringVar(value='Select a vehicle in the list.')
         self.position_text = tk.StringVar(value='X: —     Y: —     Z: —')
-        self.speed_text = tk.StringVar(value='Velocidade: não disponível nesta leitura.')
+        self.speed_text = tk.StringVar(value='Speed: not available in this read.')
         self.speed_target_kmh = tk.StringVar(value='')
         self.speed_selection_text = tk.StringVar(value='')
         self.speed_controls_visible = False
@@ -289,16 +289,16 @@ class EditorApp:
         self.point_x = tk.StringVar(value='')
         self.point_z = tk.StringVar(value='')
         self.capacity_text = tk.StringVar(value='')
-        self.project_name = tk.StringVar(value='Meu evento de Crash')
-        self.project_text = tk.StringVar(value='Nenhum projeto aberto. Conecte e pause o PCSX2 para começar.')
-        self.model_choice = tk.StringVar(value='Mesmo modelo do selecionado')
-        self.secondary_choice = tk.StringVar(value='Selecione a carga')
-        self.spawn_mode = tk.StringVar(value='Modelo único')
+        self.project_name = tk.StringVar(value='My Crash event')
+        self.project_text = tk.StringVar(value='No project open. Connect and pause PCSX2 to start.')
+        self.model_choice = tk.StringVar(value='Same model as selected')
+        self.secondary_choice = tk.StringVar(value='Select the trailer')
+        self.spawn_mode = tk.StringVar(value='Single model')
         self.spawn_color = tk.StringVar(value='Original (0)')
         self.mixed_model_ids: list[str] = []
-        self.mixed_text = tk.StringVar(value='Escolha pelo menos dois modelos carregados para alternar.')
-        self.map_notice = tk.StringVar(value='Posições dos veículos; sem desenho da pista.')
-        self.instructions_text = tk.StringVar(value='Pause com Esc no PCSX2 e atualize a lista antes de editar. As alterações valem para a sessão atual.')
+        self.mixed_text = tk.StringVar(value='Choose at least two loaded models to alternate.')
+        self.map_notice = tk.StringVar(value='Vehicle positions; no track drawing.')
+        self.instructions_text = tk.StringVar(value='Pause PCSX2 with Esc and refresh the list before editing. Changes apply to the current session.')
         self._build()
         for variable in (self.point_x, self.point_z):
             variable.trace_add('write', self._point_changed)
@@ -311,7 +311,7 @@ class EditorApp:
 
     def _build(self) -> None:
         root = self.root
-        root.title('Burnout 3 — Editor do evento atual')
+        root.title('Burnout 3 — Current event editor')
         root.geometry('1040x710')
         root.minsize(850, 600)
         root.columnconfigure(0, weight=1)
@@ -324,13 +324,13 @@ class EditorApp:
         header = ttk.Frame(container)
         header.grid(row=0, column=0, sticky='ew')
         header.columnconfigure(0, weight=1)
-        ttk.Label(header, text='Editor do evento atual',
+        ttk.Label(header, text='Current event editor',
                   font=('Segoe UI', 19, 'bold')).grid(row=0, column=0, sticky='w')
         ttk.Label(header, text='Experimental · Burnout 3 USA / PCSX2',
                   foreground='#5f6875').grid(row=1, column=0, sticky='w', pady=(4, 0))
-        self.connect_button = ttk.Button(header, text='Conectar / nova sessão', command=self.connect)
+        self.connect_button = ttk.Button(header, text='Connect / new session', command=self.connect)
         self.connect_button.grid(row=0, column=1, rowspan=2, padx=(15, 8))
-        self.refresh_button = ttk.Button(header, text='Atualizar lista', command=self.refresh)
+        self.refresh_button = ttk.Button(header, text='Refresh list', command=self.refresh)
         self.refresh_button.grid(row=0, column=2, rowspan=2)
         connection = ttk.Frame(container)
         connection.grid(row=1, column=0, sticky='ew', pady=(15, 4))
@@ -341,15 +341,15 @@ class EditorApp:
                   foreground='#305d86').grid(row=0, column=1, sticky='e')
         self.emulator_controls = ttk.Frame(connection)
         self.emulator_controls.grid(row=0, column=2, padx=(12, 0))
-        self.pause_button = ttk.Button(self.emulator_controls, text='Pausar PCSX2', command=self.pause_emulator)
+        self.pause_button = ttk.Button(self.emulator_controls, text='Pause PCSX2', command=self.pause_emulator)
         self.pause_button.pack(side='left')
-        self.resume_button = ttk.Button(self.emulator_controls, text='Retomar', command=self.resume_emulator)
+        self.resume_button = ttk.Button(self.emulator_controls, text='Resume', command=self.resume_emulator)
         self.resume_button.pack(side='left', padx=(6, 0))
         self.emulator_controls.grid_remove()
-        self.finalize_button = ttk.Button(connection, text='Finalizar pendência',
+        self.finalize_button = ttk.Button(connection, text='Finish pending request',
                                           command=self.finalize_pending)
         self.finalize_button.grid(row=0, column=3, padx=(8, 0))
-        self.cancel_queue_button = ttk.Button(connection, text='Cancelar fila', command=self.cancel_queue)
+        self.cancel_queue_button = ttk.Button(connection, text='Cancel queue', command=self.cancel_queue)
         self.cancel_queue_button.grid(row=0, column=4, padx=(6, 0))
         ttk.Label(connection, textvariable=self.capacity_text,
                   foreground='#5f6875', wraplength=920).grid(row=1, column=0, columnspan=5, sticky='w', pady=(5, 0))
@@ -360,12 +360,12 @@ class EditorApp:
                   textvariable=self.instructions_text,
                   foreground='#5f6875').grid(row=0, column=0, sticky='w')
         self.experimental_check = ttk.Checkbutton(instructions,
-            text='Modo experimental: ampliar quantidade e distância',
+            text='Experimental mode: larger amounts and distances',
             variable=self.experimental, command=self._experimental_changed)
         self.experimental_check.grid(row=1, column=0, sticky='w', pady=(6, 0))
         self.experimental_warning = ttk.Label(instructions,
-            text='Alto risco de travamento/perda de física. Salve um estado antes de testar. '
-                 'A fila usa grupos de até 8; retome e pause para concluir cada grupo.',
+            text='High risk of freezes/lost physics. Save a state before testing. '
+                 'The queue uses groups of up to 8; resume and pause to finish each group.',
             foreground='#a33922', wraplength=850)
         self.experimental_warning.grid(row=2, column=0, sticky='w', pady=(4, 0))
         self.experimental_warning.grid_remove()
@@ -385,11 +385,11 @@ class EditorApp:
         actors = ttk.Frame(lists, padding=(0, 8, 0, 0))
         actors.columnconfigure(0, weight=1)
         actors.rowconfigure(0, weight=1)
-        lists.add(actors, text='Veículos presentes')
+        lists.add(actors, text='Vehicles present')
         self.table = ttk.Treeview(actors, columns=('vehicle', 'type', 'model','speed'),
                                   show='headings', selectmode='extended', height=15)
-        for key, title, width in [('vehicle', 'Veículo', 140), ('type', 'Categoria', 105),
-                                  ('model', 'Modelo', 150),('speed','Nominal km/h A/S',150)]:
+        for key, title, width in [('vehicle', 'Vehicle', 140), ('type', 'Category', 105),
+                                  ('model', 'Model', 150),('speed','Nominal km/h A/S',150)]:
             self.table.heading(key, text=title)
             self.table.column(key, width=width, minwidth=70, stretch=True)
         self.table.grid(row=0, column=0, sticky='nsew')
@@ -397,15 +397,15 @@ class EditorApp:
         scroll.grid(row=0, column=1, sticky='ns')
         self.table.configure(yscrollcommand=scroll.set)
         self.table.bind('<<TreeviewSelect>>', self._selection_changed)
-        ttk.Label(actors, text='Ctrl: escolher vários · Shift: selecionar um intervalo.',
+        ttk.Label(actors, text='Ctrl: pick several · Shift: select a range.',
                   foreground='#5f6875', wraplength=420).grid(row=1, column=0, sticky='w', pady=(6, 0))
-        self.select_speed_button = ttk.Button(actors, text='Selecionar aptos para velocidade',
+        self.select_speed_button = ttk.Button(actors, text='Select speed-eligible',
                                               command=self.select_speed_eligible)
         self.select_speed_button.grid(row=2, column=0, sticky='w', pady=(6, 0))
         view = ttk.Frame(lists, padding=(0, 8, 0, 0))
         view.columnconfigure(0, weight=1)
         view.rowconfigure(1, weight=1)
-        lists.add(view, text='Vista de cima')
+        lists.add(view, text='Top view')
         ttk.Label(view, textvariable=self.map_notice, wraplength=420,
                   foreground='#5f6875').grid(row=0, column=0, sticky='w', pady=(0, 6))
         self.map_canvas = tk.Canvas(view, background='#f5f7f9', highlightthickness=0,
@@ -420,16 +420,16 @@ class EditorApp:
         map_footer = ttk.Frame(view)
         map_footer.grid(row=2, column=0, sticky='ew', pady=(6, 0))
         map_footer.columnconfigure(1,weight=1)
-        self.mark_button = ttk.Button(map_footer, text='Marcar posição', command=self._mark_position)
+        self.mark_button = ttk.Button(map_footer, text='Mark position', command=self._mark_position)
         self.mark_button.grid(row=0,column=0,sticky='w')
-        self.routes_check = ttk.Checkbutton(map_footer,text='Mostrar vias',variable=self.show_routes,
+        self.routes_check = ttk.Checkbutton(map_footer,text='Show lanes',variable=self.show_routes,
                                             command=self._routes_changed)
         self.routes_check.grid(row=0,column=1,sticky='w',padx=8)
-        ttk.Label(map_footer, text='Roda: zoom · direito: mover', foreground='#5f6875',
+        ttk.Label(map_footer, text='Wheel: zoom · right button: pan', foreground='#5f6875',
                   wraplength=270).grid(row=1,column=0,columnspan=2,sticky='w',pady=(5,0))
-        ttk.Button(map_footer, text='Enquadrar', command=self._map_reset).grid(row=0,column=2,sticky='e')
-        ttk.Button(map_footer,text='Caminho',command=self._map_selected_path).grid(row=1,column=2,sticky='e',pady=(5,0))
-        point_controls = ttk.LabelFrame(view, text='Adicionar no ponto X/Z', padding=8)
+        ttk.Button(map_footer, text='Fit', command=self._map_reset).grid(row=0,column=2,sticky='e')
+        ttk.Button(map_footer,text='Path',command=self._map_selected_path).grid(row=1,column=2,sticky='e',pady=(5,0))
+        point_controls = ttk.LabelFrame(view, text='Add at point X/Z', padding=8)
         point_controls.grid(row=3, column=0, sticky='ew', pady=(8, 0))
         point_controls.columnconfigure(1, weight=1)
         point_controls.columnconfigure(3, weight=1)
@@ -439,19 +439,19 @@ class EditorApp:
         ttk.Label(point_controls, text='Z').grid(row=0, column=2, padx=(10, 5))
         self.point_z_entry = ttk.Entry(point_controls, textvariable=self.point_z, width=12)
         self.point_z_entry.grid(row=0, column=3, sticky='ew')
-        self.add_at_button = ttk.Button(point_controls, text='Adicionar no ponto', command=self.add_at)
+        self.add_at_button = ttk.Button(point_controls, text='Add at point', command=self.add_at)
         self.add_at_button.grid(row=1, column=0, columnspan=4, sticky='ew', pady=(7, 0))
         ttk.Label(point_controls,
-            text='Usa uma referência com caminho e física verificados e o modelo escolhido ao lado. O ponto pode ser ajustado à via.',
+            text='Uses a reference with verified path and physics and the model chosen beside it. The point may be snapped to the lane.',
             foreground='#5f6875', wraplength=410).grid(row=2, column=0, columnspan=4, sticky='w', pady=(5, 0))
         catalog = ttk.Frame(lists, padding=(0, 8, 0, 0))
         catalog.columnconfigure(0, weight=1)
         catalog.rowconfigure(0, weight=1)
-        lists.add(catalog, text='Catálogo carregado')
+        lists.add(catalog, text='Loaded catalogue')
         self.catalog_table = ttk.Treeview(catalog,
             columns=('model', 'type', 'availability'), show='headings', selectmode='none', height=15)
-        for key, title, width in [('model', 'Modelo', 150), ('type', 'Categoria', 105),
-                                  ('availability', 'Criação', 185)]:
+        for key, title, width in [('model', 'Model', 150), ('type', 'Category', 105),
+                                  ('availability', 'Creation', 185)]:
             self.catalog_table.heading(key, text=title)
             self.catalog_table.column(key, width=width, minwidth=70, stretch=True)
         self.catalog_table.grid(row=0, column=0, sticky='nsew')
@@ -461,7 +461,7 @@ class EditorApp:
         project_container = ttk.Frame(lists)
         project_container.columnconfigure(0, weight=1)
         project_container.rowconfigure(0, weight=1)
-        lists.add(project_container, text='Projeto')
+        lists.add(project_container, text='Project')
         self.project_canvas = tk.Canvas(project_container, highlightthickness=0, height=200,
             background=ttk.Style(root).lookup('TFrame','background') or root.cget('background'))
         self.project_canvas.grid(row=0, column=0, sticky='nsew')
@@ -474,47 +474,47 @@ class EditorApp:
         self.project_canvas.bind('<Configure>',self._project_resize)
         project_tab.columnconfigure(0, weight=1)
         project_tab.columnconfigure(1, weight=1)
-        ttk.Label(project_tab, text='Nome para novo projeto').grid(row=0, column=0, sticky='w')
-        ttk.Button(project_tab, text='Eventos nativos…', command=self.open_native_events).grid(
+        ttk.Label(project_tab, text='Name for a new project').grid(row=0, column=0, sticky='w')
+        ttk.Button(project_tab, text='Native events…', command=self.open_native_events).grid(
             row=0, column=1, sticky='e')
         self.project_name_entry = ttk.Entry(project_tab, textvariable=self.project_name)
         self.project_name_entry.grid(row=1, column=0, columnspan=2, sticky='ew', pady=(5, 10))
-        self.new_project_button = ttk.Button(project_tab, text='Criar projeto…', command=self.create_project)
+        self.new_project_button = ttk.Button(project_tab, text='Create project…', command=self.create_project)
         self.new_project_button.grid(row=2, column=0, sticky='ew', padx=(0, 5))
-        self.open_project_button = ttk.Button(project_tab, text='Abrir projeto…', command=self.open_project)
+        self.open_project_button = ttk.Button(project_tab, text='Open project…', command=self.open_project)
         self.open_project_button.grid(row=2, column=1, sticky='ew', padx=(5, 0))
-        self.save_project_button = ttk.Button(project_tab, text='Salvar cena no projeto', command=self.save_project)
+        self.save_project_button = ttk.Button(project_tab, text='Save scene to project', command=self.save_project)
         self.save_project_button.grid(row=3, column=0, columnspan=2, sticky='ew', pady=(8, 0))
-        self.test_project_button = ttk.Button(project_tab, text='Testar cena', command=self.test_project)
+        self.test_project_button = ttk.Button(project_tab, text='Test scene', command=self.test_project)
         self.test_project_button.grid(row=4, column=0, sticky='ew', padx=(0, 5), pady=(8, 0))
-        self.restart_project_button = ttk.Button(project_tab, text='Voltar ao início', command=self.restart_project)
+        self.restart_project_button = ttk.Button(project_tab, text='Back to start', command=self.restart_project)
         self.restart_project_button.grid(row=4, column=1, sticky='ew', padx=(5, 0), pady=(8, 0))
-        self.restore_base_button = ttk.Button(project_tab, text='Restaurar base original', command=self.restore_project_base)
+        self.restore_base_button = ttk.Button(project_tab, text='Restore original base', command=self.restore_project_base)
         self.restore_base_button.grid(row=5, column=0, columnspan=2, sticky='ew', pady=(8, 0))
-        self.project_help_label = ttk.Label(project_tab, text='Testar salva a cena e retoma o jogo. Voltar ao início restaura essa cena salva; '
-                  'pause o PCSX2 antes. Restaurar base recupera a referência original do projeto.',
+        self.project_help_label = ttk.Label(project_tab, text='Test saves the scene and resumes the game. Back to start restores that saved scene; '
+                  "pause PCSX2 first. Restore base brings back the project's original reference.",
                   wraplength=400, foreground='#5f6875')
         self.project_help_label.grid(row=6, column=0, columnspan=2, sticky='w', pady=(12, 0))
         self.project_status_label = ttk.Label(project_tab, textvariable=self.project_text, wraplength=400,
                   foreground='#305d86')
         self.project_status_label.grid(row=7, column=0, columnspan=2, sticky='w', pady=(12, 0))
-        manual_project = ttk.LabelFrame(project_tab, text='Alternativa sem slot livre', padding=10)
+        manual_project = ttk.LabelFrame(project_tab, text='Alternative without a free slot', padding=10)
         manual_project.grid(row=8, column=0, columnspan=2, sticky='ew', pady=(16, 0))
         manual_project.columnconfigure(0, weight=1)
         manual_project.columnconfigure(1, weight=1)
-        self.import_project_button = ttk.Button(manual_project, text='Criar de .p2s…', command=self.import_project)
+        self.import_project_button = ttk.Button(manual_project, text='Create from .p2s…', command=self.import_project)
         self.import_project_button.grid(row=0, column=0, sticky='ew', padx=(0, 4))
-        self.save_project_state_button = ttk.Button(manual_project, text='Salvar cena de .p2s…', command=self.save_project_from_state)
+        self.save_project_state_button = ttk.Button(manual_project, text='Save scene from .p2s…', command=self.save_project_from_state)
         self.save_project_state_button.grid(row=0, column=1, sticky='ew', padx=(4, 0))
-        self.confirm_scene_button = ttk.Button(manual_project, text='Conferir cena carregada…', command=self.confirm_project_scene)
+        self.confirm_scene_button = ttk.Button(manual_project, text='Check loaded scene…', command=self.confirm_project_scene)
         self.confirm_scene_button.grid(row=1, column=0, columnspan=2, sticky='ew', pady=(8, 0))
-        self.confirm_base_button = ttk.Button(manual_project, text='Conferir base carregada…', command=self.confirm_project_base)
+        self.confirm_base_button = ttk.Button(manual_project, text='Check loaded base…', command=self.confirm_project_base)
         self.confirm_base_button.grid(row=2, column=0, columnspan=2, sticky='ew', pady=(8, 0))
         self.project_manual_label = ttk.Label(manual_project,
-            text='Sem slot livre: salve/carregue em Sistema → Salvar/Carregar estado → Arquivo… e confira aqui. '
-                 'Os arquivos precisam corresponder à cena pausada.', wraplength=360, foreground='#5f6875')
+            text='No free slot: save/load with System → Save/Load state → File… and check it here. '
+                 'The files must match the paused scene.', wraplength=360, foreground='#5f6875')
         self.project_manual_label.grid(row=3, column=0, columnspan=2, sticky='w', pady=(10, 0))
-        self.slot_manager_button = ttk.Button(project_tab, text='Gerenciar slots…', command=self.manage_slots)
+        self.slot_manager_button = ttk.Button(project_tab, text='Manage slots…', command=self.manage_slots)
         self.slot_manager_button.grid(row=9, column=0, columnspan=2, sticky='ew', pady=(14, 0))
         pane.add(list_frame, weight=3)
 
@@ -543,86 +543,86 @@ class EditorApp:
         self.speed_label = ttk.Label(position,textvariable=self.speed_text,wraplength=320,foreground='#5f6875')
         self.speed_label.grid(row=1,column=0,sticky='w',pady=(5,0))
 
-        movement = ttk.LabelFrame(details, text='Mover o veículo selecionado', padding=12)
+        movement = ttk.LabelFrame(details, text='Move the selected vehicle', padding=12)
         movement.grid(row=2, column=0, sticky='ew')
         movement.columnconfigure(0, weight=1)
-        ttk.Label(movement, text='Posição na largura da via').grid(row=0, column=0, sticky='w')
+        ttk.Label(movement, text='Position across the lane width').grid(row=0, column=0, sticky='w')
         self.lateral_scale = ttk.Scale(movement, from_=0, to=100, orient='horizontal',
                                        variable=self.lateral, command=self._lateral_changed)
         self.lateral_scale.grid(row=1, column=0, sticky='ew', pady=9)
         ttk.Label(movement, textvariable=self.lateral_text).grid(row=1, column=1, padx=(8, 0))
-        ttk.Label(movement, text='A posição longitudinal no caminho é mantida.',
+        ttk.Label(movement, text='The position along the path is kept.',
                   wraplength=280, foreground='#5f6875').grid(row=2, column=0, columnspan=2, sticky='w')
-        self.move_button = ttk.Button(movement, text='Aplicar posição', command=self.move)
+        self.move_button = ttk.Button(movement, text='Apply position', command=self.move)
         self.move_button.grid(row=3, column=0, columnspan=2, sticky='ew', pady=(10, 0))
         self.speed_controls = ttk.Frame(movement)
         self.speed_controls.grid(row=4,column=0,columnspan=2,sticky='ew',pady=(12,0))
         self.speed_controls.columnconfigure(1,weight=1)
-        ttk.Label(self.speed_controls,text='Alvo nominal (km/h)').grid(row=0,column=0,sticky='w',padx=(0,8))
+        ttk.Label(self.speed_controls,text='Nominal target (km/h)').grid(row=0,column=0,sticky='w',padx=(0,8))
         self.speed_entry = ttk.Entry(self.speed_controls,textvariable=self.speed_target_kmh,width=10)
         self.speed_entry.grid(row=0,column=1,sticky='ew')
-        self.speed_button = ttk.Button(self.speed_controls,text='Aplicar velocidade',command=self.set_speed)
+        self.speed_button = ttk.Button(self.speed_controls,text='Apply speed',command=self.set_speed)
         self.speed_button.grid(row=1,column=0,columnspan=2,sticky='ew',pady=(7,0))
         self.speed_selection_label = ttk.Label(self.speed_controls, textvariable=self.speed_selection_text,
                                                 wraplength=300, foreground='#5f6875')
         self.speed_selection_label.grid(row=2,column=0,columnspan=2,sticky='w',pady=(6,0))
         self.speed_controls.grid_remove()
 
-        addition = ttk.LabelFrame(details, text='Adicionar veículos atrás', padding=12)
+        addition = ttk.LabelFrame(details, text='Add vehicles behind', padding=12)
         addition.grid(row=3, column=0, sticky='ew', pady=(14, 0))
         addition.columnconfigure(0, weight=1)
-        ttk.Label(addition, text='Modelo dos novos veículos').grid(row=0, column=0, sticky='w')
+        ttk.Label(addition, text='Model of the new vehicles').grid(row=0, column=0, sticky='w')
         self.model_box = ttk.Combobox(addition, textvariable=self.model_choice,
-                                      values=('Mesmo modelo do selecionado',), state='readonly', width=29)
+                                      values=('Same model as selected',), state='readonly', width=29)
         self.model_box.grid(row=1, column=0, sticky='ew', pady=(5, 9))
         self.model_box.bind('<<ComboboxSelected>>', self._model_changed)
         distance = ttk.Frame(addition)
         distance.grid(row=2, column=0, sticky='ew')
         distance.columnconfigure(1, weight=1)
-        ttk.Label(distance, text='Distância atrás').grid(row=0, column=0, sticky='w', padx=(0, 8))
+        ttk.Label(distance, text='Distance behind').grid(row=0, column=0, sticky='w', padx=(0, 8))
         self.gap_entry = ttk.Entry(distance, textvariable=self.gap, width=10)
         self.gap_entry.grid(row=0, column=1, sticky='ew')
-        self.count_label = ttk.Label(distance, text='Quantidade')
+        self.count_label = ttk.Label(distance, text='Amount')
         self.count_label.grid(row=0, column=2, padx=(10, 8))
         self.count_box = ttk.Spinbox(distance, from_=1, to=8, textvariable=self.count, width=4)
         self.count_box.grid(row=0, column=3)
-        self.gap_hint = ttk.Label(addition, text='De 8 a 50 unidades do jogo.', foreground='#5f6875')
+        self.gap_hint = ttk.Label(addition, text='From 8 to 50 game units.', foreground='#5f6875')
         self.gap_hint.grid(row=3, column=0, sticky='w', pady=(5, 0))
-        self.secondary_label = ttk.Label(addition, text='Carga do caminhão')
+        self.secondary_label = ttk.Label(addition, text='Truck trailer')
         self.secondary_label.grid(row=4, column=0, sticky='w', pady=(9, 0))
         self.secondary_box = ttk.Combobox(addition, textvariable=self.secondary_choice,
-            values=('Selecione a carga',), state='disabled', width=29)
+            values=('Select the trailer',), state='disabled', width=29)
         self.secondary_box.grid(row=5, column=0, sticky='ew', pady=(5, 0))
         self.secondary_label.grid_remove()
         self.secondary_box.grid_remove()
-        self.add_button = ttk.Button(addition, text='Adicionar veículos atrás', command=self.add_behind)
+        self.add_button = ttk.Button(addition, text='Add vehicles behind', command=self.add_behind)
         self.spawn_mode_box = ttk.Combobox(addition, textvariable=self.spawn_mode,
-            values=('Modelo único','Alternar modelos'),state='readonly',width=29)
+            values=('Single model','Alternate models'),state='readonly',width=29)
         self.spawn_mode_box.grid(row=6,column=0,sticky='ew',pady=(10,0))
         self.spawn_mode_box.bind('<<ComboboxSelected>>',self._spawn_options_changed)
-        self.mixed_button = ttk.Button(addition,text='Escolher modelos alternados…',command=self.choose_mixed_models)
+        self.mixed_button = ttk.Button(addition,text='Choose alternating models…',command=self.choose_mixed_models)
         self.mixed_button.grid(row=7,column=0,sticky='ew',pady=(6,0))
         self.mixed_label = ttk.Label(addition,textvariable=self.mixed_text,wraplength=300,foreground='#5f6875')
         self.mixed_label.grid(row=8,column=0,sticky='w',pady=(5,0))
-        self.spawn_color_label = ttk.Label(addition,text='Lotes: variação visual experimental (cor a confirmar)',
+        self.spawn_color_label = ttk.Label(addition,text='Batches: experimental visual variation (colour to be confirmed)',
             wraplength=300,foreground='#5f6875')
         self.spawn_color_label.grid(row=9,column=0,sticky='w',pady=(10,0))
         self.spawn_color_box = ttk.Combobox(addition,textvariable=self.spawn_color,
-            values=('Original (0)','Alternar variações (0–7)'),state='readonly',width=29)
+            values=('Original (0)','Alternate variants (0–7)'),state='readonly',width=29)
         self.spawn_color_box.grid(row=10,column=0,sticky='ew',pady=(5,0))
         self.add_button.grid(row=11, column=0, sticky='ew', pady=(11, 0))
 
         footer = ttk.Frame(container)
         footer.grid(row=4, column=0, sticky='ew', pady=(16, 0))
         footer.columnconfigure(3, weight=1)
-        self.save_button = ttk.Button(footer, text='Salvar configuração…', command=self.save_preset)
+        self.save_button = ttk.Button(footer, text='Save configuration…', command=self.save_preset)
         self.save_button.grid(row=0, column=0)
-        self.load_button = ttk.Button(footer, text='Abrir configuração…', command=self.load_preset)
+        self.load_button = ttk.Button(footer, text='Open configuration…', command=self.load_preset)
         self.load_button.grid(row=0, column=1, padx=8)
-        self.export_button = ttk.Button(footer, text='Salvar estado…', command=self.export_state)
+        self.export_button = ttk.Button(footer, text='Save state…', command=self.export_state)
         self.export_button.grid(row=0, column=2)
         self.export_button.grid_remove()
-        ttk.Label(footer, text='A receita JSON e o estado são arquivos separados.',
+        ttk.Label(footer, text='The JSON recipe and the state are separate files.',
                   foreground='#5f6875', wraplength=260).grid(row=0, column=3, sticky='e', padx=(10, 0))
         self.progress = ttk.Progressbar(container, mode='indeterminate')
         self.progress.grid(row=5, column=0, sticky='ew', pady=(13, 6))
@@ -701,24 +701,24 @@ class EditorApp:
             self.speed_target_kmh.set(f'{target:.9g}'.replace('.',',')
                 if type(target) in (int,float) and math.isfinite(target) else '')
         if vehicle is None:
-            self.selection_text.set('Selecione um veículo na lista.')
+            self.selection_text.set('Select a vehicle in the list.')
             self.position_text.set('X: —     Y: —     Z: —')
         else:
-            self.selection_text.set(str(vehicle.get('label') or f"Veículo {vehicle['id']}"))
+            self.selection_text.set(str(vehicle.get('label') or f"Vehicle {vehicle['id']}"))
             if len(selections) > 1:
-                self.selection_text.set(f'{len(selections)} selecionados · foco: ' + self.selection_text.get())
+                self.selection_text.set(f'{len(selections)} selected · focus: ' + self.selection_text.get())
             xyz = vehicle.get('position') or []
             self.position_text.set('     '.join(f'{axis}: {coordinate(xyz[i] if i < len(xyz) else None)}'
                                                for i, axis in enumerate('XYZ')))
             path = vehicle.get('path')
             self.position_text.set(self.position_text.get()+
-                (f'\nCaminho: P{path}' if type(path) is int else '\nSem caminho de tráfego reconhecido.'))
+                (f'\nPath: P{path}' if type(path) is int else '\nNo recognized traffic path.'))
             if vehicle.get('edit_reason'):
                 self.position_text.set(self.position_text.get() + '\n' + str(vehicle['edit_reason']))
             reference_reason = vehicle.get('reference_reason')
             if (reference_reason and not vehicle.get('can_reference',vehicle.get('editable',False))
                     and reference_reason != vehicle.get('edit_reason')):
-                self.position_text.set(self.position_text.get() + '\nAdicionar atrás: ' + str(reference_reason))
+                self.position_text.set(self.position_text.get() + '\nAdd behind: ' + str(reference_reason))
             try:
                 lateral = float(vehicle.get('lateral_percent', 50))
                 if not math.isfinite(lateral):
@@ -748,7 +748,7 @@ class EditorApp:
 
     def _alternating_models(self) -> bool:
         variable = getattr(self,'spawn_mode',None)
-        return variable is not None and variable.get() == 'Alternar modelos'
+        return variable is not None and variable.get() == 'Alternate models'
 
     def _creation_ready(self) -> bool:
         vehicle = self.selected()
@@ -769,8 +769,8 @@ class EditorApp:
         if hasattr(self,'mixed_text'):
             names = [str(candidates[model_id].get('label') or model_id)
                      for model_id in self.mixed_model_ids]
-            self.mixed_text.set((' → '.join(names) + ' → repete. Caminhões com carga usam Modelo único.')
-                if names else 'Escolha pelo menos dois modelos carregados para alternar.')
+            self.mixed_text.set((' → '.join(names) + ' → repeats. Trucks with trailers use Single model.')
+                if names else 'Choose at least two loaded models to alternate.')
 
     def _spawn_options_changed(self, _event=None) -> None:
         self._refresh_mixed_models()
@@ -781,16 +781,16 @@ class EditorApp:
             return
         candidates = self._mixed_candidates()
         if len(candidates) < 2:
-            messagebox.showinfo('Modelos alternados','Esta leitura precisa ter pelo menos dois modelos '
-                'independentes disponíveis. Caminhões com carga continuam no modo Modelo único.',parent=self.root)
+            messagebox.showinfo('Alternating models','This read needs at least two '
+                'independent models available. Trucks with trailers stay in Single model mode.',parent=self.root)
             return
         dialog = tk.Toplevel(self.root)
-        dialog.title('Modelos alternados')
+        dialog.title('Alternating models')
         dialog.transient(self.root)
         dialog.geometry('440x360')
         dialog.columnconfigure(0,weight=1)
         dialog.rowconfigure(1,weight=1)
-        ttk.Label(dialog,text='Selecione os modelos com Ctrl/Shift. A ordem da lista se repete no lote.',
+        ttk.Label(dialog,text='Select the models with Ctrl/Shift. The list order repeats in the batch.',
                   wraplength=400).grid(row=0,column=0,sticky='w',padx=14,pady=12)
         listing = tk.Listbox(dialog,selectmode='extended',exportselection=False,height=10)
         listing.grid(row=1,column=0,sticky='nsew',padx=14)
@@ -804,14 +804,14 @@ class EditorApp:
                 return
             indexes = listing.curselection()
             if len(indexes) < 2:
-                messagebox.showinfo('Modelos alternados','Escolha pelo menos dois modelos.',parent=dialog)
+                messagebox.showinfo('Alternating models','Choose at least two models.',parent=dialog)
                 return
             self.mixed_model_ids = [str(candidates[index]['id']) for index in indexes]
-            self.spawn_mode.set('Alternar modelos')
+            self.spawn_mode.set('Alternate models')
             self._refresh_mixed_models()
             self._update_controls()
             dialog.destroy()
-        ttk.Button(dialog,text='Usar seleção',command=accept).grid(row=2,column=0,sticky='ew',padx=14,pady=12)
+        ttk.Button(dialog,text='Use selection',command=accept).grid(row=2,column=0,sticky='ew',padx=14,pady=12)
         dialog.grab_set()
 
     def _experimental_changed(self) -> None:
@@ -836,9 +836,9 @@ class EditorApp:
             return
         self.marking_position = not getattr(self, 'marking_position', False)
         if hasattr(self, 'mark_button'):
-            self.mark_button.configure(text='Clique no mapa…' if self.marking_position else 'Marcar posição')
-        self._set_status('Clique na vista de cima para marcar o ponto de criação.' if self.marking_position
-                         else 'Marcação cancelada.')
+            self.mark_button.configure(text='Click the map…' if self.marking_position else 'Mark position')
+        self._set_status('Click the top view to mark the creation point.' if self.marking_position
+                         else 'Marking cancelled.')
 
     def _update_secondary_choices(self) -> None:
         if not hasattr(self, 'secondary_box'):
@@ -847,7 +847,7 @@ class EditorApp:
         model = self._chosen_model()
         truck = model.get('kind') == 'truck'
         allowed = set(model.get('trailer_model_ids') or []) if truck else set()
-        self.secondary_choices = {'Selecione a carga': None}
+        self.secondary_choices = {'Select the trailer': None}
         for index, secondary in enumerate(self.models.values()):
             if (secondary.get('kind') != 'trailer' or secondary.get('eligible_as_trailer') is not True
                     or secondary['id'] not in allowed):
@@ -862,18 +862,18 @@ class EditorApp:
             if native in self.secondary_choices.values():
                 preferred = native
         self.secondary_choice.set(next((label for label, model_id in self.secondary_choices.items()
-                                         if preferred is not None and model_id == preferred), 'Selecione a carga'))
+                                         if preferred is not None and model_id == preferred), 'Select the trailer'))
         self.secondary_box.configure(values=tuple(self.secondary_choices))
-        self.count_label.configure(text='Conjuntos' if truck else 'Quantidade')
-        self.add_button.configure(text='Adicionar conjuntos atrás' if truck else 'Adicionar veículos atrás')
+        self.count_label.configure(text='Conjuntos' if truck else 'Amount')
+        self.add_button.configure(text='Add sets behind' if truck else 'Add vehicles behind')
         reference_model = self.models.get(str(selected.get('model_id')), {})
         compound = (truck or selected.get('kind') == 'truck' or reference_model.get('kind') == 'truck'
                     or model.get('type') == 5 or reference_model.get('type') == 5)
         if hasattr(self, 'gap_hint'):
-            hint = ('Experimental: distância positiva, sujeita ao caminho e à capacidade.'
+            hint = ('Experimental: positive distance, limited by the path and the capacity.'
                     if self._experimental_enabled() else
-                    'Ônibus/caminhão: 30 a 50 unidades do jogo.' if compound
-                    else 'De 8 a 50 unidades do jogo.')
+                    'Bus/truck: 30 to 50 game units.' if compound
+                    else 'From 8 to 50 game units.')
             self.gap_hint.configure(text=hint)
         if compound and not self._experimental_enabled():
             try:
@@ -914,14 +914,14 @@ class EditorApp:
                       and type(selected.get('path')) is int and path.get('id')==selected['path']),None)
         points = route_points({'paths':[route]}) if route is not None else []
         if not points or not getattr(self,'profile_valid',True):
-            self._set_status('O veículo selecionado não tem geometria de caminho disponível nesta leitura.',warning=True)
+            self._set_status('The selected vehicle has no path geometry in this read.',warning=True)
             return
         if hasattr(self,'show_routes'):
             self.show_routes.set(True)
         self.map_view = fit_view(points)
         self.map_pan_state = None
         self._draw_traffic()
-        self._set_status(f"Caminho P{selected['path']} enquadrado. As setas mostram sua progressão.")
+        self._set_status(f"Path P{selected['path']} framed. The arrows show its direction of travel.")
 
     def _map_pan_start(self,event: Any) -> None:
         if self.map_view is not None:
@@ -979,9 +979,9 @@ class EditorApp:
             self.point_z.set(f'{z:.6f}')
             self.marking_position = False
             if hasattr(self, 'mark_button'):
-                self.mark_button.configure(text='Marcar posição')
+                self.mark_button.configure(text='Mark position')
             self._point_changed()
-            self._set_status(f'Ponto marcado: X {coordinate(x)} · Z {coordinate(z)}. Confira o modelo e adicione.')
+            self._set_status(f'Point marked: X {coordinate(x)} · Z {coordinate(z)}. Check the model and add.')
             return
         if not self.map_hits:
             return
@@ -1010,7 +1010,7 @@ class EditorApp:
         paths = self._map_routes()
         path_points = route_points({'paths':paths})
         if not points and player is None and target is None and not path_points:
-            canvas.create_text(width / 2, height / 2, text='Conecte com o jogo pausado e atualize a lista.',
+            canvas.create_text(width / 2, height / 2, text='Connect with the game paused and refresh the list.',
                                width=max(100, width - 40), fill='#5f6875')
             return
         if self.map_view is None:
@@ -1020,7 +1020,7 @@ class EditorApp:
         scale = min(max(1, width - 40), max(1, height - 50)) / span
         def project(point):
             return width / 2 + (point[0] - cx) * scale, height / 2 - (point[1] - cz) * scale
-        canvas.create_text(10, 10, anchor='nw', text='X →   Z ↑   ·   unidades do jogo', fill='#5f6875')
+        canvas.create_text(10, 10, anchor='nw', text='X →   Z ↑   ·   game units', fill='#5f6875')
         selected_vehicle = self.selected() or {}
         selected_path = selected_vehicle.get('path')
         for path in paths:
@@ -1062,10 +1062,10 @@ class EditorApp:
                 canvas.create_text(px+5,py-8,anchor='sw',
                     text=f"P{path.get('id','?')}"+('?' if candidate else ''),fill=color)
         if paths:
-            canvas.create_text(10,28,anchor='nw',text='Vias de tráfego · setas: progressão do caminho',fill='#5f6875')
+            canvas.create_text(10,28,anchor='nw',text='Traffic lanes · arrows: path direction',fill='#5f6875')
             if any(path.get('source') == 'descriptor_candidate' for path in paths):
                 canvas.create_text(10,44,anchor='nw',width=max(100,width-20),
-                    text='P?: via candidata, sem veículo associado; uso atual não confirmado',fill='#7c8994')
+                    text='P?: candidate lane with no associated vehicle; current use not confirmed',fill='#7c8994')
         colors = {'Car': '#2c70b6', 'Van': '#7752a3', 'Bus': '#23846c'}
         selected = self.table.selection()
         for iid, point in points.items():
@@ -1081,7 +1081,7 @@ class EditorApp:
             self.map_hits.append((px, py, iid))
             if iid in selected:
                 canvas.create_text(px + 9, py - 10, anchor='sw',
-                    text=str(vehicle.get('label') or 'Selecionado'), fill='#273444')
+                    text=str(vehicle.get('label') or 'Selected'), fill='#273444')
         if player is not None:
             px, py = project(player)
             forward = xz(self.player.get('forward'))
@@ -1098,7 +1098,7 @@ class EditorApp:
             if -8 <= px <= width + 8 and -8 <= py <= height + 8:
                 canvas.create_line(px - 8, py, px + 8, py, fill='#a33922', width=2)
                 canvas.create_line(px, py - 8, px, py + 8, fill='#a33922', width=2)
-                canvas.create_text(px + 10, py - 9, anchor='sw', text='Criar aqui', fill='#a33922')
+                canvas.create_text(px + 10, py - 9, anchor='sw', text='Create here', fill='#a33922')
         marker = min(80, width / 4)
         canvas.create_line(15, height - 20, 15 + marker, height - 20, fill='#5f6875', width=2)
         canvas.create_text(15, height - 25, anchor='sw', text=f'{marker / scale:.1f} un.', fill='#5f6875')
@@ -1114,36 +1114,36 @@ class EditorApp:
             self.project = dict(project) if isinstance(project, dict) else None
             if hasattr(self, 'project_text'):
                 if self.project:
-                    name = str(self.project.get('name') or 'Evento sem nome')
+                    name = str(self.project.get('name') or 'Unnamed event')
                     revision = self.project.get('scene_revision', 0)
-                    self.project_text.set(f'{name} · Cena salva {revision}\n' + str(self.project.get('path') or ''))
+                    self.project_text.set(f'{name} · Saved scene {revision}\n' + str(self.project.get('path') or ''))
                     if hasattr(self, 'project_name'):
                         self.project_name.set(name)
                 else:
-                    self.project_text.set('Nenhum projeto aberto. Crie um projeto a partir da cena pausada ou abra um existente.')
+                    self.project_text.set('No project open. Create a project from the paused scene or open an existing one.')
         paused = response.get('core_paused')
         if isinstance(paused, bool):
             self.core_paused = paused
-            self.core_text.set('Jogo pausado' if paused else 'Jogo em execução')
+            self.core_text.set('Game paused' if paused else 'Game running')
             if hasattr(self, 'map_notice'):
-                notice = (('Geometria de vias de tráfego; alturas podem se sobrepor na vista X/Z.'
-                    if getattr(self,'routes',{}).get('paths') else 'Posições dos veículos; sem desenho da pista.') if paused else
-                    ('Posições da última atualização; clique em Pausar PCSX2 e atualize.'
+                notice = (('Traffic lane geometry; heights can overlap in the X/Z view.'
+                    if getattr(self,'routes',{}).get('paths') else 'Vehicle positions; no track drawing.') if paused else
+                    ('Positions from the last refresh; click Pause PCSX2 and refresh.'
                      if getattr(self, 'emulator_control', False) else
-                     'Posições da última atualização; pause com Esc e atualize.'))
+                     'Positions from the last refresh; pause with Esc and refresh.'))
                 warning = getattr(self,'routes',{}).get('warning')
                 self.map_notice.set(notice+(' '+warning if isinstance(warning,str) and warning else ''))
             return
         state = str(response.get('core_status') or response.get('status') or '').lower()
         if state == 'paused':
             self.core_paused = True
-            self.core_text.set('Jogo pausado')
+            self.core_text.set('Game paused')
         elif state == 'running':
             self.core_paused = False
-            self.core_text.set('Jogo em execução')
+            self.core_text.set('Game running')
         elif state in ('shutdown', 'stopped', 'disconnected'):
             self.core_paused = False
-            self.core_text.set('Nenhum jogo carregado')
+            self.core_text.set('No game loaded')
 
     def _update_controls(self) -> None:
         idle = not self.busy and not self.pending and not self.closed
@@ -1171,15 +1171,15 @@ class EditorApp:
             can_set_speed = bool(available and selections and not blocked)
             for widget in (self.speed_entry,self.speed_button):
                 widget.configure(state='normal' if can_set_speed else 'disabled')
-            self.speed_button.configure(text=(f'Aplicar aos {len(selections)} selecionados'
-                                              if len(selections) > 1 else 'Aplicar velocidade'))
+            self.speed_button.configure(text=(f'Apply to the {len(selections)} selected'
+                                              if len(selections) > 1 else 'Apply speed'))
             if hasattr(self, 'speed_selection_text'):
-                note = f'{len(selections)} selecionados · {eligible} aptos · {blocked} bloqueados.'
+                note = f'{len(selections)} selected · {eligible} eligible · {blocked} blocked.'
                 if blocked:
-                    note += (' Selecione apenas veículos aptos. No caminhão, selecione a cabine; '
-                             'a carga acompanha o conjunto.')
+                    note += (' Select only eligible vehicles. For a truck, select the cab; '
+                             'the trailer follows the set.')
                 elif len(selections) > 1:
-                    note += (' O mesmo alvo será aplicado a todos. Posição e criação usam o veículo em foco.')
+                    note += (' The same target will be applied to all. Position and creation use the focused vehicle.')
                 self.speed_selection_text.set(note)
         if hasattr(self, 'select_speed_button'):
             speed_available = any(vehicle.get('can_set_speed') is True and vehicle.get('active', True)
@@ -1267,17 +1267,17 @@ class EditorApp:
             for widget in (self.pause_button, self.resume_button):
                 widget.configure(state='normal' if supported and not self.busy else 'disabled')
             self.instructions_text.set(
-                'Use Pausar PCSX2 e atualize a lista antes de editar. As alterações valem para a sessão atual.'
+                'Use Pause PCSX2 and refresh the list before editing. Changes apply to the current session.'
                 if supported else
-                'Pause com Esc no PCSX2 e atualize a lista antes de editar. As alterações valem para a sessão atual.')
+                'Pause PCSX2 with Esc and refresh the list before editing. Changes apply to the current session.')
         if hasattr(self, 'pending_banner'):
             if self.pending:
-                steps = ('1. Clique em Retomar por um instante. 2. Clique em Pausar PCSX2 '
-                         'e aguarde a confirmação.' if getattr(self, 'emulator_control', False) else
-                         '1. Retome com Esc por um instante. 2. Pause com Esc '
-                         '(Sistema → Pausar) e aguarde a confirmação.')
+                steps = ('1. Click Resume for a moment. 2. Click Pause PCSX2 '
+                         'and wait for the confirmation.' if getattr(self, 'emulator_control', False) else
+                         '1. Resume with Esc for a moment. 2. Pause with Esc '
+                         '(System → Pause) and wait for the confirmation.')
                 self.pending_text.set(
-                    'CRIAÇÃO PENDENTE — espere a finalização antes de dirigir.\n'
+                    'CREATION PENDING — wait for it to finish before driving.\n'
                     + steps + '\n' + self.status.get())
                 self.pending_banner.grid()
                 if not getattr(self, 'pending_sized', False) and hasattr(self, 'root'):
@@ -1298,7 +1298,7 @@ class EditorApp:
             self.root.geometry(f'{self.root.winfo_width()}x{height}')
 
     def _set_status(self, message: str, *, warning: bool = False) -> None:
-        self.status.set(f'Atenção: {message}' if warning else message)
+        self.status.set(f'Warning: {message}' if warning else message)
         if hasattr(self, 'status_label'):
             self.status_label.configure(foreground='#8a5200' if warning else '#273444')
 
@@ -1309,10 +1309,10 @@ class EditorApp:
         if hasattr(self.table, 'selection') and hasattr(self.table, 'selection_remove'):
             self.table.selection_remove(*self.table.selection())
         if hasattr(self, 'selection_text'):
-            self.selection_text.set('Atualize a lista antes de editar os veículos.')
+            self.selection_text.set('Refresh the list before editing the vehicles.')
             self.position_text.set('X: —     Y: —     Z: —')
         if hasattr(self,'speed_text'):
-            self.speed_text.set('Velocidade: atualize a leitura para consultar.')
+            self.speed_text.set('Speed: refresh the read to check it.')
 
     def _submit(self, label: str, action: Callable[[], Any],
                 callback: Callable[[Any], None], *, quiet: bool = False) -> None:
@@ -1349,16 +1349,16 @@ class EditorApp:
         else:
             self.busy = False
             if error:
-                self._set_status(f'Erro: {error}')
+                self._set_status(f'Error: {error}')
                 if self.pending:
                     self._schedule_pending_poll(2000)
                 else:
-                    messagebox.showerror('Ação não concluída', error, parent=self.root)
+                    messagebox.showerror('Action not completed', error, parent=self.root)
             else:
                 try:
                     callback(value)
                 except Exception as exc:
-                    self._set_status(f'Não foi possível exibir a resposta: {exc}')
+                    self._set_status(f'Could not show the response: {exc}')
                     if self.pending:
                         self._schedule_pending_poll(2000)
             if self.closed:
@@ -1396,7 +1396,7 @@ class EditorApp:
         self.catalog_table.delete(*self.catalog_table.get_children())
         for row in catalog_rows(snapshot.get('models', [])):
             self.catalog_table.insert('', 'end', values=row)
-        self.model_choices = {'Mesmo modelo do selecionado': None}
+        self.model_choices = {'Same model as selected': None}
         for index, model in enumerate(snapshot.get('models', [])):
             if model.get('eligible') is not True or model.get('kind') == 'trailer':
                 continue
@@ -1409,7 +1409,7 @@ class EditorApp:
         self.model_box.configure(values=tuple(self.model_choices))
         self.model_choice.set(next((label for label, model_id in self.model_choices.items()
                                     if chosen_model is not None and model_id == chosen_model),
-                                   'Mesmo modelo do selecionado'))
+                                   'Same model as selected'))
         self.table.delete(*self.table.get_children())
         self.vehicles.clear()
         selected_iids = []
@@ -1418,9 +1418,9 @@ class EditorApp:
             iid = f'vehicle-{index}'
             self.vehicles[iid] = vehicle
             self.table.insert('', 'end', iid=iid,
-                              values=(f"Veículo {vehicle['id']}",
-                                      vehicle.get('type_label') or 'Não identificada',
-                                      str(vehicle.get('model_id') or 'Modelo sem nome'),speed_summary(vehicle)))
+                              values=(f"Vehicle {vehicle['id']}",
+                                      vehicle.get('type_label') or 'Unidentified',
+                                      str(vehicle.get('model_id') or 'Unnamed model'),speed_summary(vehicle)))
             if vehicle['id'] in selected_ids:
                 selected_iids.append(iid)
             if vehicle['id'] == selected_id:
@@ -1432,11 +1432,11 @@ class EditorApp:
             self.table.focus(focused_iid)
             self.table.see(focused_iid)
         self._selection_changed()
-        self._set_status(str(snapshot.get('status') or f'{len(self.vehicles)} veículos listados.'))
+        self._set_status(str(snapshot.get('status') or f'{len(self.vehicles)} vehicles listed.'))
 
     def connect(self) -> None:
         self.connected = False
-        self.connection_text.set('Conectando…')
+        self.connection_text.set('Connecting…')
         def work():
             connection = self.controller.connect()
             if connection.get('profile_valid') is False:
@@ -1450,7 +1450,7 @@ class EditorApp:
             except ProfileError as exc:
                 # Identity/transport errors remain connection failures. Only a
                 # rejected traffic profile permits the explicit recovery action.
-                message = f'Conectado ao PCSX2, mas a lista não pôde ser validada: {exc}'
+                message = f'Connected to PCSX2, but the list could not be validated: {exc}'
                 snapshot = {**connection, 'profile_valid': False, 'warning': True,
                             'models': [], 'vehicles': [], 'status': message, 'message': message}
             return connection, snapshot
@@ -1466,31 +1466,31 @@ class EditorApp:
             self._snapshot(snapshot)
             if snapshot.get('warning'):
                 self._set_status(str(snapshot.get('message') or snapshot.get('status')
-                                     or 'Confira o resultado antes de continuar.'), warning=True)
+                                     or 'Check the result before continuing.'), warning=True)
             if self.pending:
                 self._schedule_pending_poll()
-        self._submit('Conectando ao emulador…', work, done)
+        self._submit('Connecting to the emulator…', work, done)
 
     def refresh(self) -> None:
-        self._submit('Atualizando os veículos…', self.controller.refresh, self._snapshot)
+        self._submit('Refreshing the vehicles…', self.controller.refresh, self._snapshot)
 
     def pause_emulator(self) -> None:
         if self.connected and self.emulator_control:
-            self._change('Pausando o PCSX2…', self.controller.pause)
+            self._change('Pausing PCSX2…', self.controller.pause)
 
     def resume_emulator(self) -> None:
         if self.connected and self.emulator_control:
-            self._change('Retomando o PCSX2…', self.controller.resume)
+            self._change('Resuming PCSX2…', self.controller.resume)
 
     def finalize_pending(self) -> None:
         if (self.closed or self.busy or not self.connected or self.core_paused is not True):
             return
-        self._change('Finalizando pendência…', self.controller.finalize_pending)
+        self._change('Finishing the pending request…', self.controller.finalize_pending)
 
     def cancel_queue(self) -> None:
         if self.closed or self.busy or not self.connected:
             return
-        self._change('Cancelando a fila restante…', self.controller.cancel_queue)
+        self._change('Cancelling the rest of the queue…', self.controller.cancel_queue)
 
     def _change(self, label: str, action: Callable[[], dict[str, Any]]) -> None:
         def work():
@@ -1514,10 +1514,10 @@ class EditorApp:
                 # paused snapshot for any later edit, even if refresh raced.
                 self._set_core_state(result)
                 self._invalidate_profile()
-            message = str(result.get('message') or 'Alteração aplicada.')
+            message = str(result.get('message') or 'Change applied.')
             if refresh_error:
                 self._invalidate_profile()
-                message += f' A lista não pôde ser atualizada: {refresh_error}. Use Atualizar lista.'
+                message += f' The list could not be refreshed: {refresh_error}. Use Refresh list.'
             self._set_status(message, warning=bool(result.get('warning') or refresh_error))
             if self.pending:
                 self._schedule_pending_poll()
@@ -1563,7 +1563,7 @@ class EditorApp:
             message = str(result.get('message') or '')
             if refresh_error:
                 self._invalidate_profile()
-                message += f' Use Atualizar lista: {refresh_error}'
+                message += f' Use Refresh list: {refresh_error}'
             if message:
                 self._set_status(message, warning=bool(result.get('warning') or refresh_error))
             if self.pending:
@@ -1578,25 +1578,25 @@ class EditorApp:
             return
         if any(vehicle.get('can_set_speed') is not True or not vehicle.get('active', True)
                for vehicle in vehicles):
-            messagebox.showinfo('Velocidade', 'A seleção contém veículos sem ajuste de velocidade. '
-                'Use Selecionar aptos para velocidade; no caminhão, selecione a cabine.', parent=self.root)
+            messagebox.showinfo('Speed', 'The selection contains vehicles without a speed setting. '
+                'Use Select speed-eligible; for a truck, select the cab.', parent=self.root)
             return
         try:
             nominal = number(self.speed_target_kmh.get())
             control = nominal/NOMINAL_KMH_PER_CONTROL
             if control < 0 or control > 3.4028234663852886e38:
-                raise ValueError('Use um alvo nominal não negativo dentro do intervalo do jogo.')
+                raise ValueError("Use a non-negative nominal target within the game's range.")
             if not self._experimental_enabled() and control > 240:
                 if math.isclose(control,240,rel_tol=1e-12):
                     control = 240.
                 else:
-                    raise ValueError('No modo normal, use de 0 a 386,24256 km/h nominais.')
+                    raise ValueError('In normal mode, use 0 to 386.24256 nominal km/h.')
         except (TypeError,ValueError) as exc:
-            messagebox.showinfo('Velocidade',str(exc),parent=self.root)
+            messagebox.showinfo('Speed',str(exc),parent=self.root)
             return
         vehicle_ids = [int(vehicle['id']) for vehicle in vehicles]
         options = {'experimental':True} if self._experimental_enabled() else {}
-        self._change('Aplicando alvo nominal de velocidade…',
+        self._change('Applying the nominal speed target…',
                      (lambda:self.controller.set_speed(vehicle_ids[0],control,**options))
                      if len(vehicle_ids) == 1 else
                      (lambda:self.controller.set_speeds(vehicle_ids,control,**options)))
@@ -1608,13 +1608,13 @@ class EditorApp:
         try:
             lateral_percent = self.lateral.get()
             if not math.isfinite(lateral_percent) or not 0 <= lateral_percent <= 100:
-                raise ValueError('Escolha uma posição entre 0% e 100%.')
+                raise ValueError('Choose a position between 0% and 100%.')
         except ValueError as exc:
-            messagebox.showinfo('Posição', str(exc), parent=self.root)
+            messagebox.showinfo('Position', str(exc), parent=self.root)
             return
         vehicle_id = int(vehicle['id'])
         options = {'experimental': True} if self._experimental_enabled() else {}
-        self._change('Aplicando a posição…',
+        self._change('Applying the position…',
                      lambda: self.controller.move(vehicle_id, lateral_percent, **options))
 
     def add_behind(self) -> None:
@@ -1631,10 +1631,10 @@ class EditorApp:
             if mixed:
                 self._refresh_mixed_models()
                 if len(self.mixed_model_ids) < 2:
-                    raise ValueError('Escolha pelo menos dois modelos carregados para alternar.')
+                    raise ValueError('Choose at least two loaded models to alternate.')
                 choices = [{'model_id':model_id} for model_id in self.mixed_model_ids]
             color_mode = ('cycle' if getattr(self,'spawn_color',None) is not None
-                          and self.spawn_color.get() == 'Alternar variações (0–7)' else 'original')
+                          and self.spawn_color.get() == 'Alternate variants (0–7)' else 'original')
             reference = getattr(self, 'models', {}).get(str(vehicle.get('model_id')), {})
             minimum = 30 if (chosen.get('kind') == 'truck' or reference.get('kind') == 'truck'
                              or chosen.get('type') == 5 or reference.get('type') == 5) else 8
@@ -1642,14 +1642,14 @@ class EditorApp:
                 minimum = 30 if (reference.get('kind') == 'truck' or reference.get('type') == 5
                                 or any(self.models[item['model_id']].get('type') == 5 for item in choices)) else 8
             if not experimental and not minimum <= gap <= 50:
-                raise ValueError(f'Use uma distância entre {minimum} e 50 unidades do jogo.')
+                raise ValueError(f'Use a distance between {minimum} and 50 game units.')
             secondary_id = None
             if not mixed and chosen.get('kind') == 'truck':
                 secondary_id = self.secondary_choices.get(self.secondary_choice.get())
                 if secondary_id is None:
-                    raise ValueError('Escolha uma carga compatível para o caminhão.')
+                    raise ValueError('Choose a compatible trailer for the truck.')
         except ValueError as exc:
-            messagebox.showinfo('Adicionar veículos', str(exc), parent=self.root)
+            messagebox.showinfo('Add vehicles', str(exc), parent=self.root)
             return
         vehicle_id = int(vehicle['id'])
         model_id = self.model_choices.get(self.model_choice.get())
@@ -1660,10 +1660,10 @@ class EditorApp:
             options['color_mode'] = color_mode
         if mixed:
             mixed_options = {key:value for key,value in options.items() if key != 'secondary_model_id'}
-            self._change('Adicionando os modelos alternados atrás…',
+            self._change('Adding the alternating models behind…',
                          lambda:self.controller.add_mixed_behind(vehicle_id,choices,gap,count,**mixed_options))
             return
-        self._change('Adicionando os veículos atrás…',
+        self._change('Adding the vehicles behind…',
                      lambda: self.controller.add_many_behind(vehicle_id, model_id, gap, count,
                                                               **options))
 
@@ -1680,24 +1680,24 @@ class EditorApp:
             if self._chosen_model().get('kind') == 'truck':
                 secondary_id = self.secondary_choices.get(self.secondary_choice.get())
                 if secondary_id is None:
-                    raise ValueError('Escolha uma carga compatível para o caminhão.')
+                    raise ValueError('Choose a compatible trailer for the truck.')
         except (AttributeError, ValueError) as exc:
-            messagebox.showinfo('Adicionar no ponto', str(exc), parent=self.root)
+            messagebox.showinfo('Add at point', str(exc), parent=self.root)
             return
         vehicle_id = int(vehicle['id'])
         model_id = self.model_choices.get(self.model_choice.get())
         experimental = self._experimental_enabled()
-        self._change('Preparando o veículo no ponto marcado…',
+        self._change('Preparing the vehicle at the marked point…',
                      lambda: self.controller.add_at(vehicle_id, model_id, x, z,
                          secondary_model_id=secondary_id, experimental=experimental))
 
     def save_preset(self) -> None:
-        path = filedialog.asksaveasfilename(parent=self.root, title='Salvar configuração',
-                    defaultextension='.json', filetypes=[('Configuração JSON', '*.json')])
+        path = filedialog.asksaveasfilename(parent=self.root, title='Save configuration',
+                    defaultextension='.json', filetypes=[('JSON configuration', '*.json')])
         if path:
-            self._submit('Salvando a configuração…',
+            self._submit('Saving the configuration…',
                          lambda: self.controller.save_preset(str(Path(path))),
-                         lambda result: self._set_status(str(result.get('message') or 'Configuração salva.')))
+                         lambda result: self._set_status(str(result.get('message') or 'Configuration saved.')))
 
     def _project_ready(self, *, existing: bool = False) -> bool:
         return bool(not self.closed and not self.busy and not self.pending and self.connected
@@ -1715,7 +1715,7 @@ class EditorApp:
                 return {'error':str(error).strip() or type(error).__name__}
         def done(response):
             if response.get('error'):
-                self._set_status('Não foi possível concluir: '+response['error'],warning=True)
+                self._set_status('Could not finish: '+response['error'],warning=True)
             else:
                 result=response['result']
                 self._set_core_state(result)
@@ -1730,15 +1730,15 @@ class EditorApp:
         try:
             description=slot_archive_description(row)
         except ValueError as error:
-            messagebox.showinfo('Gerenciar slots',str(error),parent=parent or self.root)
+            messagebox.showinfo('Manage slots',str(error),parent=parent or self.root)
             return
-        if not messagebox.askyesno('Arquivar e liberar slot',description,parent=parent or self.root):
+        if not messagebox.askyesno('Archive and free slot',description,parent=parent or self.root):
             return
         # Do not use an old confirmation after the emulator changed pause or
         # the editor entered another action. The controller rechecks ownership.
         if not self._project_ready():
             return
-        self._slot_job('Arquivando o slot com cópia verificada…',
+        self._slot_job('Archiving the slot with a verified copy…',
                        lambda:self.controller.archive_state_slot(row['slot']),callback)
 
     def manage_slots(self) -> None:
@@ -1754,25 +1754,25 @@ class EditorApp:
                 pass
         dialog=tk.Toplevel(self.root)
         self.slot_dialog=dialog
-        dialog.title('Gerenciar slots do PCSX2')
+        dialog.title('Manage PCSX2 slots')
         dialog.transient(self.root)
         dialog.geometry('660x410')
         dialog.columnconfigure(0,weight=1)
         dialog.rowconfigure(1,weight=1)
-        ttk.Label(dialog,text='Arquivar preserva uma cópia verificada e libera o slot; não apaga definitivamente o save.',
+        ttk.Label(dialog,text='Archiving keeps a verified copy and frees the slot; it does not permanently delete the save.',
                   wraplength=610).grid(row=0,column=0,sticky='w',padx=14,pady=12)
         table=ttk.Treeview(dialog,columns=('slot','state','size'),show='headings',selectmode='browse',height=10)
-        for key,label,width in (('slot','Slot',55),('state','Estado',340),('size','Tamanho',120)):
+        for key,label,width in (('slot','Slot',55),('state','State',340),('size','Tamanho',120)):
             table.heading(key,text=label)
             table.column(key,width=width,stretch=key=='state')
         table.grid(row=1,column=0,sticky='nsew',padx=14)
-        status=tk.StringVar(value='Consultando os slots…')
+        status=tk.StringVar(value='Reading the slots…')
         ttk.Label(dialog,textvariable=status,wraplength=610).grid(row=2,column=0,sticky='w',padx=14,pady=10)
         buttons=ttk.Frame(dialog)
         buttons.grid(row=3,column=0,sticky='ew',padx=14,pady=(0,12))
         state={'alive':True,'rows':{},'loading':False}
-        refresh=ttk.Button(buttons,text='Atualizar slots')
-        archive=ttk.Button(buttons,text='Arquivar e liberar selecionado')
+        refresh=ttk.Button(buttons,text='Refresh slots')
+        archive=ttk.Button(buttons,text='Archive and free selected')
         refresh.pack(side='left')
         archive.pack(side='left',padx=8)
         def selected():
@@ -1796,18 +1796,18 @@ class EditorApp:
                 for row in response['result'].get('slots',[]):
                     iid=f"slot-{row['slot']}"
                     state['rows'][iid]=row
-                    text=('Bloqueado: '+str(row.get('blocked')) if row.get('blocked') else
-                          'Ocupado' if row.get('occupied') else 'Livre')
+                    text=('Blocked: '+str(row.get('blocked')) if row.get('blocked') else
+                          'Occupied' if row.get('occupied') else 'Free')
                     size=row.get('total_bytes',0)
                     table.insert('','end',iid=iid,values=(row['slot'],text,f'{size/1048576:.2f} MiB'))
-                status.set('Selecione um slot ocupado para ver os arquivos antes de arquivar.')
+                status.set('Select an occupied slot to see its files before archiving.')
             enable()
         def load():
             if not self._project_ready() or not state['alive']:
                 return
             state['loading']=True
             enable()
-            self._slot_job('Consultando os slots do PCSX2…',self.controller.list_state_slots,loaded)
+            self._slot_job('Reading the PCSX2 slots…',self.controller.list_state_slots,loaded)
         def archived(response):
             if not state['alive']:
                 return
@@ -1819,7 +1819,7 @@ class EditorApp:
                 enable()
             else:
                 result=response['result']
-                messagebox.showinfo('Slot arquivado',str(result.get('message') or 'Slot arquivado.')
+                messagebox.showinfo('Slot archived',str(result.get('message') or 'Slot archived.')
                     +'\n\nBackup: '+str(result.get('archive_directory') or ''),parent=dialog)
                 load()
         def submit_archive():
@@ -1836,7 +1836,7 @@ class EditorApp:
         refresh.configure(command=load)
         archive.configure(command=submit_archive)
         table.bind('<<TreeviewSelect>>',enable)
-        ttk.Button(buttons,text='Fechar',command=close).pack(side='right')
+        ttk.Button(buttons,text='Close',command=close).pack(side='right')
         dialog.protocol('WM_DELETE_WINDOW',close)
         dialog.grab_set()
         load()
@@ -1844,9 +1844,9 @@ class EditorApp:
     def _new_project_location(self) -> tuple[str, str] | None:
         name = str(self.project_name.get()).strip()
         if not name or len(name) > 100 or any(ord(char) < 32 for char in name):
-            messagebox.showinfo('Projeto do evento', 'Informe um nome de 1 a 100 caracteres para o evento.', parent=self.root)
+            messagebox.showinfo('Event project', 'Enter a name of 1 to 100 characters for the event.', parent=self.root)
             return None
-        parent = filedialog.askdirectory(parent=self.root, title='Escolha onde criar a nova pasta do projeto',
+        parent = filedialog.askdirectory(parent=self.root, title='Choose where to create the new project folder',
                                         mustexist=True, initialdir=str(PROJECT_DIRECTORY if PROJECT_DIRECTORY.is_dir()
                                             else Path(__file__).resolve().parents[2]))
         if not parent:
@@ -1854,7 +1854,7 @@ class EditorApp:
         try:
             directory = project_suggestion(Path(parent))
         except OSError as exc:
-            messagebox.showerror('Projeto do evento', f'Não foi possível preparar a pasta do projeto: {exc}', parent=self.root)
+            messagebox.showerror('Event project', f'Could not prepare the project folder: {exc}', parent=self.root)
             return None
         return str(directory),name
 
@@ -1865,7 +1865,7 @@ class EditorApp:
         if location is None:
             return
         directory,name=location
-        self._change('Criando o projeto e salvando a referência…',
+        self._change('Creating the project and saving the reference…',
                      lambda: self.controller.create_project(directory, name))
 
     def import_project(self) -> None:
@@ -1874,20 +1874,20 @@ class EditorApp:
         location=self._new_project_location()
         if location is None:
             return
-        path=filedialog.askopenfilename(parent=self.root, title='Escolha o .p2s da cena pausada',
-                                       filetypes=[('Estado PCSX2','*.p2s')])
+        path=filedialog.askopenfilename(parent=self.root, title='Choose the .p2s of the paused scene',
+                                       filetypes=[('PCSX2 state','*.p2s')])
         if path:
             directory,name=location
-            self._change('Conferindo o estado e criando o projeto…',
+            self._change('Checking the state and creating the project…',
                          lambda:self.controller.import_project(directory,name,str(Path(path))))
 
     def save_project_from_state(self) -> None:
         if not self._project_ready(existing=True):
             return
-        path=filedialog.askopenfilename(parent=self.root, title='Escolha o .p2s da cena pausada',
-                                       filetypes=[('Estado PCSX2','*.p2s')])
+        path=filedialog.askopenfilename(parent=self.root, title='Choose the .p2s of the paused scene',
+                                       filetypes=[('PCSX2 state','*.p2s')])
         if path:
-            self._change('Conferindo e salvando a cena do arquivo…',
+            self._change('Checking and saving the scene from the file…',
                          lambda:self.controller.save_project_from_state(str(Path(path))))
 
     def _confirm_project(self, *, base: bool) -> None:
@@ -1898,11 +1898,11 @@ class EditorApp:
         if current.get('path'):
             options={'initialdir':str(Path(current['path']).parent), 'initialfile':Path(current['path']).name}
         path=filedialog.askopenfilename(parent=self.root,
-            title='Conferir base carregada' if base else 'Conferir cena carregada',
-            filetypes=[('Projeto de evento','*.b3event.json')],**options)
+            title='Check loaded base' if base else 'Check loaded scene',
+            filetypes=[('Event project','*.b3event.json')],**options)
         if path:
             self._invalidate_profile()
-            self._change('Conferindo a cena carregada manualmente…',
+            self._change('Checking the manually loaded scene…',
                          lambda:self.controller.confirm_project(str(Path(path)),base=base))
 
     def confirm_project_scene(self) -> None:
@@ -1925,38 +1925,38 @@ class EditorApp:
     def open_project(self) -> None:
         if not self._project_ready():
             return
-        path = filedialog.askopenfilename(parent=self.root, title='Abrir projeto de evento',
-                    filetypes=[('Projeto de evento', '*.b3event.json')])
+        path = filedialog.askopenfilename(parent=self.root, title='Open event project',
+                    filetypes=[('Event project', '*.b3event.json')])
         if path:
             self._invalidate_profile()
-            self._change('Abrindo o projeto e restaurando a cena salva…',
+            self._change('Opening the project and restoring the saved scene…',
                          lambda: self.controller.open_project(str(Path(path))))
 
     def save_project(self) -> None:
         if self._project_ready(existing=True):
-            self._change('Salvando a cena no projeto…', self.controller.save_project)
+            self._change('Saving the scene to the project…', self.controller.save_project)
 
     def test_project(self) -> None:
         if self._project_ready(existing=True):
             self._invalidate_profile()
-            self._change('Salvando a cena e iniciando o teste…', self.controller.test_project)
+            self._change('Saving the scene and starting the test…', self.controller.test_project)
 
     def restart_project(self) -> None:
         if self._project_ready(existing=True):
             self._invalidate_profile()
-            self._change('Restaurando a cena salva para repetir o teste…', self.controller.restart_project)
+            self._change('Restoring the saved scene to repeat the test…', self.controller.restart_project)
 
     def restore_project_base(self) -> None:
         if self._project_ready(existing=True):
             self._invalidate_profile()
-            self._change('Restaurando a referência original do projeto…', self.controller.restore_project_base)
+            self._change("Restoring the project's original reference…", self.controller.restore_project_base)
 
     def load_preset(self) -> None:
-        path = filedialog.askopenfilename(parent=self.root, title='Abrir configuração',
-                    filetypes=[('Configuração JSON', '*.json')])
+        path = filedialog.askopenfilename(parent=self.root, title='Open configuration',
+                    filetypes=[('JSON configuration', '*.json')])
         if path:
             options = {'experimental': True} if self._experimental_enabled() else {}
-            self._change('Aplicando a configuração ao evento atual…',
+            self._change('Applying the configuration to the current event…',
                          lambda: self.controller.load_preset(str(Path(path)), **options))
 
     def export_state(self) -> None:
@@ -1968,19 +1968,19 @@ class EditorApp:
             EXPORT_DIRECTORY.mkdir(parents=True, exist_ok=True)
             suggested = export_suggestion()
         except OSError as exc:
-            messagebox.showerror('Salvar estado', f'Não foi possível preparar a pasta de eventos: {exc}',
+            messagebox.showerror('Save state', f'Could not prepare the events folder: {exc}',
                                  parent=self.root)
             return
-        path = filedialog.asksaveasfilename(parent=self.root, title='Salvar estado editado',
+        path = filedialog.asksaveasfilename(parent=self.root, title='Save edited state',
                     defaultextension='.p2s', initialdir=str(suggested.parent), initialfile=suggested.name,
-                    filetypes=[('Estado PCSX2', '*.p2s')])
+                    filetypes=[('PCSX2 state', '*.p2s')])
         if path:
             def done(result):
-                message = str(result.get('message') or 'Estado editado salvo.')
+                message = str(result.get('message') or 'Edited state saved.')
                 if result.get('path'):
-                    message += '\nArquivo: ' + str(result['path'])
+                    message += '\nFile: ' + str(result['path'])
                 self._set_status(message, warning=bool(result.get('warning')))
-            self._submit('Salvando o estado editado…',
+            self._submit('Saving the edited state…',
                          lambda: self.controller.export_state(str(Path(path))),
                          done)
 
@@ -1988,19 +1988,19 @@ class EditorApp:
         if self.closed:
             return
         if self.busy:
-            messagebox.showinfo('Ação em andamento',
-                                'Aguarde esta ação terminar antes de fechar o editor.',
+            messagebox.showinfo('Action in progress',
+                                'Wait for this action to finish before closing the editor.',
                                 parent=self.root)
             return
         if self.pending:
-            messagebox.showinfo('Criação em andamento',
-                'Finalize a criação antes de fechar. Se a operação falhou, recarregue um '
-                'estado limpo no PCSX2 e clique em Conectar novamente.', parent=self.root)
+            messagebox.showinfo('Creation in progress',
+                'Finish the creation before closing. If the operation failed, reload a '
+                'clean state in PCSX2 and click Connect again.', parent=self.root)
             return
         window = getattr(self, 'native_window', None)
         if window is not None and window.winfo_exists() and not window.close():
             return
-        self._submit('Fechando o editor…', self.controller.close, lambda _value: self._finish_close())
+        self._submit('Closing the editor…', self.controller.close, lambda _value: self._finish_close())
 
     def _finish_close(self) -> None:
         self.closed = True
@@ -2018,4 +2018,4 @@ def main(controller: Controller) -> None:
 
 
 if __name__ == '__main__':
-    raise SystemExit('Abra o editor pelo inicializador do projeto, que fornece a conexão ao emulador.')
+    raise SystemExit('Open the editor through the project launcher, which provides the emulator connection.')

@@ -7,8 +7,8 @@ if not errorlevel 1 (
 ) else (
     where py >nul 2>nul
     if errorlevel 1 (
-        echo Python 3.10 ou posterior nao foi encontrado.
-        echo Instale o Python com Tcl/Tk e abra este arquivo novamente.
+        echo Python 3.10 or later was not found.
+        echo Install Python with Tcl/Tk and open this file again.
         pause
         exit /b 1
     )

@@ -1,140 +1,136 @@
-# Tráfego tardio, restrições e caminhões
+# Late traffic, restrictions and trucks
 
-Pesquisa atualizada em 13/11/2026, para o executável USA pesquisado.
+Research updated on 13/11/2026 for the researched USA executable.
 
-## Resultados e restrições atuais
+> **Late traffic is scripted.** Vehicles that appear after the start of a Crash
+> event come from the event's [traffic waves](traffic-waves.md): timed vehicles of
+> each lane and later waves that load at fixed times. That is why the live editor
+> can find valid references that "appear later".
 
-O usuário relatou criação de vários veículos em níveis diferentes, inclusive
-atrás de tráfego que apareceu depois e atrás de outros veículos acrescentados.
-Na etapa de criação individual, o registro local examinado confirmou 20 operações `spawn_finished`, em seis modelos,
-com referências nos caminhos 2, 3, 6 e 21 e referências lógicas a atores criados.
-São ensaios específicos; isso não valida todos os eventos e situações do jogo.
+## Current results and restrictions
 
-O editor usa recursos já carregados. A primeira versão admitia criação
-com uma associação independente e consistente a tipos 1 ou 2. A categoria
-visual não corresponde necessariamente ao byte de tipo: há modelos chamados
-Car, Van ou Motorhome com associações admitidas. Criar um modelo ausente exige
-investigar seu carregamento e dependências; não basta trocar o ID. A versão
-seguinte também admite lotes de 1 a 8 e pares nativos carregados de cabine
-tipo 4 com carga tipo 11; o estado atual está em
-[batches-trucks-and-pause.md](batches-trucks-and-pause.md).
+The user reported creating several vehicles in different levels, including behind
+traffic that appeared later and behind other added vehicles. During the
+single-creation stage the examined local log confirmed 20 `spawn_finished`
+operations over six models, with references on paths 2, 3, 6 and 21 and logical
+references to created actors. These are specific trials; they do not validate every
+event and situation.
 
-O perfil desta etapa também admite independentes 3/5 com associação nativa
-consistente: vans `HEVYCAR17/18` de tipo 3 e ônibus `HEVYCAR19/21` de tipo 5.
-Exige dois pontos físicos não degenerados, coerência do render e collider,
-caminho e ocupação válidos. `HEVYCAR20` apenas carregado continua bloqueado sem
-associação ativa consistente ao tipo 5. Tipos especiais 6 a 10 não foram
-habilitados. O teste real de criação de ônibus ainda está pendente; a distância
-admitida para ônibus escolhido ou usado como referência é de 30 a 50 unidades.
+The editor uses resources that are already loaded. The first version admitted
+creation with a consistent independent association to types 1 or 2. The visual
+category does not necessarily match the type byte: models called Car, Van or
+Motorhome have admitted associations. Creating a model that is not loaded requires
+investigating its loading and dependencies; changing the ID is not enough. The next
+version also admits batches of 1 to 8 and native loaded pairs of type-4 cab with a
+type-11 trailer; see [batches-trucks-and-pause.md](batches-trucks-and-pause.md).
 
-Um lote de ônibus tipo 5 em formato v2 foi preparado e aguardava o usuário
-retomar o tráfego; a etapa não comprova presença, movimento, colisão ou finalização.
-Na rodada de validação passaram 157 testes distribuíveis e 40 privados
-(19 do controlador e 21 do perfil).
+This stage's profile also admits independent types 3/5 with a consistent native
+association: `HEVYCAR17/18` vans (type 3) and `HEVYCAR19/21` buses (type 5). It
+requires two non-degenerate physics points, coherent render and collider, a valid
+path and occupancy. `HEVYCAR20` that is only loaded stays blocked without an active
+type-5 association. Special types 6 to 10 are not enabled. A real bus-creation test
+is still pending; the distance admitted for a bus chosen or used as a reference is
+30 to 50 units. A type-5 bus batch in v2 format was prepared and was waiting for the
+user to resume traffic; that does not prove presence, movement, collision or finish.
+157 distributable and 40 private tests passed in that validation round.
 
-Após reabrir a revisão com finalização protegida, o usuário confirmou lote e
-exportação reais. O registro local também inclui oito `HEVYCAR33` finalizados
-no caminho 53 e dois pares `HEVYCAR22` + `HEVYCAR27` finalizados em cada um dos
-caminhos 34 e 53. Uma leitura posterior registrou recusa estrutural de perfil
-com uma solicitação pendente. Isso não prova travamento ou falha geral e não
-elimina as restrições de física, vínculos e caminho. A restauração do `.p2s`
-exportado e um quarto tanque continuam sem teste.
+After reopening the revision with the protected finish, the user confirmed batch and
+real export. The local log also includes eight `HEVYCAR33` finished on path 53 and
+two `HEVYCAR22` + `HEVYCAR27` pairs finished on each of paths 34 and 53. A later read
+logged a structural profile refusal with a pending request; that does not prove a
+freeze or a general failure and does not remove the physics, link and path
+restrictions. Restoring the exported `.p2s` and a fourth tanker remain untested.
 
-Com os dez slots ocupados na sessão atual, a exportação PINE pelo editor é
-recusada sem substituir saves. A alternativa **Sistema → Salvar estado → Arquivo…**
-com destino novo gerou uma cópia de controle validada como ZIP/EE de 32 MiB.
-A restauração usa **Sistema → Carregar estado → Arquivo…** e ainda precisa
-de validação do arquivo exportado.
+With all ten slots taken in the current session, the PINE export through the editor
+is refused without replacing saves. **System → Save state → File…** with a new
+destination produced a control copy validated as a ZIP with 32 MiB of EE memory.
 
-Não há teste de direção relativa ao jogador no controlador. Ele exige
-pontos físicos inicializados, caminho válido e concordância entre orientação,
-velocidade de seguimento e progressão do caminho. Numa leitura pausada do
-evento atual, quatro carros orientados no sentido oposto ao jogador tinham
-pontos físicos não inicializados e velocidade de seguimento zero. Essa leitura
-explica a recusa desses quatro casos, sem estabelecer que todo tráfego na
-contramão seja incompatível. A interface agora mostra o motivo de bloqueio
-ao selecionar um objeto.
+There is no test of direction relative to the player in the controller. It requires
+initialized physics points, a valid path and agreement between orientation,
+following speed and path progression. In a paused read of the current event, four
+cars oriented against the player had uninitialized physics points and zero following
+speed. That explains the refusal of those four cases without establishing that all
+oncoming traffic is incompatible. The interface now shows the reason for a block
+when an object is selected.
 
-## Quantidade e erro de proteção
+## Capacity and the protection error
 
-Os pools são compartilhados. A capacidade nominal pesquisada de objetos é
-254 registros, incluindo componentes de caminhões; isso não equivale a 254
-veículos seguros, nem substitui as capacidades de nós e colisão. A criação
-também depende de recursos carregados e de espaço útil atrás da referência.
-Encadear criações perto do início de um caminho pode esgotar esse trecho.
+The pools are shared. The researched nominal object capacity is 254 records,
+including truck components; that is not 254 safe vehicles and does not replace the
+node and collision capacities. Creation also depends on loaded resources and usable
+room behind the reference; chaining creations near the start of a path can use up
+that stretch.
 
-O erro **Há uma alteração de código não reconhecida na atualização do tráfego**
-é outra proteção: os bytes do retorno da rotina diferem dos aceitos pelo perfil.
-Ele não demonstra esgotamento do pool ou fim da pista. A causa histórica da
-imagem do usuário não foi capturada. Na leitura posterior, o retorno já estava
-original e a área temporária zerada; não foi necessário alterar o jogo.
+The error **There is an unrecognized code change in the traffic update** is another
+protection: the bytes of the routine's return differ from those accepted by the
+profile. It does not show pool exhaustion or the end of the track. The historical
+cause of the user's screenshot was not captured; in the later read the return was
+already original and the temporary area zeroed, so the game did not need changing.
 
-O controlador passou a registrar `profile_rejected`, incluindo estado de pausa,
-bytes do retorno e da pequena identificação da solicitação, no log local.
-Isso permitirá distinguir uma solicitação antiga de outra alteração se o erro
-reaparecer. Uma solicitação reconhecida de outra sessão recebe orientação
-específica; código desconhecido continua bloqueado. O editor não tenta
-restaurá-lo por adivinhação. Esses diagnósticos ficam fora do repositório.
+The controller now logs `profile_rejected`, including the pause state, the return
+bytes and the small request ID, in the local log, so an old request can be told
+apart from another change if the error comes back. A recognized request from another
+session gets specific guidance; unknown code stays blocked and is never "restored"
+by guessing. These diagnostics stay outside the repository.
 
-Uma pendência investigada depois veio do recarregamento de um estado feito
-antes da limpeza. O botão **Finalizar pendência** passou a conferir o registro
-local e o payload canônico v1/v2 com landing, exigindo conclusão e devolução
-de controle antes de limpar. Uma recuperação real mudou somente a área
-temporária de 4 KiB; objetos, nós e matrizes permaneceram idênticos byte a byte,
-sem reposicionar veículos. A receita antiga e seu alinhamento não foram recuperados.
-O token v2 por geração impede aceitar a conclusão de outra solicitação.
+A pending request investigated later came from reloading a state saved before the
+cleanup. **Finish pending request** now checks the local log and the canonical v1/v2
+landing payload, requiring completion and the return of control before cleaning. A
+real recovery changed only the 4 KiB temporary area; objects, nodes and matrices
+stayed byte-identical and no vehicle was repositioned. The old recipe and its
+alignment were not recovered. The per-generation v2 token prevents accepting another
+request's completion. With the game identity confirmed and the profile invalid, the
+connection is kept for that explicit recovery; listing and mutations stay blocked
+until a valid read.
 
-Com a identidade do jogo confirmada e o perfil inválido, a conexão é mantida
-para essa recuperação explícita. Listagem e mutações continuam bloqueadas até
-uma leitura válida. Se o código ou registro não conferir, o editor exige uma
-referência limpa e não tenta remover bytes desconhecidos.
+## Cab and trailer are one set
 
-## Cabine e carga são um conjunto
+The examined traffic callers request a primary of type 4 and a secondary of type 11,
+with separate model IDs. The creator stores the child in `primary+0x110` and the
+parent in `child+0x10c`. The primary has a path node; the secondary follows the set
+without using a second node. Both have their own physics descriptors.
 
-Os callers de tráfego examinados solicitam primário tipo 4 e secundário
-tipo 11, com IDs de modelos separados. O criador registra o filho em
-`primário+0x110` e o pai em `filho+0x10c`. O primário tem nó de caminho;
-o secundário acompanha o conjunto sem consumir um segundo nó. Ambos têm
-descritores físicos próprios.
+A preserved save holds ten `HEVYCAR22` cabs and ten trailers: three `HEVYCAR29`
+tankers, four `HEVYCAR27` flatbeds and three `HEVYCAR30` covered trailers (the file
+kept its hash during the read). That proves more than three type-11 components,
+including four flatbeds of the same model.
 
-Um save preservado contém dez cabines `HEVYCAR22` e dez reboques: três
-tanques `HEVYCAR29`, quatro plataformas `HEVYCAR27` e três carretas fechadas
-`HEVYCAR30`. O arquivo manteve seu hash durante a leitura. Isso comprova mais
-de três componentes de tipo 11, inclusive quatro plataformas do mesmo modelo.
+For a similar set, the expected extra use is:
 
-Para um conjunto semelhante, espera-se verificar:
-
-| Estrutura | Consumo adicional esperado |
+| Structure | Expected extra use |
 | --- | ---: |
-| Objetos e respectivos registros de ocupação | 2 |
-| Nó de caminho, cadeia e grid | 1 |
-| Descritores de colisão | 2 |
-| Endpoints por eixo | 4 |
+| Objects and their occupancy records | 2 |
+| Path node, chain and grid | 1 |
+| Collision descriptors | 2 |
+| Endpoints per axis | 4 |
 
-A interface agora representa o conjunto como uma unidade com seleção separada
-de cabine e carga, preservando seus dois objetos físicos. Só oferece os pares
-nativos observados e carregados; a carga não é criada avulsa. O usuário confirmou
-o funcionamento de um caminhão com carga, e o registro local inclui finalização
-de um par `HEVYCAR22` + `HEVYCAR27`. Isso não valida todos os pares, o movimento
-composto candidato ou um quarto tanque.
+The interface represents the set as one unit with a separate cab and trailer choice,
+keeping both physical objects. It only offers native pairs observed and loaded; a
+trailer is never created on its own. The user confirmed a truck with a trailer
+worked, and the local log includes the finish of a `HEVYCAR22` + `HEVYCAR27` pair.
+That does not validate every pair, the candidate composite move or a fourth tanker.
 
-## Existe limite de três tanques?
+In the [traffic waves](traffic-waves.md) the same set is one vehicle record of type 4
+with a trailer ID, for example `HEVYCAR22` + `HEVYCAR27` in Grand Slam.
 
-Não foi encontrado esse limite em `0x164a50` (criação), `0x1864f0`
-(inicialização), `0x1b85f0` (registro de colisão) ou nos callers examinados.
-O `%3` observado no criador escolhe um atributo entre três bytes do manager;
-não conta caminhões tanque. As condições de capacidade são compartilhadas.
+## Is there a limit of three tankers?
 
-Isso não prova que quatro tanques e suas explosões sejam estáveis. Rotinas
-posteriores de dano, explosão e efeitos não foram cobertas por essa busca.
-Ter três no desenho original de um evento não estabelece o máximo do motor.
+No such limit was found in `0x164a50` (creation), `0x1864f0` (initialization),
+`0x1b85f0` (collision registration) or the examined callers. The `%3` seen in the
+creator picks an attribute among three manager bytes; it does not count tankers.
+The capacity conditions are shared.
 
-O teste decisivo será acrescentar um quarto conjunto cabine+tanque numa cópia
-isolada com três, usando uma combinação nativa já observada. Primeiro verificar
-os dois objetos, vínculos, nó/grid e colliders; depois movimento e, com o
-usuário dirigindo, colisão e explosões. Existência, movimento e impacto são
-verificações distintas. Nenhum quarto tanque foi criado nesta investigação.
+That does not prove four tankers and their explosions are stable: later damage,
+explosion and effects routines were not covered by this search. Three in an event's
+original design does not establish the engine's maximum.
 
-As conclusões estáticas reutilizam as exportações locais das funções
-`0x164a50`, `0x1864f0`, `0x1b85f0`, `0x2662e0`, `0x267ec0`, `0x267800`
-e `0x266ae0`. Exportações e saves permanecem privados e não são distribuídos.
+The decisive test is adding a fourth cab + tanker to an isolated copy that has three,
+using a native combination already observed: first check both objects, links,
+node/grid and colliders; then movement and, with the user driving, collision and
+explosions. Existence, movement and impact are separate checks. No fourth tanker was
+created in this investigation; with traffic waves it can now also be scheduled on the
+disc in events that load a tanker trailer.
+
+The static conclusions reuse the local exports of `0x164a50`, `0x1864f0`,
+`0x1b85f0`, `0x2662e0`, `0x267ec0`, `0x267800` and `0x266ae0`. Exports and saves
+stay private.

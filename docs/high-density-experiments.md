@@ -1,115 +1,113 @@
-# Muitos veículos e testes experimentais
+# Many vehicles and experimental tests
 
-Investigação iniciada em 13/11/2026 e atualizada em 14/11/2026 para Burnout 3 USA
-e PCSX2 1.7.2521.
+Investigation started on 13/11/2026 and updated on 14/11/2026, for Burnout 3 USA
+on PCSX2 1.7.2521.
 
-## O que o erro informa
+## What the error says
 
-O usuário relatou falhas depois de acrescentar mais de cinquenta veículos ao
-tráfego original: alguns perdem a física e uma batida com muitos envolvidos
-pode congelar ou terminar no assert `FQC = 0 on VIF FIFO READ!`. Esse é um
-resultado observado pelo usuário em determinados eventos; ainda não estabelece
-um máximo geral de cinquenta veículos adicionados.
+The user reported failures after adding more than fifty vehicles to the original
+traffic: some lose their physics, and a crash with many vehicles involved can
+freeze or end in the assert `FQC = 0 on VIF FIFO READ!`. This is what the user
+observed in some events; it does not establish a general maximum of fifty added
+vehicles.
 
-No código dessa versão do PCSX2, `ReadFIFO_VIF1` exige uma contagem FIFO diferente
-de zero antes de ler. No caminho de transferência para a memória, a rotina espera
-o GS, obtém os dados e reduz a quantidade restante. O assert indica que o emulador
-recebeu uma leitura com contagem zero. Ele não mede carros, corpos físicos ou o
-espaço disponível nos pools do jogo. O erro sozinho não permite decidir entre
-estado inválido do jogo, comportamento de emulação ou outra causa anterior.
-[Código oficial de FiFo.cpp](https://github.com/PCSX2/pcsx2/blob/v1.7.2521/pcsx2/FiFo.cpp#L42).
+In this PCSX2 version, `ReadFIFO_VIF1` requires a non-zero FIFO count before
+reading. On the transfer path to memory the routine waits for the GS, takes the
+data and reduces the remaining amount. The assert means the emulator received a
+read with a zero count. It does not measure cars, physics bodies or free space in
+the game's pools, and on its own it cannot separate an invalid game state from an
+emulation behaviour or an earlier cause.
+[Official FiFo.cpp](https://github.com/PCSX2/pcsx2/blob/v1.7.2521/pcsx2/FiFo.cpp#L42).
 
-`FQC` representa a quantidade de dados no FIFO, e `FDR` sua direção de
-transferência, no modelo de registradores dessa versão. Desativar a verificação
-não demonstra que os dados de uma transferência estejam corretos nem resolve a
-perda de física. Esta etapa não alterou o emulador ou seus asserts.
-[Registradores VIF oficiais](https://github.com/PCSX2/pcsx2/blob/v1.7.2521/pcsx2/Vif.h#L112).
+`FQC` is the amount of data in the FIFO and `FDR` its transfer direction in that
+version's register model. Disabling the check would not show that a transfer's
+data are correct nor fix the lost physics. This work did not change the emulator
+or its asserts.
+[Official VIF registers](https://github.com/PCSX2/pcsx2/blob/v1.7.2521/pcsx2/Vif.h#L112).
 
-## Existem vários recursos finitos
+## There are several finite resources
 
-Em testes posteriores, o usuário delimitou a falha instantânea a aproximadamente
-**61–65 veículos já envolvidos na batida**. Fora desse estado, relatou conseguir
-manter mais veículos na tela. Também observou redução ou desaparecimento de
-geometria do cenário e de veículos a curta distância quando concentra mais de
-cinquenta carros num lugar. São observações distintas de física de batida e
-renderização, ainda sem captura instrumentada que identifique qual recurso
-esgotou. Não se assume que cabine, carga, jogador e outros corpos consumam uma
-única posição por veículo contado visualmente.
+In later tests the user narrowed the instant failure down to about **61–65
+vehicles already involved in the crash**. Outside that state the user could keep
+more vehicles on screen, and also saw scenery geometry and nearby vehicles shrink
+or disappear when more than fifty cars were concentrated in one place. These are
+separate observations of crash physics and rendering, with no instrumented capture
+yet of which resource ran out. Cabs, trailers, the player and other bodies are not
+assumed to use a single slot per visually counted vehicle.
 
-Esse intervalo torna a estrutura de 64 registros abaixo uma hipótese mais forte
-para a conversão à física de batida, mas não substitui a identificação do
-alocador e a contagem de ocupação durante a falha.
+That range makes the 64-record structure below a stronger hypothesis for the
+conversion to crash physics, but it does not replace identifying the allocator and
+counting occupancy during the failure.
 
-O pool de tráfego é somente uma parte do problema. A pesquisa do executável
-mostra estruturas distintas, compartilhadas com outros objetos do cenário:
+The traffic pool is only part of the problem. The executable has separate
+structures, shared with other scene objects:
 
-| Recurso pesquisado | Limite ou comportamento observado | O que não comprova |
+| Resource | Limit or observed behaviour | What it does not prove |
 | --- | --- | --- |
-| Objetos de tráfego e nós de caminho | 254 posições em cada pool; componentes de caminhão também usam objetos | Que 254 carros possam participar de uma batida |
-| Descritores de colisão | Região pesquisada comporta 1.224 registros | Que todos possam ser processados simultaneamente com física completa |
-| Endpoints da ordenação espacial | 2.448 por eixo, dois por descritor | Que haja recursos livres em outras etapas |
-| Lista de pares candidatos a colisão | A rotina examinada só acrescenta pares enquanto seu contador é menor que 256 | Um limite de 256 veículos ou a causa exata do assert VIF |
+| Traffic objects and path nodes | 254 entries in each pool; truck parts also use objects | that 254 cars can take part in a crash |
+| Collision descriptors | the researched region holds 1,224 records | that all can be processed at once with full physics |
+| Spatial-sort endpoints | 2,448 per axis, two per descriptor | that other stages have free resources |
+| Candidate collision pairs | the examined routine only adds pairs while its counter is below 256 | a 256-vehicle limit or the exact cause of the VIF assert |
 
-A limitação de pares está explícita na função `0x001b8f00`: o teste em
-`0x001b9198` compara o contador com `0x100`, e o salto seguinte ignora a inclusão
-quando a lista está cheia. Cada registro tem tamanho `0x30`. Os pares admitidos
-são enviados à rotina `0x001b7220` para o tratamento de colisão.
+The pair limit is explicit in function `0x001b8f00`: the test at `0x001b9198`
+compares the counter with `0x100`, and the following branch skips the insertion
+when the list is full. Each record is `0x30` bytes. Admitted pairs are sent to
+`0x001b7220` for collision handling.
 
-Numa concentração de veículos, a quantidade de pares possíveis cresce mais
-rápido que a quantidade de carros. Com 24 objetos há 276 combinações de dois;
-o jogo filtra quais caixas realmente se sobrepõem antes de registrar pares.
-Esse exemplo explica por que uma fila de contatos pode ficar pressionada sem
-esgotar o pool de tráfego. Não demonstra que aquela rodada tenha atingido a fila
-nem determina quais contatos seriam descartados durante o teste do usuário.
+In a cluster of vehicles the number of possible pairs grows faster than the number
+of cars: 24 objects already make 276 pairs. The game filters which boxes really
+overlap before recording pairs, so a contact queue can be under pressure without
+exhausting the traffic pool. This does not show that the user's round hit that
+queue nor which contacts would be dropped.
 
-Também foi encontrado um conjunto de 64 registros maiores, inicializados em
-`0x001b9850`, com tamanho `0x2430` e construtor `0x002513f0`. O tratamento de
-colisões usa campos desse layout para um tipo de corpo. A ligação completa entre
-criação, conversão do tráfego para física de batida, ocupação e descarte desses
-registros ainda precisa ser mapeada. Portanto, **64 não é apresentado como um
-limite geral de veículos nem como a causa comprovada das falhas**.
+A set of 64 larger records, initialized at `0x001b9850` with size `0x2430` and
+constructor `0x002513f0`, was also found; collision handling uses fields of that
+layout for one kind of body. The full link between creation, conversion of traffic
+to crash physics, occupancy and release of those records still has to be mapped,
+so **64 is not presented as a general vehicle limit nor as the proven cause of the
+failures**.
 
-O número `0x001b93bc` no texto da pilha coincide com uma instrução logo após a
-chamada de tratamento de pares no executável USA. A pilha apresentada não inclui
-o contexto de registradores convidado necessário para atribuir esse valor ao PC
-do jogo. A coincidência é uma pista de investigação, não um diagnóstico fechado.
+The value `0x001b93bc` in the stack text matches an instruction right after the
+pair-handling call in the USA executable. The stack shown does not include the
+guest register context needed to attribute it to the game's PC; the match is a
+lead, not a diagnosis.
 
-## O que o modo experimental pode liberar
+## What experimental mode can unlock
 
-O usuário também relatou que espaçamentos menores que oito unidades para carros
-e trinta para ônibus/caminhões funcionam nos seus ensaios: os veículos se
-sobrepõem inicialmente e formam uma fila até conseguirem sair. Os valores 8/30
-são escolhas conservadoras do modo normal do editor, não mínimos comprovados
-do motor. O modo experimental já admite distâncias positivas menores. O
-congestionamento precisa ser levado em conta ao interpretar a velocidade:
-velocidade desejada e avanço atual podem diferir, inclusive com avanço zero.
+The user also reported that spacing below eight units for cars and thirty for
+buses/trucks works in their trials: the vehicles start overlapped and queue until
+they can pull away. The 8/30 values are conservative choices of the editor's
+normal mode, not proven engine minimums; experimental mode already accepts
+smaller positive distances. Congestion matters when reading speeds: the desired
+speed and the current progress can differ, down to zero progress.
 
-O editor pode afrouxar limites próprios de quantidade por pedido, distância e
-proximidade para experimentar cenas mais densas. Isso não amplia automaticamente
-as estruturas fixas do motor nem carrega modelos ausentes. A indicação desse modo
-deve ser visível: **há chance alta de crash, congelamento ou perda de física**.
+The editor can relax its own per-request amount, distance and proximity limits to
+try denser scenes. That does not enlarge the engine's fixed structures or load
+missing models, and the mode must be clearly flagged: **there is a high chance of
+a crash, freeze or lost physics**.
 
-Continuam necessários modelo carregado compatível, caminho reconhecido, valores
-finitos, pausa do núcleo para escrita e conferência do código temporário. O
-editor também deve recusar ultrapassar as regiões de memória e capacidades
-conhecidas. Uma opção chamada ilimitada não pode transformar um endereço fora
-do pool em um registro válido.
+A loaded compatible model, a recognized path, finite values, a core pause for
+writes and checks of the temporary code are still required, and the editor refuses
+to go beyond known memory regions and capacities. An "unlimited" option cannot turn
+an address outside the pool into a valid record.
 
-Criar mais carros e aumentar a capacidade de uma batida são trabalhos diferentes.
-A ampliação real de capacidade exige identificar todos os consumidores de cada
-estrutura, ajustar armazenamento e índices e validar a conversão, os contatos,
-o desenho e os efeitos. Esta pesquisa não implementou essa ampliação.
+Creating more cars and raising the capacity of a crash are different tasks. Real
+capacity growth needs every consumer of each structure identified, storage and
+indices adjusted, and conversion, contacts, drawing and effects validated. This
+research did not implement that.
 
-## Validação que falta
+## Validation still missing
 
-Para isolar a perda de física, o próximo ensaio instrumentado deve conservar uma
-referência do mesmo evento e aumentar a densidade em etapas, comparando tráfego
-disperso, veículos concentrados sem impacto e a batida. Contagens de objetos,
-pares, corpos convertidos e colisões precisam ser observadas antes da falha.
-Repetir o mesmo cenário permite diferenciar quantidade total de contatos
-simultâneos. Um assert sem essa captura não prova qual recurso se esgotou.
+To isolate the lost physics, the next instrumented trial should keep a reference
+of the same event and raise density in steps, comparing scattered traffic,
+clustered vehicles without impact, and the crash. Counts of objects, pairs,
+converted bodies and collisions need to be observed before the failure. An assert
+without that capture does not prove which resource ran out.
 
-Nesta passagem foram lidas fontes oficiais e exportações estáticas preservadas.
-Duas funções foram exportadas adicionalmente por Ghidra em modo somente leitura,
-sem reanálise do projeto. Nenhum crash foi provocado, nenhum input foi enviado ao
-jogo e nenhuma captura privada ou código descompilado é distribuído neste documento.
+This pass read official sources and preserved static exports; two more functions
+were exported with Ghidra in read-only mode. No crash was triggered, no input was
+sent to the game and no private capture or decompiled code is distributed here.
+
+With [traffic waves](traffic-waves.md) the density of an event can now also be
+changed on the disc (more placed or timed vehicles per wave). The same limits
+apply: waves share the pools above.

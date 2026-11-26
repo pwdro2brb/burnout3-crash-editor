@@ -75,7 +75,7 @@ class NativeEditTests(unittest.TestCase):
         plan = prepare_changes(self.root, event, self.new_order)
         self.assertEqual(set(plan), {self.track_name})
         self.assertEqual(struct.unpack_from("<3f", plan[self.track_name][1], pos), local)
-        with self.assertRaisesRegex(ValueError, "divergem"):
+        with self.assertRaisesRegex(ValueError, "differ"):
             prepare_changes(self.root, event, self.new_order, self.new_goals)
         plan = prepare_changes(self.root, event, GROUPS, crashbreaker_wrecks=15)
         for rel, offset in ((self.stage_name, event.stage_offset), (self.track_name, event.bgd_stage_offset)):
@@ -89,10 +89,10 @@ class NativeEditTests(unittest.TestCase):
         pos = self.event.bgd_stage_offset + CRASHBREAKER_OFFSET
         struct.pack_into("<I", original, pos, 9)
         self.track.write_bytes(original)
-        with self.assertRaisesRegex(ValueError, "mudaram"):
+        with self.assertRaisesRegex(ValueError, "files changed"):
             prepare_changes(self.root, self.event, GROUPS, crashbreaker_wrecks=12)
         event = replace(self.event, bgd_crashbreaker_wrecks=9)
-        with self.assertRaisesRegex(ValueError, "mesmo valor"):
+        with self.assertRaisesRegex(ValueError, "same Crashbreaker value"):
             prepare_changes(self.root, event, GROUPS, crashbreaker_wrecks=12)
         plan = prepare_changes(self.root, event, self.new_order, self.new_goals)
         self.assertEqual(struct.unpack_from("<I", plan[self.track_name][1], pos), (9,))
@@ -101,13 +101,13 @@ class NativeEditTests(unittest.TestCase):
 
     def test_crashbreaker_rejects_outside_range_or_unknown_baseline(self):
         for count in (5, 16, -1, True, 8.0, "8"):
-            with self.subTest(count=count), self.assertRaisesRegex(ValueError, "6 e 15"):
+            with self.subTest(count=count), self.assertRaisesRegex(ValueError, "6 and 15"):
                 prepare_changes(self.root, self.event, self.new_order, crashbreaker_wrecks=count)
         legacy = replace(self.event, crashbreaker_wrecks=None, bgd_crashbreaker_wrecks=None)
-        with self.assertRaisesRegex(ValueError, "mesmo valor"):
+        with self.assertRaisesRegex(ValueError, "same Crashbreaker value"):
             prepare_changes(self.root, legacy, GROUPS, crashbreaker_wrecks=12)
         self.assertEqual(set(prepare_changes(self.root, legacy, self.new_order)), {self.track_name})
-        with self.assertRaisesRegex(ValueError, "antes de exportar"):
+        with self.assertRaisesRegex(ValueError, "before exporting"):
             prepare_changes(self.root, self.event, GROUPS, crashbreaker_wrecks=8)
 
     def test_unchanged_invalid_and_lossy_thresholds(self):
@@ -117,7 +117,7 @@ class NativeEditTests(unittest.TestCase):
 
     def test_reject_changed_group_order_even_on_goals_only_export(self):
         self.track.write_bytes(reorder_groups(self.track.read_bytes(), EVENT, self.new_order))
-        with self.assertRaisesRegex(ValueError, "ordem original"):
+        with self.assertRaisesRegex(ValueError, "original model order"):
             prepare_changes(self.root, self.event, GROUPS, self.new_goals, expected_orders=GROUPS)
 
     def test_moved_or_truncated_track_descriptor_and_stale_stage(self):
@@ -132,7 +132,7 @@ class NativeEditTests(unittest.TestCase):
         stage = bytearray(self.stage.read_bytes())
         stage[self.event.stage_offset + STAGE_KEYS] ^= 1
         self.stage.write_bytes(stage)
-        with self.assertRaisesRegex(ValueError, "mudaram"):
+        with self.assertRaisesRegex(ValueError, "files changed"):
             prepare_changes(self.root, self.event, self.new_order)
 
     def test_refuses_unsafe_or_obsolete_export_without_creating_files(self):
@@ -144,7 +144,7 @@ class NativeEditTests(unittest.TestCase):
             with self.assertRaises(ValueError):
                 export_resources(self.root, self.output, self.event, invalid)
         self.track.write_bytes(plan[self.track_name][1])
-        with self.assertRaisesRegex(ValueError, "origem mudou"):
+        with self.assertRaisesRegex(ValueError, "source resource changed"):
             export_resources(self.root, self.output, self.event, plan)
         self.assertEqual(list(self.output.iterdir()), [])
 
@@ -155,7 +155,7 @@ class NativeEditTests(unittest.TestCase):
             if path.name == self.track.name and path.is_relative_to(self.output):
                 return b"test readback error"
             return read(path)
-        with patch.object(Path, "read_bytes", damaged), self.assertRaisesRegex(OSError, "conferir"):
+        with patch.object(Path, "read_bytes", damaged), self.assertRaisesRegex(OSError, "verify the copy"):
             export_resources(self.root, self.output, self.event, plan)
         self.assertEqual(list(self.output.iterdir()), [])
 

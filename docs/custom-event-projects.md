@@ -1,130 +1,120 @@
-# Projetos de eventos de Crash — versão 1
+# Crash event projects — version 1
 
-A aba **Projeto** organiza um evento personalizado em um mapa existente:
-nome, referência original e cena editada com veículos, posições e velocidades.
-O projeto usa estados locais do PCSX2 para repetir a mesma cena. O perfil
-aceito continua sendo Burnout 3 USA, `SLUS-21050 / BEBF8793`, no PCSX2
-`1.7.2521` portátil com PINE.
+The **Project** tab organizes a custom event on an existing map: name, original
+reference and an edited scene with vehicles, positions and speeds. A project
+uses local PCSX2 states to repeat the same scene. The accepted profile is still
+Burnout 3 USA, `SLUS-21050 / BEBF8793`, on a portable PCSX2 `1.7.2521` with PINE.
 
-O usuário confirmou o funcionamento dos lotes e da velocidade em grupo na
-revisão anterior. O fluxo de projetos e restauração desta versão foi verificado
-offline; sua restauração e repetição em jogo ainda precisam de confirmação.
+Projects preserve **live sessions**. To change the event itself on the disc
+(what the game loads from the menu), use [native events](native-crash-events.md)
+and [traffic waves](traffic-waves.md).
 
-## Criar e testar
+The user confirmed that batches and group speed worked in the previous revision.
+The project and restore flow of this version was verified offline; restoring and
+repeating it in game still needs confirmation.
 
-1. Carregue o evento, conecte o editor e use **Pausar PCSX2**. Escolha um instante
-   anterior à batida para poder repetir o teste a partir dele. Finalize qualquer
-   criação pendente.
-2. Na aba **Projeto**, informe um nome com até 100 caracteres e clique em
-   **Criar projeto…**. Escolha a pasta que receberá uma nova subpasta do projeto.
-   A cena pausada é copiada como referência original; arquivos existentes não
-   são substituídos.
-3. Organize os veículos e suas velocidades pelos controles do editor. Finalize
-   os lotes antes de salvar. **Salvar cena no projeto** guarda essa versão e
-   mantém o emulador pausado.
-4. **Testar cena** salva uma nova versão e retoma o jogo. Dirija e teste a batida.
-5. Para repetir, pause novamente e clique em **Voltar ao início**. Aguarde a
-   confirmação de restauração antes de editar ou retomar o jogo.
+## Create and test
 
-**Voltar ao início** restaura a última **cena editada salva**, incluindo o
-instante em que o jogador estava ao salvá-la. Ele não usa o reinício normal do
-menu do jogo e não volta automaticamente à referência sem alterações.
-Se o PCSX2 não retomar após **Testar cena**, a mensagem distingue a cena já
-salva da falha de retomada; confira a pausa antes de continuar.
+1. Load the event, connect the editor and use **Pause PCSX2**. Choose a moment
+   before the crash so the test can be repeated from it. Finish any pending creation.
+2. In the **Project** tab, enter a name of up to 100 characters and click
+   **Create project…**. Choose the folder that will receive a new project
+   subfolder. The paused scene is copied as the original reference; existing
+   files are never replaced.
+3. Arrange the vehicles and their speeds with the editor controls and finish the
+   batches. **Save scene to project** stores that version and keeps the emulator paused.
+4. **Test scene** saves a new version and resumes the game. Drive and test the crash.
+5. To repeat, pause again and click **Back to start**. Wait for the restore
+   confirmation before editing or resuming.
 
-## Reabrir e recuperar a referência
+**Back to start** restores the last **saved edited scene**, including where the
+player was when it was saved. It does not use the game's normal restart and does
+not go back to the unedited reference by itself. If PCSX2 does not resume after
+**Test scene**, the message tells the saved scene apart from the resume failure;
+check the pause before going on.
 
-Com o jogo correspondente carregado e o emulador pausado, use **Abrir projeto…**
-e selecione `event.b3event.json`. O editor verifica os arquivos e restaura a
-última cena salva. Uma nova sessão de edição é iniciada a partir dela; a receita
-JSON de ações da sessão anterior não é reconstruída.
+## Reopen and recover the reference
 
-**Restaurar base original** carrega a referência capturada quando o projeto
-foi criado. A cena editada salva é preservada: **Voltar ao início** ainda pode
-recuperá-la, até que uma nova cena seja salva. As restaurações permanecem
-pausadas ao terminar, prontas para conferência e edição.
+With the matching game loaded and the emulator paused, use **Open project…** and
+select `event.b3event.json`. The editor checks the files and restores the last
+saved scene. A new editing session starts from it; the previous session's JSON
+recipe is not rebuilt.
 
-## Quando não há slot livre
+**Restore original base** loads the reference captured when the project was
+created. The saved edited scene is kept: **Back to start** can still bring it back
+until a new scene is saved. Restores stay paused when they finish.
 
-A captura e a restauração automáticas usam um slot temporário que esteja livre.
-O editor recusa substituir qualquer um dos dez slots existentes. A área
-**Alternativa sem slot livre**, na aba Projeto, permite usar o menu do PCSX2:
+## When there is no free slot
 
-1. Para criar uma referência ou guardar uma cena, mantenha o instante desejado
-   pausado e use **Sistema → Salvar estado → Arquivo…** no PCSX2, escolhendo um
-   arquivo `.p2s` novo.
-2. Use **Criar de .p2s…** para um projeto novo, ou **Salvar cena de .p2s…** para
-   atualizar o projeto aberto. O arquivo precisa corresponder à cena pausada;
-   o editor confere antes de copiá-lo e preserva o original.
-3. Para repetir manualmente, use **Sistema → Carregar estado → Arquivo…** e
-   escolha o arquivo da cena do projeto. Depois pause o PCSX2 e use **Conferir
-   cena carregada…**, selecionando o manifesto desse projeto.
-4. Para recuperar a referência, carregue `base.p2s` pelo mesmo menu e use
-   **Conferir base carregada…**.
+Automatic capture and restore use a free temporary slot; the editor refuses to
+replace any of the ten existing slots. The **Alternative without a free slot**
+area of the Project tab uses the PCSX2 menu instead:
 
-Os botões **Conferir** verificam o que já foi carregado; eles não enviam um
-comando de carregamento. Para testar uma cena salva por essa alternativa,
-use **Retomar**. **Testar cena** usa a captura automática e continua exigindo
-um slot livre.
+1. To create a reference or keep a scene, keep the moment paused and use **System
+   → Save state → File…** in PCSX2 with a new `.p2s` file.
+2. Use **Create from .p2s…** for a new project, or **Save scene from .p2s…** to
+   update the open project. The file must match the paused scene; the editor checks
+   it before copying and keeps the original.
+3. To repeat manually, use **System → Load state → File…** and pick the project's
+   scene file. Then pause PCSX2 and use **Check loaded scene…**, selecting that
+   project's manifest.
+4. To recover the reference, load `base.p2s` the same way and use **Check loaded base…**.
 
-## Arquivos e preservação
+The **Check** buttons verify what is already loaded; they never send a load
+command. To test a scene saved this way, use **Resume**. **Test scene** uses the
+automatic capture and still needs a free slot.
 
-Uma pasta de projeto contém:
+## Files and preservation
+
+A project folder contains:
 
 ```text
-evento-…/
+event-…/
   event.b3event.json
   base.p2s
-  scene-<identificador>.p2s
+  scene-<identifier>.p2s
 ```
 
-Logo após a criação, a cena salva aponta para `base.p2s`, sem duplicá-lo.
-Cada gravação posterior cria um novo arquivo `scene-…p2s` e só então atualiza o
-manifesto. A base e as cenas anteriores não são sobrescritas. A interface usa a
-versão atual indicada no manifesto; ainda não há navegador de versões antigas.
+Right after creation, the saved scene points to `base.p2s` without duplicating it.
+Each later save creates a new `scene-…p2s` file and only then updates the manifest.
+The base and older scenes are never overwritten. The interface uses the current
+version named in the manifest; there is no browser for older versions yet.
 
-O manifesto guarda nome, perfil, resumo e referências relativas aos estados,
-com hashes de integridade. Arquivos externos, referências com travessia de
-pastas, links e redirecionamentos não são admitidos. Se o manifesto mudar em
-outra sessão, abra-o novamente antes de salvar. Uma falha de cópia ou publicação
-preserva os arquivos existentes; uma captura ou versão sem referência pode
-ficar no disco para conferência.
+The manifest stores the name, profile, summary and relative references to the
+states, with integrity hashes. External files, references that traverse folders,
+links and redirects are rejected. If the manifest changes in another session, open
+it again before saving. A failed copy or publish keeps existing files; an
+unreferenced capture or version may stay on disk for inspection.
 
-Os projetos são locais e podem ficar em `outputs/events/`. Estados `.p2s`
-contêm dados do jogo e não são enviados ao repositório. Mantenha a pasta inteira
-para reabrir o projeto. O projeto não exige que todos os veículos da cena tenham
-uma criação registrada na receita JSON de ações; ele restaura o estado salvo.
+Projects are local and can live in `outputs/events/`. `.p2s` states contain game
+data and are never committed to the repository. Keep the whole folder to reopen a
+project. A project does not need every vehicle of the scene to have a creation in
+the JSON recipe; it restores the saved state.
 
-## Conferência da restauração
+## How a restore is checked
 
-O reconhecimento de um ZIP válido e dos códigos compatíveis é feito antes do
-pedido automático de carregamento. A confirmação de recebimento desse pedido
-pelo PCSX2 não é tratada como conclusão. O editor publica um marcador aleatório
-de 16 bytes em sua área de dados ociosa e exige que a restauração o remova,
-inclusive se a cena de destino já estava carregada. Depois confere pausa,
-identidade, código temporário limpo e regiões de memória da cena em duas leituras.
-O controlador valida novamente o perfil antes de liberar a edição.
-Os dados conferidos incluem tráfego, descritores de caminhos e transformação
-do jogador quando seu ponteiro é válido. Essa prova não compara integralmente
-todo o estado do PS2. O hash do arquivo é vinculado à referência do projeto
-antes de copiar ou carregar, para recusar uma substituição entre a conferência
-e o uso.
+A valid ZIP and compatible code are recognized before the automatic load request.
+PCSX2 acknowledging the request is not treated as completion: the editor writes a
+random 16-byte marker into its idle data area and requires the restore to remove
+it, even if the target scene was already loaded. It then checks pause, identity,
+clean temporary code and the scene's memory regions in two reads, and the
+controller validates the profile again before enabling edits. The checked data
+include traffic, path descriptors and the player transform when its pointer is
+valid. This is not a full comparison of the PS2 state. The file's hash is tied to
+the project reference before copying or loading, to refuse a swap between the
+check and its use.
 
-Se o carregamento ficar ambíguo, não há repetição automática nem tentativa de
-reverter memória: novas edições ficam bloqueadas até recuperar uma referência
-limpa. Essa conferência não é uma prova de estabilidade da física, da colisão
-ou do render em cenas densas.
+If a load is ambiguous there is no automatic retry and no attempt to revert
+memory: new edits stay blocked until a clean reference is recovered. The check
+does not prove physics, collision or render stability in dense scenes.
 
-## Limites desta versão
+## Limits of this version
 
-Criar veículos ainda depende de modelos carregados, caminhos admitidos e
-referências válidas. Um caminho candidato desenhado no mapa não fica
-automaticamente disponível para criação. O **Restart** normal do jogo pode
-reconstruir o tráfego original; para repetir o trabalho salvo, use o projeto.
+Creating vehicles still depends on loaded models, admitted paths and valid
+references. A candidate path drawn on the map does not become available for
+creation by itself. The game's normal **Restart** can rebuild the original
+traffic; to repeat the saved work, use the project.
 
-O projeto preserva cenas externas ao jogo. Ele não grava eventos nos arquivos
-do ISO, não acrescenta opções ao menu de Crash, não carrega modelos ausentes e
-não cria geometria de mapa. Usar novos locais exige pesquisar caminhos,
-colisão, câmera e regras da área. Identificar os dados nativos de eventos e
-seus fluxos de tráfego, pontuação e encerramento continua sendo uma etapa
-posterior.
+A project keeps scenes outside the game. It does not add options to the Crash
+menu, load missing models or create map geometry. Using new locations needs
+research on paths, collision, camera and the area's rules.
