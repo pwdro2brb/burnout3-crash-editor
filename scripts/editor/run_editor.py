@@ -13,20 +13,20 @@ def port_number(value: str) -> int:
     try:
         port = int(value)
     except ValueError as exc:
-        raise argparse.ArgumentTypeError('A porta precisa ser um número inteiro.') from exc
+        raise argparse.ArgumentTypeError('The port must be a whole number.') from exc
     if not 1 <= port <= 65535:
-        raise argparse.ArgumentTypeError('A porta precisa estar entre 1 e 65535.')
+        raise argparse.ArgumentTypeError('The port must be between 1 and 65535.')
     return port
 
 
 def parser() -> argparse.ArgumentParser:
     result = argparse.ArgumentParser(
-        description='Editor experimental do evento atual de Burnout 3 USA no PCSX2.')
+        description='Experimental editor for the current Burnout 3 USA event in PCSX2.')
     result.add_argument('--port', type=port_number, default=28011,
-                        help='Porta local do PINE no PCSX2 (padrão: 28011).')
+                        help="PCSX2's local PINE port (default: 28011).")
     result.add_argument('--journal-dir', type=Path,
                         default=REPOSITORY / 'outputs' / 'editor',
-                        help='Pasta local para registros das operações.')
+                        help='Local folder for operation logs.')
     return result
 
 
@@ -40,13 +40,13 @@ def main(argv: list[str] | None = None) -> int:
         from editor.controller import EditorController
         from editor.gui import main as show_editor
     except ImportError as exc:
-        print(f'Não foi possível abrir o editor: {exc}', file=sys.stderr)
-        print('Use o pacote completo e Python 3.10 ou posterior com Tcl/Tk.', file=sys.stderr)
+        print(f'Could not open the editor: {exc}', file=sys.stderr)
+        print('Use the complete package and Python 3.10 or later with Tcl/Tk.', file=sys.stderr)
         return 2
     try:
         show_editor(EditorController(port=args.port, journal_dir=args.journal_dir))
     except OSError as exc:
-        print(f'Não foi possível abrir o editor: {exc}', file=sys.stderr)
+        print(f'Could not open the editor: {exc}', file=sys.stderr)
         return 2
     except KeyboardInterrupt:
         return 130

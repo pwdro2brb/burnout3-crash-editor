@@ -3,7 +3,9 @@
 !/.gitignore
 !/README.md
 !/config.example.json
-!/Abrir Editor.cmd
+!/Open Editor.cmd
+!/LICENSE
+!/CONTRIBUTING.md
 !/docs/
 !/docs/*.md
 !/scripts/
@@ -52,3 +54,5 @@
 **/*.gpr
 **/*.rep/
 **/config.local.json
+**/.investigations/
+**/*.waves.json

@@ -1,78 +1,65 @@
-# Primeiro veículo adicional no Grand Slam — resultado parcial
+# First additional vehicle in Grand Slam — partial result
 
-Em 12/11/2026, um ensaio local criou uma nova instância independente atrás do
-veículo anteriormente reposicionado no Grand Slam. A criação foi conferida
-nas estruturas do jogo. Depois de assumir a direção, **o usuário relatou que
-o carro apareceu e a colisão funcionou**. Esse retorno manual é registrado
-separadamente das verificações instrumentadas de estruturas e posições.
+On 12/11/2026 a local trial created a new independent instance behind the vehicle
+repositioned earlier in Grand Slam. The creation was checked in the game's
+structures. After taking the wheel, **the user reported that the car appeared and
+the collision worked**. That manual feedback is recorded separately from the
+instrumented checks of structures and positions.
 
-O experimento usa novas cópias de save state no PCSX2 isolado. O ISO, o ELF e
-os saves originais do usuário não receberam escrita. O código experimental
-de criação permanece no laboratório; este repositório ainda não oferece um
-criador portátil ou uma interface de edição dentro do jogo.
+The experiment used new save-state copies in the isolated PCSX2. The ISO, the ELF
+and the user's original saves were not written. The experimental creation code
+was later generalized into the external editor (see [editor-status.md](editor-status.md)).
 
-## Criação pela rotina original
+## Creation through the original routine
 
-Uma chamada de execução única à rotina original de criação recebeu o modelo
-já carregado do alvo, seu caminho e uma progressão menor, para colocar o carro
-atrás dele. O jogo alocou os registros, associou o caminho e registrou o novo
-colisor. Nenhum veículo ativo foi removido ou movido para simular um acréscimo.
+A one-shot call to the game's own creation routine received the target's already
+loaded model, its path and a smaller progress value, to place the car behind it.
+The game allocated the records, linked the path and registered the new collider.
+No active vehicle was removed or moved to fake an addition.
 
-Depois de um passo configurado de 30 quadros, o retorno da chamada apontava
-para o novo objeto 12 e o novo nó 10. O alvo anterior permanece como objeto 9,
-nó 8, no caminho 21. As contagens examinadas foram:
+After a configured 30-frame step, the call's return pointed to the new object 12
+and the new node 10. The previous target stayed as object 9, node 8, on path 21.
 
-| Estrutura | Antes | Depois |
+| Structure | Before | After |
 | --- | ---: | ---: |
-| Objetos ativos | 12 | 13 |
-| Nós ativos | 10 | 11 |
-| Descritores de colisão | 32 | 33 |
-| Endpoints por eixo | 64 | 66 |
+| Active objects | 12 | 13 |
+| Active nodes | 10 | 11 |
+| Collision descriptors | 32 | 33 |
+| Endpoints per axis | 64 | 66 |
 
-Objetos incluem componentes articulados: **13 objetos não significa 13 carros
-independentes**. O novo objeto tem tipo e modelo iguais aos do alvo, pontos
-físicos finitos e separados e colisor próprio. Listas livres, bitmaps,
-contagens, identidades, backlinks, cadeia/grid do caminho e registros de
-colisão/endpoints passaram nas verificações implementadas.
+Objects include articulated components: **13 objects does not mean 13 independent
+cars**. The new object has the same type and model as the target, finite and
+separate physics points and its own collider. Free lists, bitmaps, counts,
+identities, backlinks, the path chain/grid and the collision/endpoint records all
+passed the implemented checks. The 30 frames are the emulator's configured step;
+no valid evidence covers a 120-frame window for this creation.
 
-Os 30 quadros são o avanço configurado no emulador; um contador interno do
-jogo não foi validado independentemente. Não há evidência válida de uma
-janela de 120 quadros para esta criação.
+## Cleanup and alignment
 
-## Limpeza e alinhamento
+After checking the creation, a new copy restored the instructions used by the
+temporary call and cleaned its helper area, keeping the records created by the
+game. The version handed over for the manual test does not keep code installed to
+create cars repeatedly.
 
-Após conferir a criação, uma nova cópia restaurou as instruções usadas pela
-chamada temporária e limpou sua área auxiliar. Os registros criados pelo jogo
-foram preservados. A versão entregue ao teste manual não mantém o código
-instalado para criar carros repetidamente.
+The repositioner already used in the research aligned only the new car to lateral
+0.85. Both cars sit on that lateral; the new object's centre is about **10.85 game
+units behind** the target (a distance between saved positions, not metres). The
+other 253 object records stayed identical during that alignment step, including the
+previous target. The script did not write the cached target, the path matrix or the
+new object's AABB; those dependent data must update while running.
 
-O reposicionador já usado na pesquisa alinhou somente o carro novo à lateral
-0,85. Os dois carros ficam nessa mesma lateral; o centro do novo objeto está
-aproximadamente **10,85 unidades do jogo atrás** do alvo. Essa distância é
-uma medida entre posições salvas, não metros ou comprimento de trajetória
-estabelecidos. Os 253 demais registros de objetos ficaram idênticos durante
-essa etapa de alinhamento, inclusive o alvo anterior.
+## Manual test and limits
 
-O script não escreveu o alvo em cache, a matriz do caminho ou o AABB do novo
-objeto. Esses dados dependentes precisam se atualizar durante a execução.
-As verificações de registro continuam aprovadas offline, mas não comprovam
-essa atualização espacial nem a resposta de uma colisão real.
+In the test copy prepared for the user, slot 1 kept the previous version with the
+offset and without the extra car; slot 2 held the new instance. Replaced contents
+were preserved. Reloading slot 2 restores the extra instance; the game's internal
+Restart can recreate the event data.
 
-## Teste manual e limites
+The manual test of the extra instance got the reply: "It appeared and the
+collision worked." The full impact sequence was not captured nor tied by
+instrumentation to object 12. Time samples of movement after the alignment, an
+instrumented impact and a longer run are still missing, and general capacity,
+other models/locations and persistence after restarting the event were not
+established.
 
-Na cópia de teste preparada para o usuário, o slot 1 conserva a versão anterior
-com o deslocamento e sem o carro adicional; o slot 2 contém a nova instância.
-Os conteúdos substituídos foram preservados, e o mapeamento do controle físico
-foi restaurado antes da entrega. Recarregar o estado do slot 2 restaura a
-instância extra; o Restart interno do jogo pode recriar os dados do evento.
-
-O teste manual da instância adicional recebeu o retorno: “Apareceu e a colisão
-funcionou”. O usuário conduziu o veículo e realizou essa verificação no cenário.
-A sequência completa do impacto não foi capturada pelo agente nem ligada por
-instrumentação ao objeto 12. Portanto, ainda faltam amostras temporais de
-movimento após o alinhamento, um impacto instrumentado e duração maior para
-a instância nova. A capacidade geral, outros modelos/locais e a persistência
-ao reiniciar o evento não foram estabelecidos.
-
-Saves, capturas, relatórios de RAM e exportações do executável permanecem
-locais, fora deste repositório.
+Saves, captures, RAM reports and executable exports stay local.

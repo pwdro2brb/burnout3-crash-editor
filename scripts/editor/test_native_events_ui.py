@@ -21,7 +21,7 @@ class NativeEventGuiTests(unittest.TestCase):
         try:
             cls.root = tk.Tk()
         except tk.TclError as exc:
-            raise unittest.SkipTest(f"Tk indisponível: {exc}")
+            raise unittest.SkipTest(f"Tk unavailable: {exc}")
         cls.root.withdraw()
         cls.addClassCleanup(cls.root.destroy)
 
@@ -31,7 +31,7 @@ class NativeEventGuiTests(unittest.TestCase):
         self.game = Path(folder.name)
         self.a = CrashEvent("1G0007EUC3V1", "EU_C3_V1", "Grand Slam", 97, 0, 0, 0,
                             2048, (300, 200, 100), (300, 200, 100), 10, 10)
-        self.b = CrashEvent("1G0003USC2V1", "US_C2_V1", "Outro", 96, 1, 0, 0,
+        self.b = CrashEvent("1G0003USC2V1", "US_C2_V1", "Other", 96, 1, 0, 0,
                             4096, (700, 400, 100), (800, 400, 100), 9, 8)
         for event in (self.a, self.b):
             path = bgd_path(self.game, event.track)
@@ -83,7 +83,7 @@ class NativeEventGuiTests(unittest.TestCase):
         self.assertEqual(window.crash_count.get(), "10")
         self.assertEqual(len(window.models.get_children()), 3)
         window.locate()
-        self.assertIn("pausado", window.status.get())
+        self.assertIn("paused", window.status.get())
         window.query.set("Grand")
         self.active = {"event_key": self.b.key}
         window.locate()
@@ -92,7 +92,7 @@ class NativeEventGuiTests(unittest.TestCase):
         self.assertEqual(str(window.fields[0].cget("state")), "readonly")
         self.assertEqual(window.fields[0].get(), "700")
         self.assertEqual(str(window.crash_count.cget("state")), "readonly")
-        self.assertIn("divergem", window.limit_note.get())
+        self.assertIn("differ", window.limit_note.get())
         self.error.assert_not_called()
 
     def test_filter_remembers_model_order_and_thresholds(self):
@@ -105,7 +105,7 @@ class NativeEventGuiTests(unittest.TestCase):
         window.fields[0].insert(0, "425")
         window.crash_count.delete(0, "end")
         window.crash_count.insert(0, "12")
-        window.query.set("nenhum evento")
+        window.query.set("no such event")
         self.assertIsNone(window.event)
         self.assertFalse(window.models.get_children())
         window.query.set("grand")
@@ -147,7 +147,7 @@ class NativeEventGuiTests(unittest.TestCase):
         window.crash_count.delete(0, "end")
         window.crash_count.insert(0, "16")
         window.export(False)
-        self.assertIn("6 a 15", window.status.get())
+        self.assertIn("6 to 15", window.status.get())
         folder.assert_not_called()
         window.crash_count.delete(0, "end")
         window.crash_count.insert(0, "6")
@@ -164,34 +164,34 @@ class NativeEventGuiTests(unittest.TestCase):
         dialog = self.replace(ui.filedialog, "askdirectory", return_value=str(self.game))
         window = self.window
         window.export(False)
-        self.assertIn("Altere", window.status.get())
+        self.assertIn("Change the model order", window.status.get())
         window.fields[0].insert("end", "x")
         window.export(False)
-        self.assertIn("inteiros", window.status.get())
+        self.assertIn("whole numbers", window.status.get())
         dialog.assert_not_called()
         window.fields[0].delete(0, "end")
         window.fields[0].insert(0, "450")
-        self.replace(ui, "prepare_changes", side_effect=ValueError("Pista mudou"))
+        self.replace(ui, "prepare_changes", side_effect=ValueError("Track changed"))
         window.export(False)
         self.finish_job()
-        self.assertEqual(window.status.get(), "Pista mudou")
+        self.assertEqual(window.status.get(), "Track changed")
         self.assertEqual(window.fields[0].get(), "450")
         self.error.assert_called_once()
         self.assertFalse(window.close())
 
     def test_opening_a_folder_preserves_draft_if_loading_or_confirmation_fails(self):
         self.swap_first_group()
-        self.catalog.side_effect = ValueError("Outra região")
+        self.catalog.side_effect = ValueError("Other region")
         self.window.open_game(self.game)
         self.finish_job()
-        self.assertIn("região", self.window.status.get())
+        self.assertIn("region", self.window.status.get())
         self.confirm.assert_not_called()
         self.catalog.side_effect = None
         self.window.open_game(self.game)
         self.finish_job()
         self.assertEqual(self.window.orders[0], ("COMPCAR12", "COMPCAR14"))
         self.confirm.assert_called_once()
-        self.assertIn("mantidas", self.window.status.get())
+        self.assertIn("were kept", self.window.status.get())
 
     def test_project_entry_works_disconnected_and_observes_pause_state(self):
         app = gui.EditorApp.__new__(gui.EditorApp)
@@ -213,3 +213,85 @@ class NativeEventGuiTests(unittest.TestCase):
         app.close()
         app._submit.assert_not_called()
         self.assertTrue(self.window.winfo_exists())
+
+
+class NativeWaveTabTests(NativeEventGuiTests):
+    """The Traffic waves tab edits a draft schedule and exports it with the other fields."""
+
+    def setUp(self):
+        from editor import test_traffic_waves as synthetic
+        from resources import traffic_waves as tw
+        self.tw = tw
+        self.bgd = synthetic.make_bgd()
+        self.base = tw.read_waves(self.bgd, synthetic.EVENT)
+        self.offset = synthetic.EVENT
+        real_write = tw.write_waves
+        patch.object(ui, "read_waves", return_value=self.base).start()
+        patch.object(ui, "write_waves", side_effect=lambda _d, _o, s: real_write(self.bgd, self.offset, s)).start()
+        self.addCleanup(patch.stopall)
+        super().setUp()
+
+    def pick(self, iid):
+        self.window.wave_tree.selection_set(iid)
+        self.root.update()
+        self.window.wave_selected()
+
+    def test_wave_edits_validate_and_export_with_the_draft(self):
+        window = self.window
+        self.assertEqual(window.wave_tree.item("w1", "text"), "Wave 2")
+        self.pick("w1")
+        window.wave_start.delete(0, "end")
+        window.wave_start.insert(0, "0")
+        window.apply_wave()
+        self.assertIn("increase", window.status.get())       # rejected, draft unchanged
+        self.assertEqual(window.schedule, self.base)
+        window.wave_start.delete(0, "end")
+        window.wave_start.insert(0, "4")
+        window.apply_wave()
+        self.assertEqual(window.schedule.waves[1].start, 4.0)
+        self.pick("w0/l0/v0")
+        window.duplicate_vehicle()
+        lane = window.schedule.waves[0].lanes[0]
+        self.assertEqual((lane.initial, len(lane.vehicles)), (3, 4))
+        self.assertEqual(lane.vehicles[1].distance, 135.0)
+        self.pick("w0/l0/v2")  # a placed van becomes a timed vehicle
+        window.vehicle_role.set("released")
+        window.vehicle_value.delete(0, "end")
+        window.vehicle_value.insert(0, "0.25")
+        window.apply_vehicle()
+        lane = window.schedule.waves[0].lanes[0]
+        self.assertEqual(lane.initial, 2)
+        self.assertEqual([(v.model, round(v.time, 2)) for v in lane.vehicles[lane.initial:]],
+                         [("HEVYCAR33", 0.25), ("HEVYCAR22", 0.5)])
+        window.add_wave()
+        self.assertEqual(len(window.schedule.waves), 3)
+        self.pick("w2")
+        window.add_lane()
+        self.assertEqual(len(window.schedule.waves[2].lanes), 1)
+        prepared = self.replace(ui, "prepare_changes", return_value={"x": (b"a", b"b")})
+        self.replace(ui, "export_resources", return_value=self.game / "result")
+        self.replace(ui.filedialog, "askdirectory", return_value=str(self.game))
+        window.export(False)
+        self.finish_job()
+        kwargs = prepared.call_args.kwargs
+        self.assertEqual(kwargs["waves"], window.schedule)
+        self.assertEqual(kwargs["expected_waves"], self.base.waves)
+        self.assertTrue(window.close())
+        self.confirm.assert_not_called()
+
+    def test_waves_json_round_trip_through_the_tab(self):
+        window = self.window
+        target = self.game / "grand.waves.json"
+        self.replace(ui.filedialog, "asksaveasfilename", return_value=str(target))
+        window.export_waves_json()
+        data = __import__("json").loads(target.read_text(encoding="utf-8"))
+        self.assertEqual(data["event"], self.a.key)
+        data["waves"][1]["start_s"] = 6.5
+        target.write_text(__import__("json").dumps(data), encoding="utf-8")
+        self.replace(ui.filedialog, "askopenfilename", return_value=str(target))
+        window.import_waves_json()
+        self.assertEqual(window.schedule.waves[1].start, 6.5)
+        data["event"] = self.b.key
+        target.write_text(__import__("json").dumps(data), encoding="utf-8")
+        window.import_waves_json()
+        self.assertIn("belongs to event", window.status.get())

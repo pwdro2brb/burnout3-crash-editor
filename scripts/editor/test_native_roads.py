@@ -79,7 +79,7 @@ class NativeRoadsTests(unittest.TestCase):
     def test_reject_nonfinite_coordinates_even_when_preview_skips_them(self):
         data = make_track(controls=10)
         struct.pack_into('<f', data, 2048 + 0x100 + 16 * 9, float('nan'))
-        with self.assertRaisesRegex(ValueError, 'não finita'):
+        with self.assertRaisesRegex(ValueError, 'non-finite'):
             self.parse(data, max_samples_per_path=2)
 
     def test_sampling_budget_must_be_bounded_integer(self):

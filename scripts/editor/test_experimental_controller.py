@@ -62,7 +62,7 @@ class ExperimentalControllerTests(unittest.TestCase):
     def test_experimental_flag_relaxes_spacing_but_not_unknown_code(self):
         editor,client,snap = self.helper.fixture()
         client.memory[spawncode.HOOK] ^= 1
-        with self.assertRaisesRegex(c.EditorError,'código'):
+        with self.assertRaisesRegex(c.EditorError,'code'):
             self.stage_many(editor,client,snap,count=1,gap=.1)
         self.assertEqual(client.writes,[])
 
@@ -112,7 +112,7 @@ class ExperimentalControllerTests(unittest.TestCase):
     def test_distant_normal_point_is_rejected_without_writing(self):
         editor,client,snap = self.helper.fixture()
         with patch.object(placement,'project_target',return_value={'error_distance':26}):
-            with self.assertRaisesRegex(c.EditorError,'longe'):
+            with self.assertRaisesRegex(c.EditorError,'far from'):
                 self.helper.stage(editor,client,snap,action=lambda:editor.add_at(9,fixtures.CAR,1,2))
         self.assertEqual(client.writes,[])
 
@@ -126,7 +126,7 @@ class ExperimentalControllerTests(unittest.TestCase):
             path=Path(folder)/'experimental.json'
             path.write_text(json.dumps(payload),encoding='utf8')
             with patch.object(profile,'snapshot',return_value=snap):
-                with self.assertRaisesRegex(c.EditorError,'Ative'):
+                with self.assertRaisesRegex(c.EditorError,'Enable'):
                     editor.load_preset(path)
             self.assertEqual(client.writes,[])
             result,_planned=self.helper.stage(editor,client,snap,
@@ -167,7 +167,7 @@ class ExperimentalControllerTests(unittest.TestCase):
         with patch.object(profile,'snapshot',return_value=snap), \
              patch.object(profile,'lane',return_value={'point':[200.,10.,0.],'lane':[0.,0.,30.]}), \
              patch.object(placement,'project_target',return_value=projected):
-            with self.assertRaisesRegex(c.EditorError,'amplo'):
+            with self.assertRaisesRegex(c.EditorError,'large lateral offset'):
                 editor.add_at(9,fixtures.CAR,150,2)
         self.assertEqual(client.writes,[])
 

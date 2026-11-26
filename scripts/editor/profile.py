@@ -49,13 +49,13 @@ class CachedMemory:
     @staticmethod
     def _bounds(address: int, size: int) -> None:
         if type(address) is not int or type(size) is not int or address < 0 or size < 0 or address + size > RAM_SIZE:
-            raise ProfileError('Endereço de memória fora do perfil admitido.')
+            raise ProfileError('Memory address outside the admitted profile.')
 
     def preload(self, address: int, size: int) -> None:
         self._bounds(address, size)
         data = self.client.read_bytes(address, size)
         if not isinstance(data, (bytes, bytearray)) or len(data) != size:
-            raise ProfileError('Leitura incompleta da memória do jogo.')
+            raise ProfileError('Incomplete read of the game memory.')
         self._regions.append((address, bytes(data)))
         self.bytes_fetched += size
 
@@ -74,7 +74,7 @@ class CachedMemory:
 
     def read(self, address: int, format_: str):
         if not format_.startswith('<'):
-            raise ProfileError('O perfil usa somente leituras little-endian explícitas.')
+            raise ProfileError('The profile only uses explicit little-endian reads.')
         return struct.unpack(format_, self.read_bytes(address, struct.calcsize(format_)))
 
     def u8(self, address: int) -> int:
@@ -108,29 +108,29 @@ class Snapshot:
             if row['can_edit_compound']:
                 reason = None
             elif row.get('parent_id') is not None:
-                reason = 'Carga vinculada: selecione a cabine para editar o conjunto.'
+                reason = 'Linked trailer: select the cab to edit the set.'
             elif row.get('kind') == 'truck':
                 if row.get('node_index') is None or not row.get('path_valid'):
-                    reason = 'A cabine não tem um caminho de tráfego válido para reposicionar o conjunto.'
+                    reason = 'The cab has no valid traffic path to reposition the set.'
                 else:
-                    reason = 'O conjunto ainda não tem física ou formato validado para reposicionamento.'
+                    reason = 'The set does not have physics or a validated layout for repositioning yet.'
             elif not row['independent']:
-                reason = 'Este componente vinculado não pode ser editado isoladamente.'
+                reason = 'This linked component cannot be edited on its own.'
             elif row['type'] not in SUPPORTED_SINGLE_TYPES:
-                reason = 'Este tipo de veículo ainda não está habilitado para edição.'
+                reason = 'This vehicle type is not enabled for editing yet.'
             elif not row['initialized']:
-                reason = 'O jogo ainda não inicializou os pontos físicos deste veículo.'
+                reason = "The game has not initialized this vehicle's physics points yet."
             elif row.get('node_index') is None:
-                reason = 'O veículo não tem um nó de tráfego; mover pela largura da via não está disponível.'
+                reason = 'The vehicle has no traffic node; moving across the lane width is not available.'
             elif row.get('path') in (None, 0xFF):
-                reason = 'O veículo não está associado a um caminho de tráfego válido.'
+                reason = 'The vehicle is not associated with a valid traffic path.'
             elif not row['editable']:
-                reason = 'A posição ou os parâmetros do caminho não passaram na validação; a direção do jogador não é um filtro.'
+                reason = "The position or path parameters did not pass validation; the player's direction is not a filter."
             reference_reason = None
             if not row['can_reference']:
-                reference_reason = reason or 'Os parâmetros nativos de velocidade ou espaçamento não permitem criar um lote nesta referência.'
+                reference_reason = reason or 'The native speed or spacing parameters do not allow creating a batch at this reference.'
             public_row = {
-                'id': index, 'label': f"Veículo {index} — {model['label']}",
+                'id': index, 'label': f"Vehicle {index} — {model['label']}",
                 'model_id': row['model_id'], 'type_label': model['type_label'],
                 'position': list(row['position']), 'path': row['path'],
                 'progress': row['progress'],
@@ -156,7 +156,7 @@ class Snapshot:
                   'native_pair_valid')}
                   for row in self.models.values()]
         result = {'vehicles': vehicles, 'models': models,
-                'status': 'Jogo pausado' if self.core_paused else 'Pause o jogo no PCSX2 para editar.',
+                'status': 'Jogo pausado' if self.core_paused else 'Pause the game in PCSX2 to edit.',
                 'core_paused': self.core_paused}
         if self.player:
             result['player'] = {key: list(value) for key, value in self.player.items()}
@@ -274,9 +274,9 @@ def snapshot(client, require_paused: bool = True, *, allow_editor_hook: bool = F
     """
     start_status = client.status()
     if start_status is Status.SHUTDOWN:
-        raise ProfileError('Carregue um evento antes de conectar o editor.')
+        raise ProfileError('Load an event before connecting the editor.')
     if require_paused and start_status is not Status.PAUSED:
-        raise ProfileError('Pause pelo Esc do PCSX2 antes de editar; o menu do jogo não basta.')
+        raise ProfileError("Pause with PCSX2's Esc before editing; the game's own menu is not enough.")
     memory = CachedMemory(client)
     memory.preload(VEHICLES, 0x55B900 - VEHICLES)
     memory.preload(MANAGER + 0x362E0, 0x120)
@@ -285,32 +285,32 @@ def snapshot(client, require_paused: bool = True, *, allow_editor_hook: bool = F
     memory.preload(EPILOGUE, 8)
     checks = inspect_memory(memory, POOL_COUNT)
     if not checks['candidate_structure_consistent']:
-        raise ProfileError('As estruturas de tráfego deste estado não passaram na verificação.')
+        raise ProfileError("This state's traffic structures did not pass the check.")
     if not all(checks['original_code_word_matches'].values()):
-        raise ProfileError('Este estado contém alterações de código incompatíveis com o editor.')
+        raise ProfileError('This state contains code changes that are incompatible with the editor.')
     epilogue = memory.read_bytes(EPILOGUE, 8)
     if epilogue != EPILOGUE_ORIGINAL and not (allow_editor_hook and epilogue == EDITOR_JUMP):
         if epilogue == EDITOR_JUMP:
-            raise ProfileError('Há uma criação pendente de outra sessão do editor neste estado. '
-                               'Recarregue a referência anterior à criação e conecte novamente.')
-        raise ProfileError('Há uma alteração de código não reconhecida na atualização do tráfego.')
+            raise ProfileError('This state has a pending creation from another editor session. '
+                               'Reload the reference from before the creation and connect again.')
+        raise ProfileError('There is an unrecognized code change in the traffic update.')
     model_count = memory.u8(MODEL_COUNT)
     if not 1 <= model_count <= 12:
-        raise ProfileError('A tabela de modelos não corresponde ao perfil pesquisado.')
+        raise ProfileError('The model table does not match the researched profile.')
     models: dict[str, dict[str, Any]] = {}
     by_index = {}
     for index in range(model_count):
         value = memory.read(MODEL_IDS + index*8, '<Q')[0]
         pointer = memory.u32(MODEL_POINTERS + index*4)
         if not 0 < pointer < RAM_SIZE - 0xEA0:
-            raise ProfileError('Modelo carregado aponta para fora da memória admitida.')
+            raise ProfileError('A loaded model points outside the admitted memory.')
         try:
             info = classify_model(value)
         except ValueError as error:
-            raise ProfileError('Identificador de modelo inválido neste estado.') from error
+            raise ProfileError('Invalid model identifier in this state.') from error
         name = info['asset_id']
         if not name or name in models:
-            raise ProfileError('A tabela de modelos tem entradas ambíguas.')
+            raise ProfileError('The model table has ambiguous entries.')
         row = {'id': name, 'model_id': name, 'model_hash': value, 'model_pointer': pointer,
                'model_index': index, 'label': info['label'], 'type_label': info['category_label'],
                'category': info['category'], 'verified': info['verified'], 'eligible': False,
@@ -328,7 +328,7 @@ def snapshot(client, require_paused: bool = True, *, allow_editor_hook: bool = F
         model_index = memory.u8(address + 0x176)
         model = by_index.get(model_index)
         if model is None or memory.u32(address + 0xB0) != model['model_pointer']:
-            raise ProfileError('Um veículo ativo não corresponde à tabela de modelos carregados.')
+            raise ProfileError('An active vehicle does not match the loaded model table.')
         type_ = memory.u8(address + 0x173)
         parent, child = memory.u32(address+0x10C), memory.u32(address+0x110)
         independent = not (parent or child)
@@ -376,25 +376,25 @@ def snapshot(client, require_paused: bool = True, *, allow_editor_hook: bool = F
     player = _player(memory)
     final_status = client.status()
     if final_status is not start_status or (require_paused and final_status is not Status.PAUSED):
-        raise ProfileError('O estado de pausa mudou durante a leitura; pause e atualize a lista.')
+        raise ProfileError('The pause state changed during the read; pause and refresh the list.')
     return Snapshot(memory, checks, vehicles, models, start_status is Status.PAUSED, player)
 
 
 def lane(memory, path: int, progress: float, lateral: float) -> dict[str, Any]:
     """Estimate spline position, cross-lane vector and increasing-path tangent."""
     if type(path) is not int or not 0 <= path < 255 or not _finite([progress, lateral]) or not 0 <= lateral <= 1:
-        raise ProfileError('Caminho ou posição lateral inválidos.')
+        raise ProfileError('Invalid path or lateral position.')
     descriptor = PATHS + path*PATH_STRIDE
     if memory.u8(descriptor+0x47) != path:
-        raise ProfileError('O descritor do caminho não corresponde ao veículo selecionado.')
+        raise ProfileError('The path descriptor does not match the selected vehicle.')
     geometry = memory.u32(descriptor)
     if not 0 < geometry < RAM_SIZE - 0x14:
-        raise ProfileError('Geometria de caminho ausente.')
+        raise ProfileError('Path geometry missing.')
     pairs, vertices, count = memory.u32(geometry), memory.u32(geometry+0xC), memory.u32(geometry+0x10)
     if not 2 <= count <= 65536 or not 0 <= progress <= count-1:
-        raise ProfileError('A posição está fora do caminho carregado.')
+        raise ProfileError('The position is outside the loaded path.')
     if not 0 < pairs <= RAM_SIZE-count*4 or not 0 < vertices < RAM_SIZE-16:
-        raise ProfileError('Geometria de caminho fora da memória admitida.')
+        raise ProfileError('Path geometry outside the admitted memory.')
     segment = min(int(progress), count-2)
     t = progress-segment
     weights = [(1-t)**3/6, (3*t**3-6*t*t+4)/6,
@@ -407,7 +407,7 @@ def lane(memory, path: int, progress: float, lateral: float) -> dict[str, Any]:
         for side, vertex in enumerate(memory.read(pairs+pair_index*4, '<2H')):
             point = memory.xyz(vertices+vertex*16)
             if not _finite(point):
-                raise ProfileError('O caminho contém coordenadas inválidas.')
+                raise ProfileError('The path contains invalid coordinates.')
             sides[side].append(point)
     boundaries = [[sum(weights[k]*points[k][axis] for k in range(4)) for axis in range(3)] for points in sides]
     tangents = [[sum(derivative_weights[k]*points[k][axis] for k in range(4)) for axis in range(3)] for points in sides]
@@ -416,7 +416,7 @@ def lane(memory, path: int, progress: float, lateral: float) -> dict[str, Any]:
     derivative = [(1-lateral)*tangents[0][axis]+lateral*tangents[1][axis] for axis in range(3)]
     width = math.sqrt(sum(x*x for x in across))
     if not 1e-6 < width <= 100 or not _finite(point+derivative):
-        raise ProfileError('A largura ou orientação do caminho é inválida.')
+        raise ProfileError('The path width or orientation is invalid.')
     return {'point': point, 'lane': across, 'derivative': derivative,
             'count': count, 'width': width, 'descriptor': descriptor}
 
@@ -438,29 +438,29 @@ def behind_progress(memory, path: int, progress: float, lateral: float, gap: flo
     between its saved path-forward axis and the increasing spline parameter.
     """
     if type(experimental) is not bool:
-        raise ProfileError('Modo experimental inválido.')
+        raise ProfileError('Invalid experimental mode.')
     if (type(gap) not in (int,float) or not math.isfinite(gap)
             or (gap <= 0 if experimental else not 2 <= gap <= 50)):
-        raise ProfileError('Use uma distância positiva finita.' if experimental else
-                           'A distância precisa estar entre 2 e 50 unidades do jogo.')
+        raise ProfileError('Use a positive finite distance.' if experimental else
+                           'The distance must be between 2 and 50 game units.')
     origin = lane(memory, path, progress, lateral)
     if node is not None:
         ni = index_for_pointer(node, NODES, NODE_STRIDE)
         if ni is None:
-            raise ProfileError('O veículo não tem um nó válido neste caminho.')
+            raise ProfileError('The vehicle has no valid node on this path.')
         speed = memory.read(node+0x2C, '<f')[0]
         if not math.isfinite(speed) or speed < 0 or memory.u8(node+0x41) != path:
-            raise ProfileError('A referência precisa de avanço não negativo e do mesmo caminho de tráfego.')
+            raise ProfileError('The reference needs non-negative progress and the same traffic path.')
         forward = memory.xyz(MATRICES+ni*MATRIX_STRIDE+0x20)
         derivative = origin['derivative']
         norms = math.sqrt(sum(x*x for x in forward))*math.sqrt(sum(x*x for x in derivative))
         if norms <= 1e-9 or sum(a*b for a,b in zip(forward, derivative))/norms < 0.5:
-            raise ProfileError('Não foi possível confirmar a direção do caminho deste veículo.')
+            raise ProfileError("Could not confirm the direction of this vehicle's path.")
     lo, hi = max(0.0, progress-64.0), progress
     while experimental and lo > 0 and _arc(memory,path,lo,hi,lateral) < gap:
         lo = max(0.0,progress-2*(progress-lo))
     if _arc(memory, path, lo, hi, lateral) < gap:
-        raise ProfileError('Não há comprimento de caminho suficiente atrás do veículo.')
+        raise ProfileError('There is not enough path length behind the vehicle.')
     for _ in range(36):
         mid = (lo+hi)/2
         if _arc(memory, path, mid, progress, lateral) > gap:
@@ -490,28 +490,28 @@ def _lane_fraction_word(target):
         if not math.isfinite(struct.unpack('<f',packed)[0]):
             raise ValueError('nonfinite')
     except (OverflowError,ValueError,struct.error) as error:
-        raise ProfileError('A fração lateral está fora do intervalo float32 finito.') from error
+        raise ProfileError('The lateral fraction is outside the finite float32 range.') from error
     return struct.unpack('<I',packed)[0]
 
 
 def lateral_patches(state: Snapshot, vehicle_id: int, lateral_percent: float, *, experimental: bool = False) -> list[Patch]:
     """Prepare six X/Z changes plus the node fraction; never write memory."""
     if type(vehicle_id) is not int or vehicle_id not in state.vehicles:
-        raise ProfileError('Selecione um veículo válido da lista atual.')
+        raise ProfileError('Select a valid vehicle from the current list.')
     if (type(experimental) is not bool or type(lateral_percent) not in (int, float)
             or not math.isfinite(lateral_percent) or (not experimental and not 0 <= lateral_percent <= 100)):
-        raise ProfileError('A posição lateral precisa estar entre 0% e 100%.')
+        raise ProfileError('The lateral position must be between 0% and 100%.')
     row = state.vehicles[vehicle_id]
     if row['kind'] == 'truck':
         return compound_lateral_patches(state, vehicle_id, lateral_percent,experimental=experimental)
     if not row['editable'] and not (experimental and can_move_experimental(state.vehicles,row)):
-        raise ProfileError('Este veículo ainda não tem física independente pronta para edição.')
+        raise ProfileError('This vehicle does not have independent physics ready for editing yet.')
     target = lateral_percent/100.0
     target_word = _lane_fraction_word(target)
     geometry = lane(state.memory, row['path'], row['progress'], .5 if experimental else row['lateral'])
     delta = [(target-row['lateral'])*value for value in geometry['lane']]
     if not experimental and math.hypot(delta[0], delta[2]) > 10:
-        raise ProfileError('O deslocamento solicitado excede o limite deste protótipo.')
+        raise ProfileError('The requested offset exceeds the limit of this prototype.')
     patches = []
     for offset in (0, 0x30, 0xA0):
         for axis in (0, 2):
@@ -523,7 +523,7 @@ def lateral_patches(state: Snapshot, vehicle_id: int, lateral_percent: float, *,
             except (OverflowError, struct.error) as error:
                 raise ProfileError('Coordenada fora do intervalo permitido.') from error
             if not math.isfinite(struct.unpack('<f', packed)[0]):
-                raise ProfileError('Coordenada não finita.')
+                raise ProfileError('Non-finite coordinate.')
             patches.append(Patch(address, 4, state.memory.u32(address), struct.unpack('<I', packed)[0]))
     address = row['node']+0x34
     patches.append(Patch(address, 4, state.memory.u32(address), target_word))
@@ -538,21 +538,21 @@ def compound_lateral_patches(state: Snapshot, primary_id: int, lateral_percent: 
     orientation and caches. Runtime movement/collision still need validation.
     """
     if type(primary_id) is not int or primary_id not in state.vehicles:
-        raise ProfileError('Selecione uma cabine ativa do conjunto.')
+        raise ProfileError('Select an active cab of the set.')
     if (type(experimental) is not bool or type(lateral_percent) not in (int, float)
             or not math.isfinite(lateral_percent) or (not experimental and not 0 <= lateral_percent <= 100)):
-        raise ProfileError('A posição lateral precisa estar entre 0% e 100%.')
+        raise ProfileError('The lateral position must be between 0% and 100%.')
     primary = state.vehicles[primary_id]
     child = state.vehicles.get(primary['child_id'])
     checked_primary = dict(primary,path_valid=True) if experimental and can_move_experimental(state.vehicles,primary) else primary
     if not child or not _compound_layout_ready(checked_primary, child):
-        raise ProfileError('A cabine e a carga não têm o vínculo e os pontos físicos admitidos para mover o conjunto.')
+        raise ProfileError('The cab and trailer do not have the link and physics points admitted for moving the set.')
     target = lateral_percent/100.0
     target_word = _lane_fraction_word(target)
     geometry = lane(state.memory, primary['path'], primary['progress'], .5 if experimental else primary['lateral'])
     delta = [(target-primary['lateral'])*value for value in geometry['lane']]
     if not experimental and math.hypot(delta[0], delta[2]) > 10:
-        raise ProfileError('O deslocamento solicitado excede o limite deste protótipo.')
+        raise ProfileError('The requested offset exceeds the limit of this prototype.')
     patches = []
     for row, offsets in ((primary, (0, 0x30, 0xA0)), (child, (0x30, 0xA0))):
         for offset in offsets:
@@ -564,7 +564,7 @@ def compound_lateral_patches(state: Snapshot, primary_id: int, lateral_percent: 
                 except (OverflowError, struct.error) as error:
                     raise ProfileError('Coordenada fora do intervalo permitido.') from error
                 if not math.isfinite(struct.unpack('<f', packed)[0]):
-                    raise ProfileError('Coordenada não finita.')
+                    raise ProfileError('Non-finite coordinate.')
                 patches.append(Patch(address, 4, state.memory.u32(address), struct.unpack('<I', packed)[0]))
     address = primary['node']+0x34
     patches.append(Patch(address, 4, state.memory.u32(address), target_word))

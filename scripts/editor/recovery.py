@@ -24,7 +24,7 @@ def journal_rows(directory):
     path = Path(directory)/'editor-actions.jsonl'
     try:
         if path.stat().st_size > MAX_JOURNAL_BYTES:
-            raise EditorError('O registro local excedeu o limite de recuperação desta versão.')
+            raise EditorError('The local log exceeded the recovery limit of this version.')
         rows = []
         with path.open(encoding='utf8') as stream:
             for line in stream:
@@ -40,7 +40,7 @@ def journal_rows(directory):
     except FileNotFoundError:
         return []
     except (OSError,UnicodeError) as error:
-        raise EditorError('Não foi possível conferir o registro local desta solicitação.') from error
+        raise EditorError('Could not check the local log of this request.') from error
 
 
 def known_completion_tokens(directory):
@@ -112,48 +112,48 @@ def finalize_restored(editor):
     clean = spawncode.clean_batch_scratch()
     if hook == spawncode.ORIGINAL and raw in (bytes(4096),clean):
         return {'pending':False,'core_paused':True,
-                'message':'Não há solicitação temporária pendente.'}
+                'message':'There is no pending temporary request.'}
     if hook != spawncode.ORIGINAL:
-        raise EditorError('A rotina ainda não devolveu o controle ao jogo. Retome e pause para concluir; '
-                          'se veio de outro estado, recarregue uma referência limpa.')
+        raise EditorError('The routine has not returned control to the game yet. Resume and pause to finish; '
+                          'if it came from another state, reload a clean reference.')
     nonce = raw[spawncode.NONCE_ADDRESS-spawncode.CAVE:spawncode.NONCE_ADDRESS-spawncode.CAVE+16]
     try:
         matched = spawncode.match_batch_scratch(raw,nonce)
     except ValueError as error:
-        raise EditorError('A memória temporária não corresponde a um lote reconhecido. '
-                          'Nenhum código foi removido; recarregue uma referência limpa.') from error
+        raise EditorError('The temporary memory does not match a recognized batch. '
+                          'No code was removed; reload a clean reference.') from error
     if matched is None:
-        raise EditorError('A memória temporária não corresponde a um lote reconhecido. '
-                          'Nenhum código foi removido; recarregue uma referência limpa.')
+        raise EditorError('The temporary memory does not match a recognized batch. '
+                          'No code was removed; reload a clean reference.')
     requests,payload = matched['requests'],matched['payload']
     if not any(_matches_record(row,nonce.hex(),requests) for row in journal_rows(editor.journal_dir)):
-        raise EditorError('O lote não corresponde ao registro local deste editor. '
-                          'Nenhum código foi removido; recarregue uma referência limpa.')
+        raise EditorError("The batch does not match this editor's local log. "
+                          'No code was removed; reload a clean reference.')
     master = struct.unpack_from('<I',raw,payload['completion_address']-spawncode.CAVE)[0]
     publications = [struct.unpack_from('<3I',raw,p['offset']) for p in payload['probes']]
     if master != payload['completion_token'] or any(p[0] != 2 for p in publications):
-        raise EditorError('A solicitação antiga ainda não terminou. Retome e pause; '
-                          'se a referência não for reconhecida, recarregue um estado limpo.')
+        raise EditorError('The old request has not finished yet. Resume and pause; '
+                          'if the reference is not recognized, reload a clean state.')
     editor._identity()
     if (editor.client.status() is not Status.PAUSED
             or editor.client.read_bytes(spawncode.HOOK,8) != hook
             or editor.client.read_bytes(spawncode.CAVE,4096) != raw):
-        raise EditorError('O estado mudou durante a conferência. Nenhuma limpeza foi aplicada.')
+        raise EditorError('The state changed during the check. No cleanup was applied.')
     try:
         # The permanent landing remains executable if a saved PC is still there.
         editor.client.write_bytes(spawncode.CAVE,payload['clean_scratch'])
         if (editor.client.read_bytes(spawncode.CAVE,4096) != payload['clean_scratch']
                 or editor.client.read_bytes(spawncode.HOOK,8) != spawncode.ORIGINAL
                 or editor.client.status() is not Status.PAUSED):
-            raise EditorError('A finalização não pôde ser confirmada.')
+            raise EditorError('The finish could not be confirmed.')
     except Exception as error:
         editor.unsafe = True
         editor._journal('batch_recovery_unconfirmed',nonce=nonce.hex())
-        raise EditorError('A finalização não pôde ser confirmada. Recarregue uma referência limpa.') from error
+        raise EditorError('The finish could not be confirmed. Reload a clean reference.') from error
     editor.pending = None
     editor.replay_queue.clear()
     editor.completion_tokens.add(payload['completion_token'])
     editor._journal('batch_recovered_cancelled',nonce=nonce.hex(),format_version=matched['format_version'])
     return {'pending':False,'core_paused':True,'warning':True,
-            'message':'Solicitação antiga finalizada. Os veículos foram preservados; '
-                      'o alinhamento e a receita daquela solicitação não foram recuperados.'}
+            'message':'Old request finished. The vehicles were kept; '
+                      'the alignment and recipe of that request were not recovered.'}

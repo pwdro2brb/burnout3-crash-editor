@@ -97,7 +97,7 @@ class SpeedTests(unittest.TestCase):
             with self.subTest(offset=offset,value=value):
                 state=self.fixture();row=state.vehicles[9]
                 state.memory.store(row['node']+offset,'<B',value)
-                with self.assertRaisesRegex(profile.ProfileError,'nó'):
+                with self.assertRaisesRegex(profile.ProfileError,'node'):
                     speed.patches(state,9,20)
         state=self.fixture();row=state.vehicles[9]
         state.memory.store(row['address']+0x114,'<I',row['node']+profile.NODE_STRIDE)
@@ -119,7 +119,7 @@ class SpeedTests(unittest.TestCase):
     def test_unknown_current_control_is_not_overwritten(self):
         state=self.fixture();row=state.vehicles[9]
         state.memory.store(row['node'],'<f',35)
-        with self.assertRaisesRegex(profile.ProfileError,'mudou'):
+        with self.assertRaisesRegex(profile.ProfileError,'changed'):
             speed.patches(state,9,20)
         for name,value in (('speed',float('nan')),('travel_speed',float('inf')),('spacing_scalar',float('nan'))):
             state=self.fixture();state.vehicles[9][name]=value
@@ -137,7 +137,7 @@ class SpeedTests(unittest.TestCase):
                 for field in ('control_value','travel_value','spacing_value','nominal_target_kmh','nominal_travel_kmh','stopped'):
                     self.assertIsNone(info[field])
                 self.assertFalse(info['can_set_speed'])
-                self.assertIn('cabine' if child else 'indisponível',info['note'])
+                self.assertIn('cab' if child else 'unavailable',info['note'])
 
     def test_enormous_integer_is_friendly_invalid_input_not_an_overflow_exception(self):
         state=self.fixture()
@@ -201,7 +201,7 @@ class SpeedTests(unittest.TestCase):
         state=self.multiple_fixture()
         state.vehicles[10].update(node=state.vehicles[9]['node'],node_index=state.vehicles[9]['node_index'])
         before=dict(state.memory.data)
-        with self.assertRaisesRegex(profile.ProfileError,'mesmo nó'):
+        with self.assertRaisesRegex(profile.ProfileError,'same traffic node'):
             speed.patches_many(state,[9,10],20)
         self.assertEqual(state.memory.data,before)
 

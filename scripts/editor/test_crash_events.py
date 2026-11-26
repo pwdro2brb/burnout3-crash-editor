@@ -100,7 +100,7 @@ class NativeCrashCatalogTests(unittest.TestCase):
         with self.bgd_file.open("r+b") as handle:
             handle.seek(2 * events.SECTOR)
             handle.write(data[events.SECTOR:2 * events.SECTOR])
-        with self.assertRaisesRegex(ValueError, "duplicado"):
+        with self.assertRaisesRegex(ValueError, "Duplicate"):
             events.load_crash_events(self.root)
 
     def test_duplicate_bytes_outside_the_directory_are_not_descriptors(self):
@@ -121,14 +121,14 @@ class NativeCrashCatalogTests(unittest.TestCase):
         first = struct.unpack_from("<I", data, 16 + events.FIRST_TITLE * 4)[0]
         data[first:first + 2] = "A".encode("utf-16le")
         self.global_file.write_bytes(data)
-        with self.assertRaisesRegex(ValueError, "títulos"):
+        with self.assertRaisesRegex(ValueError, "titles"):
             events.load_crash_events(self.root)
 
     def test_rejects_missing_stage_and_external_track_path(self):
         with self.stage_file.open("r+b") as handle:
             handle.seek(events.STAGE_TABLE + events.STAGE_KEYS)
             handle.write(bytes(16))
-        with self.assertRaisesRegex(ValueError, "Faltam descritores"):
+        with self.assertRaisesRegex(ValueError, "descriptors are missing"):
             events.load_crash_events(self.root)
         with self.assertRaises(ValueError):
             events.bgd_path(self.root, "../C1_V1")

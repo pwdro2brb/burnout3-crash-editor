@@ -152,7 +152,7 @@ class StateExportTests(unittest.TestCase):
                     text = '[Folders]\nUseDefaultSavestates=disabled\n'+invalid
                     config.write_text(text, encoding=encoding)
                     original = config.read_bytes()
-                    with self.assertRaisesRegex(store.StateStoreError, 'nulo'):
+                    with self.assertRaisesRegex(store.StateStoreError, 'null character'):
                         store._states_directory(root)
                     self.assertEqual(config.read_bytes(), original)
 
@@ -168,7 +168,7 @@ class StateExportTests(unittest.TestCase):
                 originals[path] = f'user slot {slot}'.encode()
                 path.write_bytes(originals[path])
             client = FakeClient(lambda slot: self.fail('Must not queue an occupied slot'))
-            with self.assertRaisesRegex(store.StateStoreError, 'Todos os dez slots'):
+            with self.assertRaisesRegex(store.StateStoreError, 'All ten slots'):
                 store.export_state(client, root, base/'export.p2s', timeout=1)
             self.assertEqual(client.requests, [])
             self.assertEqual({p: p.read_bytes() for p in originals}, originals)
@@ -254,7 +254,7 @@ class StateExportTests(unittest.TestCase):
                     stream.write(b'changed after copy')
 
             with patch.object(store, '_copy_exclusive', side_effect=copy_then_change):
-                with self.assertRaisesRegex(store.StateStoreError, 'cópia não pôde ser confirmada'):
+                with self.assertRaisesRegex(store.StateStoreError, 'copy could not be confirmed'):
                     store.export_state(FakeClient(lambda slot: make_archive(source)), root, destination, timeout=2)
             self.assertTrue(source.exists())
             self.assertTrue(destination.exists())

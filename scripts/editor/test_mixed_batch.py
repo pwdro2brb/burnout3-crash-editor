@@ -185,7 +185,7 @@ class MixedBatchTests(unittest.TestCase):
             path=Path(folder)/'bad.json'
             path.write_text(json.dumps(dict(format='burnout3-current-event-recipe',version=1,
                 profile='SLUS-21050/BEBF8793',baseline=c._fingerprint(snap),operations=operations)),encoding='utf8')
-            with patch.object(profile,'snapshot',return_value=snap),self.assertRaisesRegex(c.EditorError,'Variação'):
+            with patch.object(profile,'snapshot',return_value=snap),self.assertRaisesRegex(c.EditorError,'visual variant'):
                 editor.load_preset(str(path))
         self.assertEqual(client.writes,[])
 

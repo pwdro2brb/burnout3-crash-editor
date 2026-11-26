@@ -1,130 +1,119 @@
-# Caminhos e velocidade do tráfego
+# Traffic paths and speed
 
-Atualização de 15/11/2026 para Burnout 3 USA `SLUS-21050` / CRC `BEBF8793`
-no PCSX2 1.7.2521. Esta etapa melhora a leitura e a edição do evento carregado;
-não cria a malha de uma nova rua nem altera os recursos do ISO.
+Update of 15/11/2026 for Burnout 3 USA `SLUS-21050` / CRC `BEBF8793` on PCSX2
+1.7.2521. This step improves reading and editing of the loaded event; it does not
+create a new road mesh or change ISO resources.
 
-## Ver os caminhos
+## Viewing the paths
 
-1. Conecte o editor, pause o PCSX2 e use **Atualizar lista**.
-2. Abra **Vista de cima** e mantenha **Mostrar vias** ligado.
-3. Selecione um veículo e use o enquadramento de seu caminho para acompanhar
-   a faixa que ele percorre. O caminho selecionado fica destacado.
-4. Use o zoom e o deslocamento da vista para examinar cruzamentos, curvas e
-   trechos que ficam além dos veículos visíveis naquele instante.
+1. Connect the editor, pause PCSX2 and use **Refresh list**.
+2. Open **Top view** and keep **Show lanes** on.
+3. Select a vehicle and use **Path** to frame the lane it drives on; the selected
+   path is highlighted.
+4. Zoom and pan to look at junctions, bends and stretches beyond the vehicles
+   visible at that moment.
 
-O desenho mostra as duas bordas e o centro aproximado das faixas de tráfego
-carregadas. Os identificadores `P…` distinguem os caminhos. As setas indicam
-**progressão crescente no caminho**; elas não estabelecem, por si só, uma rede
-de conexões entre ruas nem o sentido permitido para o carro do jogador.
+The drawing shows both edges and the approximate centre of the loaded traffic
+lanes; `P…` labels tell the paths apart. Arrows show **increasing progress along
+the path**; they do not by themselves establish a network of connections between
+roads or the direction allowed for the player's car.
 
-Há uma distinção entre caminhos com referência de veículo e descritores
-candidatos sem referência observada. Um candidato passa por verificações de
-identidade e geometria, mas isso não comprova que o evento use aquele trecho,
-que ele esteja conectado ao próximo ou que a criação ali seja compatível.
-A direção do tráfego só recebe confirmação quando uma referência móvel
-corrobora a orientação do caminho.
+Paths with a vehicle reference are distinguished from candidate descriptors with no
+observed reference. A candidate passes identity and geometry checks, but that does
+not prove the event uses that stretch, that it connects to the next one or that
+creation there is compatible. The traffic direction is confirmed only when a moving
+reference corroborates the path's orientation.
 
-As curvas são amostradas, e a leitura usa limites de memória e quantidade de
-pontos. Uma leitura parcial pode omitir caminhos; o aviso do mapa informa essa
-limitação. O desenho não representa o asfalto, a geometria de colisão, prédios,
-obstáculos ou um mapa completo do cenário. Cruzamentos em X/Z podem estar em
-alturas diferentes. Os dados correspondem à última leitura pausada e precisam
-ser atualizados depois que o jogo voltar a simular.
+Curves are sampled and the read uses memory and point budgets; a partial read can
+leave paths out, and the map notice says so. The drawing is not the asphalt, the
+collision geometry, buildings, obstacles or a full scenery map. Crossings in X/Z can
+be at different heights. The data match the last paused read.
 
-**Adicionar no ponto** continua usando uma projeção aproximada em um caminho
-admitido, com a altura de sua geometria. Marcar X/Z não escolhe um terreno novo
-nem define Y livremente. A visualização de um descritor candidato também não
-o transforma automaticamente numa referência válida para criar veículos.
+**Add at point** still uses an approximate projection onto an admitted path, with
+the height of its geometry. Marking X/Z neither picks new terrain nor sets Y
+freely, and drawing a candidate descriptor does not make it a valid reference.
 
-## Ler a velocidade
+The same paths exist on the disc: `GAMEDATA.BGD` stores every lane's control
+points and a cumulative distance table, which is how [traffic waves](traffic-waves.md)
+places vehicles by distance (`resources/native_roads.py` reads both).
 
-Ao selecionar um veículo com nó de tráfego reconhecido, a interface separa o
-**alvo nominal** do **seguimento nominal**. Os valores podem divergir:
+## Reading the speed
 
-| Informação | Significado pesquisado | Uso no editor |
+When you select a vehicle with a recognized traffic node, the interface separates
+the **nominal target** from the **nominal follow** value. They can differ:
+
+| Information | Researched meaning | Use in the editor |
 | --- | --- | --- |
-| Controle original, no nó `+0` | Alvo usado pelo controlador de tráfego | Pode ser alterado com as verificações do perfil |
-| Avanço, no nó `+0x2c` | Valor que o jogo usa para avançar pelo caminho, após seu controle de tráfego | Somente leitura |
-| Campo separado, no nó `+0x24` | Argumento preservado do criador; seu significado completo não foi fechado nesta etapa | Preservado, sem tratá-lo como velocidade |
+| Original control, node `+0` | Target used by the traffic controller | Can be changed, with the profile checks |
+| Progress, node `+0x2c` | Value the game uses to advance along the path after its traffic control | Read only |
+| Separate field, node `+0x24` | Argument kept from the creator; its full meaning is not settled | Preserved, not treated as speed |
 
-O controlador aplica ao alvo o fator **0,44704**, compatível com uma escala
-nominal de mph. A interface apresenta as conversões `controle × 1,609344` e
-`avanço × 3,6` como **km/h nominais**. São conversões dos campos internos,
-não medições da velocidade física ou renderizada do carro, nem prova da escala
-em metros de todas as coordenadas do jogo.
+The controller applies the factor **0.44704** to the target, consistent with a
+nominal mph scale. The interface shows `control × 1.609344` and `progress × 3.6` as
+**nominal km/h**. These are conversions of internal fields, not measurements of the
+car's physical or rendered speed, nor proof that every game coordinate is in metres.
 
-Filas, obstáculos e estados do tráfego podem reduzir o avanço, inclusive até
-zero, enquanto o alvo permanece positivo. Isso é compatível com a observação
-do usuário de que veículos sobrepostos podem aguardar espaço para sair do
-congestionamento. As margens de 8 unidades, ou 30 para conjuntos/ônibus, são
-restrições conservadoras do modo normal do editor; não são apresentadas como
-distâncias mínimas obrigatórias do motor.
+Queues, obstacles and traffic states can reduce progress, down to zero, while the
+target stays positive. This matches the user's observation that overlapping
+vehicles can wait for room to get out of a jam. The 8-unit margin (30 for sets and
+buses) is a conservative restriction of the editor's normal mode, not a mandatory
+engine minimum.
 
-Registros sem nó reconhecido mostram velocidade indisponível, em vez de
-converter campos padrão zerados em uma falsa medição. Cargas vinculadas
-indicam que o controle pertence à cabine. Veículos já convertidos para outro
-estado físico podem deixar de ter um controle de tráfego editável.
+Records without a recognized node show the speed as unavailable instead of turning
+zeroed default fields into a fake measurement. Linked trailers say that the control
+belongs to the cab. Vehicles already converted to another physics state may no
+longer have an editable traffic control.
 
-## Alterar o alvo
+## Changing the target
 
-1. Pause o PCSX2 e selecione um ou mais veículos com controle disponível.
-   Use **Ctrl** para escolher vários ou **Shift** para selecionar um intervalo.
-   **Selecionar aptos para velocidade** reúne os registros habilitados da lista.
-2. Preencha **Alvo nominal (km/h)** e clique em **Aplicar velocidade**, ou
-   **Aplicar aos N selecionados** quando houver mais de um. Todos recebem o
-   mesmo alvo; se algum registro estiver bloqueado, a seleção inteira é recusada.
-3. Retome o jogo para observar a resposta do controlador. Compare alvo e
-   seguimento na próxima leitura pausada, especialmente se houver uma fila.
+1. Pause PCSX2 and select one or more vehicles with an available control. Use
+   **Ctrl** to pick several or **Shift** for a range; **Select speed-eligible**
+   gathers the enabled records.
+2. Fill **Nominal target (km/h)** and click **Apply speed**, or **Apply to the N
+   selected** with more than one. All get the same target; if any record is blocked,
+   the whole selection is refused.
+3. Resume the game to watch the controller respond. Compare target and follow at the
+   next paused read, especially in a queue.
 
-Em caminhões, selecione a cabine, sem incluir a carga como alvo separado.
-A linha em foco continua sendo a referência para mover ou acrescentar veículos;
-essas ações não são multiplicadas pela seleção de velocidade.
+For trucks, select the cab, not the trailer. The focused row remains the reference
+for moving or adding vehicles; those actions are not multiplied by the speed selection.
 
-O alvo **zero** solicita parada através do controle normal do jogo. Ele não
-zera diretamente a velocidade física ou o avanço atual. Aumentar o alvo
-posteriormente permite ao controlador buscar outra velocidade, mas não remove
-um carro que esteja bloqueando a frente nem garante aceleração imediata.
+A target of **zero** asks the game's normal control to stop; it does not directly
+zero the physical speed or the current progress. Raising the target later lets the
+controller seek another speed, but does not remove a car blocking the way nor
+guarantee immediate acceleration.
 
-No modo normal o intervalo do controle original é `0..240`, o mesmo intervalo
-admitido pelo criador pesquisado do editor. Isso corresponde a aproximadamente
-`0..386,24 km/h` na apresentação nominal; não é uma faixa de estabilidade
-universalmente validada. O modo experimental admite alvos maiores finitos e
-representáveis em float32, com o aviso de risco mantido.
+In normal mode the original control range is `0..240`, the range the researched
+creator admits, about `0..386.24 km/h` in the nominal display; it is not a
+universally validated stable range. Experimental mode accepts larger finite targets
+representable in float32, with the risk warning kept.
 
-A alteração muda somente **um float de alvo por veículo**. O editor verifica pausa,
-associação entre objeto e nó, proprietário, caminho, estado do nó, tipo e valor
-anterior de todos os selecionados antes de enviar as escritas numa única ação.
-Uma falha de transporte ainda pode interromper a escrita: não se trata de uma
-transação atômica. Ele mantém a física e os campos calculados sob controle do jogo.
-Não altera diretamente o avanço, a aceleração, o campo `+0x24` ou a carga.
+The change writes only **one target float per vehicle**. The editor checks the
+pause, the object–node association, the owner, path, node state, type and previous
+value of every selected record before sending the writes in a single action. A
+transport failure can still interrupt the write; it is not an atomic transaction.
+Physics and computed fields stay under the game's control; progress, acceleration,
+the `+0x24` field and the trailer are never written directly.
 
-**Salvar configuração** conserva a ação de velocidade na receita JSON, junto
-das demais ações. A receita exige sua referência inicial correspondente; uma
-ação experimental exige que o modo experimental esteja ligado ao carregá-la.
-Um estado `.p2s` conserva um instante da sessão. Reiniciar ou trocar de evento
-pode reconstruir os valores originais do tráfego.
+**Save configuration…** keeps the speed action in the JSON recipe with the other
+actions; the recipe needs its matching initial reference, and an experimental action
+needs experimental mode when loading. A `.p2s` keeps a moment of the session.
+Restarting or changing event can rebuild the original traffic values. A vehicle seen
+after the initial reference can still be edited when it passes the profile checks,
+but **Save configuration…** refuses a recipe that depends on it.
 
-Um veículo observado depois da referência inicial, sem criação confirmada na
-receita, ainda pode ser editado quando passa nas verificações do perfil. Essa
-edição vale para a sessão; **Salvar configuração** recusa a receita que dependa
-dele. Use `.p2s` para guardar o instante ou inicie uma nova sessão a partir de
-uma referência que já contenha o veículo.
+## Basis of the interpretation
 
-## Base da interpretação e validação restante
+The creator writes the control into the node at `0x00164d90`. The initializer
+`0x00161590` produces the initial progress with the 0.44704 factor (the constant
+was resolved in the loaded ELF region at `0x004e11f4` through its GP value). The
+routine `0x00161b50` adjusts progress for behaviour and obstacles, and
+`0x00162e80` integrates the progression using that value, the game delta at
+`0x0052267c` and the segment length. That sequence supports the distinction between
+target, follow value and observed physical movement.
 
-O criador grava o controle no nó em `0x00164d90`. O inicializador
-`0x00161590` produz o avanço inicial com o fator 0,44704; a constante foi
-resolvida na região carregada do ELF em `0x004e11f4` usando seu valor de GP.
-A rotina `0x00161b50` ajusta o avanço conforme comportamento e obstáculos.
-Depois, `0x00162e80` integra a progressão usando esse avanço, o delta do jogo
-em `0x0052267c` e o comprimento do segmento. Essa sequência fundamenta a
-distinção entre alvo, seguimento e movimento físico observado.
-
-O usuário confirmou que a revisão com caminhos e velocidade funcionou e,
-posteriormente, relatou sucesso também com a seleção múltipla e a correção da
-espera do lote. Essa confirmação é manual. Preparar patches protegidos e passar nos testes
-automatizados não demonstra resposta real de todos os modelos, calibração
-física em km/h ou estabilidade em cenas densas.
-Os resultados sobre muitos carros batidos e renderização são tratados
-separadamente em [high-density-experiments.md](high-density-experiments.md).
+The user confirmed that the paths-and-speed revision worked and later that the
+multi-selection and the batch-wait fix worked. That confirmation is manual; passing
+the automated tests does not show the real response of every model, a physical km/h
+calibration or stability in dense scenes. Many-car crashes and rendering are covered
+in [high-density-experiments.md](high-density-experiments.md).

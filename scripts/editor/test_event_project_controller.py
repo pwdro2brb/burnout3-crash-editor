@@ -89,7 +89,7 @@ class EventProjectControllerTests(unittest.TestCase):
         with patch.object(editor,'resume',side_effect=RuntimeError('Native pause unavailable')) as resume:
             result=editor.test_project()
         self.assertTrue(result['warning'])
-        self.assertIn('cena foi salva',result['message'])
+        self.assertIn('scene was saved',result['message'])
         self.assertEqual(result['project']['scene_revision'],1)
         resume.assert_called_once()
 
@@ -125,7 +125,7 @@ class EventProjectControllerTests(unittest.TestCase):
                 editor.restart_project()
         self.assertTrue(editor.unsafe)
         self.assertIs(editor.project,old)
-        with self.assertRaisesRegex(c.EditorError,'última escrita'):
+        with self.assertRaisesRegex(c.EditorError,'last write'):
             editor.save_project()
 
     def test_preflight_restore_failure_does_not_mark_the_scene_unsafe(self):
@@ -140,7 +140,7 @@ class EventProjectControllerTests(unittest.TestCase):
         editor.create_project(str(folder/'event'),'Teste')
         with patch.object(state_restore,'restore_state',return_value=dict(sha256='verified')), \
              patch.object(editor,'_snapshot',side_effect=[batch_fixtures.initial_snapshot(),profile.ProfileError('Bad scene')]):
-            with self.assertRaisesRegex(c.EditorError,'perfil não confirmou'):
+            with self.assertRaisesRegex(c.EditorError,'profile did not confirm'):
                 editor.restart_project()
         self.assertTrue(editor.unsafe)
 
@@ -151,7 +151,7 @@ class EventProjectControllerTests(unittest.TestCase):
         source=folder/'external.p2s'
         state_fixtures.make_archive(source)
         event_project.save_scene(old,source)
-        with self.assertRaisesRegex(c.EditorError,'outra sessão'):
+        with self.assertRaisesRegex(c.EditorError,'another session'):
             editor.save_project()
         self.assertEqual(len(captures),1)
         Path(old['base_path']).write_bytes(b'corrupt')

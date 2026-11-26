@@ -81,7 +81,7 @@ class EventProjectTests(unittest.TestCase):
         path=Path(initial['path'])
         before=path.read_bytes()
         with patch.object(projects.os,'replace',side_effect=OSError('Synthetic publish failure')):
-            with self.assertRaisesRegex(projects.ProjectError,'versões anteriores'):
+            with self.assertRaisesRegex(projects.ProjectError,'Previous versions'):
                 projects.save_scene(initial,self.edited_archive)
         self.assertEqual(path.read_bytes(),before)
         self.assertEqual(projects.load(path),initial)
@@ -91,7 +91,7 @@ class EventProjectTests(unittest.TestCase):
         _root,initial=self.fixture()
         current=projects.save_scene(initial,self.edited_archive)
         before=Path(current['path']).read_bytes()
-        with self.assertRaisesRegex(projects.ProjectError,'desde a abertura'):
+        with self.assertRaisesRegex(projects.ProjectError,'since it was opened'):
             projects.save_scene(initial,self.base_archive)
         self.assertEqual(Path(current['path']).read_bytes(),before)
         self.assertEqual(projects.load(Path(current['path'])),current)
@@ -167,7 +167,7 @@ class EventProjectTests(unittest.TestCase):
                         self.assertFalse(checker(path))
             attrs=SimpleNamespace(st_mode=stat.S_IFDIR,st_file_attributes=0x400)
             with patch.object(Path,'lstat',return_value=attrs):
-                with self.assertRaisesRegex(projects.ProjectError,'redirecionamento'):
+                with self.assertRaisesRegex(projects.ProjectError,'redirect'):
                     projects._root(path)
 
     def test_external_name_change_rejects_stale_save_and_caller_name_cannot_rename_disk_project(self):
@@ -178,7 +178,7 @@ class EventProjectTests(unittest.TestCase):
         self.assertEqual(saved['name'],original_name)
         self.rewrite(saved,lambda data:data.update(name='Externally renamed event'))
         before=Path(saved['path']).read_bytes()
-        with self.assertRaisesRegex(projects.ProjectError,'desde a abertura'):
+        with self.assertRaisesRegex(projects.ProjectError,'since it was opened'):
             projects.save_scene(saved,self.base_archive)
         self.assertEqual(Path(saved['path']).read_bytes(),before)
         self.assertEqual(projects.load(Path(saved['path']))['name'],'Externally renamed event')
@@ -204,7 +204,7 @@ class EventProjectTests(unittest.TestCase):
         path=Path(project['path'])
         raw=path.read_text(encoding='utf8')
         path.write_text(raw.replace('{','{"name":"duplicate",',1),encoding='utf8')
-        with self.assertRaisesRegex(projects.ProjectError,'repetidos'):
+        with self.assertRaisesRegex(projects.ProjectError,'repeated'):
             projects.load(path)
         path.write_bytes(b' '* (projects.MAX_MANIFEST_BYTES+1))
         with self.assertRaises(projects.ProjectError):
@@ -216,7 +216,7 @@ class EventProjectTests(unittest.TestCase):
         before=path.read_bytes()
         lock=path.parent/'.event-write.lock'
         lock.write_bytes(b'owned by another save')
-        with self.assertRaisesRegex(projects.ProjectError,'outra gravação'):
+        with self.assertRaisesRegex(projects.ProjectError,'Another project write'):
             projects.save_scene(project,self.edited_archive)
         self.assertEqual(path.read_bytes(),before)
         self.assertEqual(lock.read_bytes(),b'owned by another save')
@@ -233,12 +233,12 @@ class EventProjectTests(unittest.TestCase):
         before=Path(project['path']).read_bytes()
         base_before=Path(project['base_path']).read_bytes()
         files_before={p.name:p.read_bytes() for p in Path(project['path']).parent.iterdir()}
-        with self.assertRaisesRegex(projects.ProjectError,'desde a conferência'):
+        with self.assertRaisesRegex(projects.ProjectError,'since the check'):
             projects.create(root/'new-event','New event',source,
                             expected_source_sha256=verified_digest)
         self.assertFalse((root/'new-event'/projects.MANIFEST).exists())
         self.assertFalse((root/'new-event'/'base.p2s').exists())
-        with self.assertRaisesRegex(projects.ProjectError,'desde a conferência'):
+        with self.assertRaisesRegex(projects.ProjectError,'since the check'):
             projects.save_scene(project,source,expected_source_sha256=verified_digest)
         self.assertEqual(Path(project['path']).read_bytes(),before)
         self.assertEqual(Path(project['base_path']).read_bytes(),base_before)
@@ -256,11 +256,11 @@ class EventProjectTests(unittest.TestCase):
         for bad in ('',digest.upper(),digest[:-1],True,42):
             with self.subTest(bad=bad):
                 new=root/'bad-digest-event'
-                with self.assertRaisesRegex(projects.ProjectError,'hash esperado'):
+                with self.assertRaisesRegex(projects.ProjectError,'expected hash'):
                     projects.create(new,'Bad digest',self.edited_archive,expected_source_sha256=bad)
                 self.assertFalse(new.exists())
                 before=Path(saved['path']).read_bytes()
-                with self.assertRaisesRegex(projects.ProjectError,'hash esperado'):
+                with self.assertRaisesRegex(projects.ProjectError,'expected hash'):
                     projects.save_scene(saved,self.edited_archive,expected_source_sha256=bad)
                 self.assertEqual(Path(saved['path']).read_bytes(),before)
 

@@ -113,8 +113,8 @@ class EditorController:
             self._paused()
             self._cleanup_completed_request(pending,'batch_not_finalized',reason='manual_physics_release')
             return {'pending':False,'core_paused':True,'warning':True,
-                'message':'Solicitação concluída liberada. Os veículos criados pelo jogo foram mantidos; '
-                          'alinhamento e receita deste lote não foram confirmados. A fila restante foi cancelada.'}
+                'message':'Finished request cleared. The vehicles created by the game were kept; '
+                          'alignment and recipe of this batch were not confirmed. The rest of the queue was cancelled.'}
         from .recovery import finalize_restored
         return finalize_restored(self)
 
@@ -136,11 +136,11 @@ class EditorController:
         serial = ''.join(c for c in result['game_id'].upper() if c.isalnum())
         crc = result['game_crc'].upper().removeprefix('0X')
         if serial != 'SLUS21050' or crc != 'BEBF8793':
-            raise EditorError('Este editor aceita apenas Burnout 3 USA, SLUS-21050 / BEBF8793.')
+            raise EditorError('This editor only accepts Burnout 3 USA, SLUS-21050 / BEBF8793.')
         if '1.7.2521' not in result['version']:
-            raise EditorError('Esta versão experimental foi preparada para PCSX2 1.7.2521.')
+            raise EditorError('This experimental version was prepared for PCSX2 1.7.2521.')
         if self.identity and result != self.identity:
-            raise EditorError('O emulador ou o jogo mudou. Reabra a conexão antes de editar.')
+            raise EditorError('The emulator or the game changed. Reconnect before editing.')
         self.identity = result
         return result
 
@@ -154,11 +154,11 @@ class EditorController:
     def pause(self):
         self._identity()
         if not self._control_available():
-            raise EditorError('O botão de pausa não encontrou a janela do emulador desta conexão.')
+            raise EditorError('The pause button could not find the emulator window of this connection.')
         self.pause_control.set_paused(True)
         result = self.poll() if self.pending else self.refresh()
         result.setdefault('pending', self.pending is not None)
-        result.setdefault('message','PCSX2 pausado. Pode editar o evento.')
+        result.setdefault('message','PCSX2 paused. You can edit the event.')
         result['emulator_control'] = True
         return result
 
@@ -166,9 +166,9 @@ class EditorController:
         self._ready()
         if (self.client.read_bytes(spawncode.HOOK,8) != spawncode.ORIGINAL
                 or self.client.read_bytes(spawncode.CAVE,4096) not in (bytes(4096),spawncode.clean_batch_scratch())):
-            raise EditorError('Finalize a criação antes de salvar um estado editado.')
+            raise EditorError('Finish the creation before saving an edited state.')
         if not self._control_available():
-            raise EditorError('Não foi possível identificar a instalação portátil desta conexão.')
+            raise EditorError('Could not identify the portable installation of this connection.')
         from .state_store import export_state
         result = export_state(self.client,self.pause_control.emulator_root(),Path(destination))
         result.update(pending=False,core_paused=self.client.status() is Status.PAUSED)
@@ -180,7 +180,7 @@ class EditorController:
         from .slot_archive import list_slots
         slots = list_slots(self.pause_control.emulator_root())
         return {'slots':slots,'pending':False,'core_paused':True,
-            'message':'Escolha um slot para arquivar. As cópias serão preservadas antes de liberar o slot.'}
+            'message':'Choose a slot to archive. The copies are kept before the slot is freed.'}
 
     def archive_state_slot(self,slot):
         self._project_ready()
@@ -200,9 +200,9 @@ class EditorController:
         if (self.client.read_bytes(spawncode.HOOK,8) != spawncode.ORIGINAL
                 or self.client.read_bytes(spawncode.CAVE,4096) not in
                    (bytes(4096),spawncode.clean_batch_scratch())):
-            raise EditorError('Finalize a pendência antes de trabalhar com o projeto do evento.')
+            raise EditorError('Finish the pending request before working with the event project.')
         if not self._control_available():
-            raise EditorError('O projeto precisa da instalação portátil do PCSX2 desta conexão.')
+            raise EditorError('The project needs the portable PCSX2 installation of this connection.')
         return snap
 
     @staticmethod
@@ -232,7 +232,7 @@ class EditorController:
         try:
             capture = self.export_state(source)
         except Exception as error:
-            raise EditorError(f'Não foi possível capturar o projeto. Arquivos criados foram preservados em {folder}. {error}') from error
+            raise EditorError(f'Could not capture the project. Files already created were kept in {folder}. {error}') from error
         return source,capture
 
     @staticmethod
@@ -249,10 +249,10 @@ class EditorController:
     def _project_destination(directory,name):
         if (not isinstance(name,str) or not name.strip() or len(name.strip()) > 100
                 or any(ord(char) < 32 or ord(char) == 127 for char in name)):
-            raise EditorError('Informe um nome de evento com até 100 caracteres.')
+            raise EditorError('Enter an event name of up to 100 characters.')
         target = Path(directory)
         if target.exists() or target.is_symlink():
-            raise EditorError('Escolha uma pasta nova para o projeto; os arquivos existentes serão preservados.')
+            raise EditorError('Choose a new folder for the project; existing files are kept.')
         return target
 
     def create_project(self,directory: str,name: str):
@@ -264,13 +264,13 @@ class EditorController:
             project = event_project.create(target,name,source,summary=self._scene_summary(snap),
                                            expected_source_sha256=capture['sha256'])
         except Exception as error:
-            raise EditorError(f'O projeto não foi criado. A captura foi preservada em {source}. {error}') from error
+            raise EditorError(f'The project was not created. The capture was kept in {source}. {error}') from error
         self.project = project
         self._reset_scene_tracking(snap)
         self._remove_project_capture(source,capture)
         self._journal('event_project_created',path=project['path'],name=project['name'])
         return {'pending':False,'core_paused':True,'event_projects':True,'project':self._project_info(),
-            'message':'Projeto criado. A base foi preservada; edite o evento e use Testar para salvar a cena e jogar.'}
+            'message':'Project created. The base was kept; edit the event and use Test to save the scene and play.'}
 
     def import_project(self,directory: str,name: str,state_path: str):
         from . import event_project,state_restore
@@ -284,15 +284,15 @@ class EditorController:
         self._reset_scene_tracking(snap)
         self._journal('event_project_imported',path=project['path'],sha256=verified['sha256'])
         return {'pending':False,'core_paused':True,'event_projects':True,'project':self._project_info(),
-            'message':'Projeto criado a partir do estado conferido. A base foi copiada; o arquivo original foi preservado.'}
+            'message':'Project created from the checked state. The base was copied; the original file was kept.'}
 
     def _current_project(self):
         if self.project is None:
-            raise EditorError('Crie ou abra um projeto de evento antes de salvar a cena.')
+            raise EditorError('Create or open an event project before saving the scene.')
         from .event_project import load
         current = load(Path(self.project['path']))
         if current['_manifest_sha256'] != self.project['_manifest_sha256']:
-            raise EditorError('O projeto mudou em outra sessão. Abra-o novamente antes de salvar.')
+            raise EditorError('The project changed in another session. Open it again before saving.')
         return current
 
     def save_project(self):
@@ -306,12 +306,12 @@ class EditorController:
             project = event_project.save_scene(self.project,source,summary=self._scene_summary(snap),
                                                expected_source_sha256=capture['sha256'])
         except Exception as error:
-            raise EditorError(f'A cena não foi registrada no projeto. A captura foi preservada em {source}. {error}') from error
+            raise EditorError(f'The scene was not recorded in the project. The capture was kept in {source}. {error}') from error
         self.project = project
         self._remove_project_capture(source,capture)
         self._journal('event_project_saved',path=project['path'],scene=project['scene'])
         return {'pending':False,'core_paused':True,'event_projects':True,'project':self._project_info(),
-            'message':'Cena do evento salva e verificada. Voltar ao início restaurará esta versão.'}
+            'message':'Event scene saved and verified. Back to start will restore this version.'}
 
     def save_project_from_state(self,state_path: str):
         from . import event_project,state_restore
@@ -324,11 +324,11 @@ class EditorController:
         self.project = project
         self._journal('event_project_scene_imported',path=project['path'],sha256=verified['sha256'])
         return {'pending':False,'core_paused':True,'event_projects':True,'project':self._project_info(),
-            'message':'Cena salva no projeto a partir do estado conferido. O arquivo escolhido foi preservado.'}
+            'message':'Scene saved to the project from the checked state. The chosen file was kept.'}
 
     def confirm_project(self,path: str,*,base=False):
         if type(base) is not bool:
-            raise EditorError('Escolha a cena salva ou a base original do projeto.')
+            raise EditorError("Choose the saved scene or the project's original base.")
         from . import event_project,state_restore
         self._project_ready()
         project = event_project.load(Path(path))
@@ -340,8 +340,8 @@ class EditorController:
         self.project = project
         self._journal('event_project_manual_state_confirmed',path=project['path'],base=base,sha256=verified['sha256'])
         return {'pending':False,'core_paused':True,'event_projects':True,'project':self._project_info(),
-            'message':('Base carregada pelo menu conferida. Projeto pronto para editar.' if base else
-                       'Cena carregada pelo menu conferida. Projeto pronto para editar ou testar.')}
+            'message':('Base loaded from the menu checked. The project is ready to edit.' if base else
+                       'Scene loaded from the menu checked. The project is ready to edit or test.')}
 
     def test_project(self):
         saved = self.save_project()
@@ -353,9 +353,9 @@ class EditorController:
             except PineError:
                 paused = None
             return {**saved,'core_paused':paused,'warning':True,
-                'message':f'A cena foi salva, mas não foi possível confirmar a retomada. {error}'}
+                'message':f'The scene was saved, but resuming could not be confirmed. {error}'}
         return {**saved,**result,'project':self._project_info(),
-            'message':'Cena salva e PCSX2 retomado. Para repetir, pause e use Voltar ao início.'}
+            'message':'Scene saved and PCSX2 resumed. To repeat, pause and use Back to start.'}
 
     def _restore_project(self,project,*,base=False):
         from . import state_restore
@@ -377,14 +377,14 @@ class EditorController:
         except Exception as error:
             self.unsafe = True
             self._journal('event_project_restore_profile_rejected',path=project['path'],base=base)
-            raise EditorError('O estado foi carregado, mas o perfil não confirmou uma cena editável. '
-                              'Recarregue uma referência limpa antes de editar.') from error
+            raise EditorError('The state was loaded, but the profile did not confirm an editable scene. '
+                              'Reload a clean reference before editing.') from error
         self.project = project
         self._journal('event_project_restored',path=project['path'],base=base,sha256=restored['sha256'])
         return {**restored,'pending':False,'core_paused':True,'event_projects':True,
             'project':self._project_info(),
-            'message':('Base original restaurada e conferida. A cena salva do projeto foi preservada.' if base else
-                       'Cena salva restaurada e conferida. Pode editar ou retomar para repetir o evento.')}
+            'message':("Original base restored and checked. The project's saved scene was kept." if base else
+                       'Saved scene restored and checked. You can edit or resume to repeat the event.')}
 
     def open_project(self,path: str):
         from .event_project import load
@@ -392,31 +392,31 @@ class EditorController:
 
     def restart_project(self):
         if self.project is None:
-            raise EditorError('Crie ou abra um projeto antes de voltar ao início.')
+            raise EditorError('Create or open a project before going back to start.')
         from .event_project import load
         return self._restore_project(load(Path(self.project['path'])))
 
     def restore_project_base(self):
         if self.project is None:
-            raise EditorError('Crie ou abra um projeto antes de restaurar a base.')
+            raise EditorError('Create or open a project before restoring the base.')
         from .event_project import load
         return self._restore_project(load(Path(self.project['path'])),base=True)
 
     def resume(self):
         self._identity()
         if not self._control_available():
-            raise EditorError('O botão de retomar não encontrou a janela do emulador desta conexão.')
+            raise EditorError('The resume button could not find the emulator window of this connection.')
         self.pause_control.set_paused(False)
         return {'pending':self.pending is not None,'core_paused':False,'emulator_control':True,
-                'message':'PCSX2 retomado. '+('Pause novamente para finalizar o lote antes de dirigir.'
-                                             if self.pending else 'Pode testar o evento.')}
+                'message':'PCSX2 retomado. '+('Pause again to finish the batch before driving.'
+                                             if self.pending else 'You can test the event.')}
 
     def _paused(self):
         self._identity()
         if self.client.status() is not Status.PAUSED:
-            raise EditorError('Use Pausar PCSX2 no editor ou Sistema → Pausar no emulador antes de editar.')
+            raise EditorError('Use Pause PCSX2 in the editor or System → Pause in the emulator before editing.')
         if self.unsafe:
-            raise EditorError('A última escrita não pôde ser confirmada. Recarregue um estado limpo e reconecte.')
+            raise EditorError('The last write could not be confirmed. Reload a clean state and reconnect.')
 
     def _snapshot(self, *, pending=False):
         self._paused()
@@ -441,20 +441,20 @@ class EditorController:
             self.client.connect()
             identity = self._identity()
         except PineTransportError:
-            raise EditorError('Não foi possível conectar. Abra a sessão de teste com PINE ativado e carregue o jogo.')
+            raise EditorError('Could not connect. Open the test session with PINE enabled and load the game.')
         except PineRemoteError:
-            raise EditorError('O emulador ainda não disponibilizou o jogo. Termine o carregamento e tente novamente.')
+            raise EditorError('The emulator has not made the game available yet. Finish loading and try again.')
         if self.unsafe:
             # Recovery never guesses whether an ambiguous allocation ran.
             clean = (self.client.read_bytes(spawncode.HOOK, 8) == spawncode.ORIGINAL
                      and self.client.read_bytes(spawncode.CAVE, 4096) in (bytes(4096),spawncode.clean_batch_scratch()))
             if not clean:
-                raise EditorError('Recarregue um estado sem edição pendente antes de reconectar.')
+                raise EditorError('Reload a state without a pending edit before reconnecting.')
             if self.client.status() is not Status.PAUSED:
-                raise EditorError('Pause o PCSX2 após recarregar o estado de referência.')
+                raise EditorError('Pause PCSX2 after reloading the reference state.')
             recovered = profile.snapshot(self.client, require_paused=True)
             if not self.recovery_digest or _state_digest(recovered) != self.recovery_digest:
-                raise EditorError('A referência anterior não foi recuperada. Recarregue-a e reabra o editor.')
+                raise EditorError('The previous reference was not recovered. Reload it and reopen the editor.')
             self.pending = None
             self.replay_queue.clear()
             self.unsafe = False
@@ -467,7 +467,7 @@ class EditorController:
             self.baseline_refs.clear()
             self.replay_queue.clear()
         paused = self.client.status() is Status.PAUSED
-        result = {'status': 'Conectado. Pause o PCSX2 para listar e editar os veículos.',
+        result = {'status': 'Connected. Pause PCSX2 to list and edit the vehicles.',
                   'game': 'Burnout 3 USA', 'profile': 'SLUS-21050',
                   'core_paused': paused, 'pending': self.pending is not None, **identity}
         # Fake/in-memory clients used by offline tools never resolve native UI.
@@ -481,8 +481,8 @@ class EditorController:
                 result.update(self.refresh())
             except profile.ProfileError as error:
                 result.update(profile_valid=False,vehicles=[],models=[],warning=True,
-                    message=f'{error} Use Finalizar pendência para conferir uma solicitação antiga; '
-                            'se não for reconhecida, recarregue um estado limpo.')
+                    message=f'{error} Use Finish pending request to check an old request; '
+                            'if it is not recognized, reload a clean state.')
         return result
 
     def refresh(self):
@@ -490,7 +490,7 @@ class EditorController:
             return self.poll()
         self._identity()
         if self.client.status() is not Status.PAUSED:
-            return {'status': 'Use Pausar PCSX2 para atualizar a lista.', 'core_paused': False}
+            return {'status': 'Use Pause PCSX2 to refresh the list.', 'core_paused': False}
         snap = self._snapshot()
         public = snap.public()
         for row in public['vehicles']:
@@ -499,7 +499,7 @@ class EditorController:
         public['routes'] = routes.build_network(snap)
         public['native_identity'] = native_identity.read_identity(snap.memory)
         if self.client.status() is not Status.PAUSED:
-            return {'status':'O PCSX2 foi retomado durante a leitura. Pause e atualize novamente.',
+            return {'status':'PCSX2 was resumed during the read. Pause and refresh again.',
                     'core_paused':False,'pending':False}
         history = {(i,v['model_hash'],v['node'],v['type']):v['initialized'] for i,v in snap.vehicles.items()}
         lost = sum(not ready and self.physics_history.get(key,False) for key,ready in history.items())
@@ -507,21 +507,21 @@ class EditorController:
         capacity = dict(snap.inspection['counts'])
         capacity.update(initialized_objects=sum(v['initialized'] for v in snap.vehicles.values()),
             queued_operations=len(self.replay_queue),
-            physics_warning=(f'{lost} veículo(s) deixaram de ter física inicializada nesta referência.' if lost else ''))
+            physics_warning=(f'{lost} vehicle(s) no longer have initialized physics in this reference.' if lost else ''))
         return {**public,'pending':False,'capacity':capacity,'project':self._project_info()}
 
     @staticmethod
     def _selected(snap, vehicle_id, *, experimental=False):
         if type(vehicle_id) is not int or vehicle_id not in snap.vehicles:
-            raise EditorError('Selecione um veículo ativo na lista atualizada.')
+            raise EditorError('Select an active vehicle in the refreshed list.')
         row = snap.vehicles[vehicle_id]
         if not row.get('editable', False) and not (experimental and profile.can_move_experimental(snap.vehicles,row)):
-            raise EditorError('Escolha um carro ou van independente com a física já inicializada.')
+            raise EditorError('Choose an independent car or van whose physics is already initialized.')
         return row
 
     def _ready(self):
         if self.pending:
-            raise EditorError('Finalize a criação pendente antes de iniciar outra edição.')
+            raise EditorError('Finish the pending creation before starting another edit.')
         return self._snapshot()
 
     def _start_recipe(self, snap):
@@ -552,9 +552,9 @@ class EditorController:
             vehicle_id = reference.get('id')
             row = select(snap, vehicle_id)
             if row['model_id'] != reference.get('model_id') or row['path'] != reference.get('path'):
-                raise EditorError('O veículo do preset não corresponde ao evento atual.')
+                raise EditorError("The preset's vehicle does not match the current event.")
         else:
-            raise EditorError('Referência de veículo inválida no preset.')
+            raise EditorError('Invalid vehicle reference in the preset.')
         select(snap, vehicle_id)
         return vehicle_id
 
@@ -562,7 +562,7 @@ class EditorController:
     def _speed_selected(snap,vehicle_id):
         row = snap.vehicles.get(vehicle_id) if type(vehicle_id) is int else None
         if row is None or not speed.can_set_speed(row):
-            raise EditorError('Selecione um veículo ou cabine com controle de velocidade pronto.')
+            raise EditorError('Select a vehicle or cab whose speed control is ready.')
         return row
 
     def set_speed(self,vehicle_id,value,*,experimental=False):
@@ -583,7 +583,7 @@ class EditorController:
         except PineError as error:
             self.unsafe = True
             self._journal('speed_unconfirmed',vehicle_ids=list(vehicle_ids))
-            raise EditorError('As velocidades não puderam ser confirmadas. Recarregue uma referência limpa antes de repetir.') from error
+            raise EditorError('The speeds could not be confirmed. Reload a clean reference before repeating.') from error
         for row,target in zip(rows,targets):
             operation = dict(op='set_speed',target=target,control_value=control)
             if experimental:
@@ -592,12 +592,12 @@ class EditorController:
             self._journal('set_speed',vehicle_id=row['id'],operation=operation,
                 previous_control=row['speed'],previous_advance=row['travel_speed'])
         return {'pending':False,'core_paused':True,
-            'message':f'Velocidade desejada atualizada em {len(rows)} veículo(s). '
-                      'Ao retomar, o jogo recalcula o avanço conforme o trânsito.'}
+            'message':f'Target speed updated on {len(rows)} vehicle(s). '
+                      'When resumed, the game recomputes progress according to traffic.'}
 
     def move(self, vehicle_id: int, lateral_percent: float, *, experimental=False):
         if type(experimental) is not bool:
-            raise EditorError('Modo experimental inválido.')
+            raise EditorError('Invalid experimental mode.')
         snap = self._ready()
         row = self._selected(snap, vehicle_id,experimental=experimental)
         patches = profile.lateral_patches(snap, vehicle_id, lateral_percent,**({'experimental':True} if experimental else {}))
@@ -608,14 +608,14 @@ class EditorController:
             self.client.apply_patch(patches)
         except PineError:
             self.unsafe = True
-            raise EditorError('A posição não pôde ser confirmada. Recarregue um estado limpo antes de repetir.')
+            raise EditorError('The position could not be confirmed. Reload a clean state before repeating.')
         operation = {'op': 'move_lateral', 'target': reference,
                      'lateral_percent': float(lateral_percent)}
         if experimental:
             operation['experimental'] = True
         self.recipe.append(operation)
         self._journal('move', vehicle_id=vehicle_id, operation=operation)
-        return {'message': 'Posição aplicada. Retome o jogo com Esc para conferir.',
+        return {'message': 'Position applied. Resume the game with Esc to check it.',
                 'core_paused': True, 'pending': False}
 
     def add_behind(self, vehicle_id: int, model_id: str | None, gap: float):
@@ -628,7 +628,7 @@ class EditorController:
                 gap,count,experimental=experimental,color_mode=color_mode)
         if (type(experimental) is not bool or type(count) is not int
                 or not 1 <= count <= (253 if experimental else 8)):
-            raise EditorError('Use quantidade de 1 a 8, ou ative o experimental para pedir até a capacidade do tráfego.')
+            raise EditorError('Use an amount from 1 to 8, or enable experimental mode to ask for up to the traffic capacity.')
         from . import batch
         options = {'experimental':True} if experimental else {}
         if count > 8:
@@ -641,18 +641,18 @@ class EditorController:
                 model_id=pending.model_id,gap=float(gap),created_key=first_key+i+1,experimental=True,
                 **({'secondary_model_id':secondary_model_id} if secondary_model_id is not None else {}))
                 for i in range(count-8))
-            result['message'] += f' Fila: {count-8} restantes, em grupos de até oito; retome e pause a cada grupo.'
+            result['message'] += f' Queue: {count-8} left, in groups of up to eight; resume and pause for each group.'
         return result
 
     def add_mixed_behind(self,vehicle_id,choices,gap,count,*,experimental=False,color_mode='original'):
         if (type(experimental) is not bool or type(count) is not int
                 or not 1 <= count <= (253 if experimental else 8)):
-            raise EditorError('Use quantidade de 1 a 8, ou ative o experimental para pedir até a capacidade do tráfego.')
+            raise EditorError('Use an amount from 1 to 8, or enable experimental mode to ask for up to the traffic capacity.')
         if color_mode not in ('original','cycle'):
-            raise EditorError('Escolha a aparência original ou a alternância de variações visuais.')
+            raise EditorError('Choose the original look or alternating visual variants.')
         if (type(choices) not in (list,tuple) or not 1 <= len(choices) <= 12
                 or any(not isinstance(item,dict) or set(item)-{'model_id','secondary_model_id'} for item in choices)):
-            raise EditorError('Escolha de 1 a 12 modelos carregados para a sequência alternada.')
+            raise EditorError('Choose 1 to 12 loaded models for the alternating sequence.')
         from . import batch
         snap = self._ready()
         target = batch.reference(snap,vehicle_id)
@@ -677,9 +677,9 @@ class EditorController:
                 if item['variant']:
                     operation['variant'] = item['variant']
                 self.replay_queue.append(operation)
-            result['message'] += f' Fila alternada: {count-8} restantes; retome e pause a cada grupo.'
+            result['message'] += f' Alternating queue: {count-8} left; resume and pause for each group.'
         if color_mode == 'cycle':
-            result['message'] += ' Variações visuais 0–7: o efeito na cor depende do modelo e ainda precisa de confirmação.'
+            result['message'] += ' Visual variants 0–7: the effect on colour depends on the model and still needs confirmation.'
         return result
 
     def add_at(self, vehicle_id, model_id, x, z, secondary_model_id=None, *, experimental=False):
@@ -692,22 +692,22 @@ class EditorController:
         self.replay_queue.clear()
         self._journal('queue_cancelled',remaining=count)
         return {'pending':self.pending is not None,'core_paused':self.client.status() is Status.PAUSED,
-                'message':f'Fila cancelada ({count} operações). '+
-                    ('Finalize o lote já preparado; ele não será repetido.' if self.pending else 'Nenhuma criação foi repetida.')}
+                'message':f'Queue cancelled ({count} operations). '+
+                    ('Finish the batch already prepared; it will not be repeated.' if self.pending else 'No creation was repeated.')}
 
     def _add_behind(self, vehicle_id, model_id, gap, *, created_key=None):
         snap = self._ready()
         target = self._selected(snap, vehicle_id)
         if not isinstance(gap, (int, float)) or isinstance(gap, bool) or not math.isfinite(gap) or not 8 <= gap <= 50:
-            raise EditorError('Use uma distância entre 8 e 50 unidades do jogo.')
+            raise EditorError('Use a distance between 8 and 50 game units.')
         model_id = model_id or target['model_id']
         model = snap.models.get(model_id)
         if not model or not model.get('eligible') or model.get('type') not in (1, 2):
-            raise EditorError('Escolha um carro ou van carregado e compatível nesta versão.')
+            raise EditorError('Choose a loaded car or van that is compatible with this version.')
         if snap.memory.u8(0x527440 + 0x363BE):
-            raise EditorError('O jogo está bloqueando novas instâncias neste momento.')
+            raise EditorError('The game is blocking new instances right now.')
         if snap.inspection['counts']['free_objects'] < 2 or snap.inspection['counts']['free_nodes'] < 1:
-            raise EditorError('Não há espaço livre suficiente para outro veículo.')
+            raise EditorError('There is not enough free space for another vehicle.')
         progression = profile.behind_progress(snap.memory, target['path'], target['progress'],
                                              target['lateral'], float(gap), node=target['node'])
         candidate = profile.lane(snap.memory, target['path'], progression, target['lateral'])['point']
@@ -716,14 +716,14 @@ class EditorController:
         for peer_id, peer in snap.vehicles.items():
             if peer_id != vehicle_id and peer.get('independent') and peer.get('initialized') and peer['path'] == target['path']:
                 if math.dist(center, peer['position']) < 6:
-                    raise EditorError('Esse trecho já tem um veículo. Aumente a distância ou escolha outro alvo.')
+                    raise EditorError('That stretch already has a vehicle. Increase the distance or choose another target.')
         if self.client.read_bytes(spawncode.HOOK, 8) != spawncode.ORIGINAL:
-            raise EditorError('O código do evento mudou. Recarregue um estado limpo.')
+            raise EditorError("The event's code changed. Reload a clean state.")
         if self.client.read_bytes(spawncode.CAVE, 4096) != bytes(4096):
-            raise EditorError('Há uma edição incompleta na memória. Recarregue um estado limpo.')
+            raise EditorError('There is an unfinished edit in memory. Reload a clean state.')
         key = self.next_key if created_key is None else created_key
         if type(key) is not int or not 1 <= key <= 10000:
-            raise EditorError('Identificador de criação inválido.')
+            raise EditorError('Invalid creation identifier.')
         self.next_key = max(self.next_key, key + 1)
         nonce = secrets.token_hex(16)
         payload = spawncode.build_spawn(manager=0x527440, type_code=model['type'],
@@ -740,26 +740,26 @@ class EditorController:
             # The code/data area is prepared and read back before the jump is installed.
             self.client.write_bytes(spawncode.CAVE, payload['scratch_bytes'])
             if self.client.read_bytes(spawncode.CAVE, 4096) != payload['scratch_bytes']:
-                raise EditorError('A preparação da criação não conferiu.')
+                raise EditorError('The creation setup did not check out.')
             self.client.apply_patch([
                 Patch(spawncode.HOOK, 4, _word(spawncode.ORIGINAL[:4]), _word(payload['hook_bytes'][:4])),
                 Patch(spawncode.HOOK+4, 4, _word(spawncode.ORIGINAL[4:]), _word(payload['hook_bytes'][4:]))])
         except Exception:
             self.unsafe = True
             self._journal('stage_unconfirmed', nonce=nonce)
-            raise EditorError('A preparação não pôde ser confirmada. Recarregue um estado limpo antes de repetir.')
+            raise EditorError('The setup could not be confirmed. Reload a clean state before repeating.')
         self._journal('spawn_staged', nonce=nonce, model_id=model_id, gap=float(gap),
                       path=target['path'], progression=progression)
         return {'pending': True, 'core_paused': True,
-                'message': 'Preparado. Retome o emulador com Esc; depois pause novamente com Esc para finalizar.'}
+                'message': 'Prepared. Resume the emulator with Esc, then pause again with Esc to finish.'}
 
     @staticmethod
     def _validate_pending_bytes(pending: Pending, live_hook: bytes, live_scratch: bytes):
         """Accept only this request's hook and immutable code/data/nonce bytes."""
         if live_hook not in getattr(pending,'allowed_hooks',(pending.hook,)):
-            raise EditorError('O código mudou durante a criação. Recarregue um estado limpo antes de continuar.')
+            raise EditorError('The code changed during the creation. Reload a clean state before continuing.')
         if len(live_scratch) != len(pending.scratch):
-            raise EditorError('A leitura da área de trabalho ficou incompleta. Nenhuma limpeza foi aplicada.')
+            raise EditorError('The work area read was incomplete. No cleanup was applied.')
         expected = bytearray(pending.scratch)
         probe = spawncode.DATA - spawncode.CAVE
         # The routine changes only these three publication words. The nonce,
@@ -768,7 +768,7 @@ class EditorController:
         for offset in offsets:
             expected[offset:offset+4] = live_scratch[offset:offset+4]
         if bytes(expected) != live_scratch:
-            raise EditorError('A área de trabalho mudou fora do esperado. Não foi limpa automaticamente.')
+            raise EditorError('The work area changed unexpectedly. It was not cleaned automatically.')
 
     def _check_pending(self, pending: Pending):
         hook = self.client.read_bytes(spawncode.HOOK,8)
@@ -777,7 +777,7 @@ class EditorController:
             self.client.read_bytes(spawncode.CAVE, 4096))
         if (getattr(pending,'batch',False) and (hook != spawncode.ORIGINAL
                 or self.client.read_many([(pending.completion_address,4)])[0] != pending.completion_token)):
-            raise EditorError('A rotina do lote ainda não terminou. Retome brevemente e pause.')
+            raise EditorError('The batch routine has not finished yet. Resume briefly and pause.')
 
     def _clean(self, pending: Pending):
         # Re-read after alignment; never clean an area changed since preflight.
@@ -788,17 +788,17 @@ class EditorController:
             # the paused EE has not executed its final jump yet.
             if (self.client.read_bytes(spawncode.HOOK,8) != spawncode.ORIGINAL
                     or self.client.read_many([(pending.completion_address,4)])[0] != pending.completion_token):
-                raise EditorError('A rotina do lote ainda não terminou. Retome brevemente e pause.')
+                raise EditorError('The batch routine has not finished yet. Resume briefly and pause.')
             self.client.write_bytes(spawncode.CAVE,pending.clean_scratch)
             if self.client.read_bytes(spawncode.CAVE,4096) != pending.clean_scratch:
-                raise EditorError('A limpeza da área de trabalho não conferiu.')
+                raise EditorError('The work area cleanup did not check out.')
             return
         self.client.apply_patch([
             Patch(spawncode.HOOK+4, 4, _word(pending.hook[4:]), _word(spawncode.ORIGINAL[4:])),
             Patch(spawncode.HOOK, 4, _word(pending.hook[:4]), _word(spawncode.ORIGINAL[:4]))])
         self.client.write_bytes(spawncode.CAVE, bytes(4096))
         if self.client.read_bytes(spawncode.CAVE, 4096) != bytes(4096):
-            raise EditorError('A limpeza da área de trabalho não conferiu.')
+            raise EditorError('The work area cleanup did not check out.')
 
     def _cleanup_completed_request(self, pending: Pending, event: str, **fields):
         """Remove only our completed request; never repair or move its actor."""
@@ -807,7 +807,7 @@ class EditorController:
         except Exception:
             self.unsafe = True
             self._journal('cleanup_unconfirmed', nonce=pending.nonce, **fields)
-            raise EditorError('A limpeza não pôde ser confirmada. Recarregue um estado limpo antes de continuar.')
+            raise EditorError('The cleanup could not be confirmed. Reload a clean state before continuing.')
         self.pending = None
         self.replay_queue.clear()
         self._journal(event, nonce=pending.nonce, **fields)
@@ -818,19 +818,19 @@ class EditorController:
             from . import batch
             return batch.poll(self)
         if pending is None:
-            return {'pending': False, 'message': 'Nenhuma criação pendente.',
+            return {'pending': False, 'message': 'No pending creation.',
                     'core_paused': self.client.status() is Status.PAUSED}
         if self.unsafe:
-            raise EditorError('Recarregue um estado limpo e reconecte; a operação anterior não será repetida.')
+            raise EditorError('Reload a clean state and reconnect; the previous operation will not be repeated.')
         self._identity()
         state = self.client.status()
         if state is Status.SHUTDOWN:
-            raise EditorError('O jogo foi encerrado. A criação não será repetida automaticamente.')
+            raise EditorError('The game was closed. The creation will not be repeated automatically.')
         flag, object_ptr, node_ptr = self.client.read_many([(spawncode.DATA+i, 4) for i in (0,4,8)])
-        waiting_message = ('Aguardando a atualização do tráfego. Retome o PCSX2 e, '
-                           'se estiver em Continue/menu, inicie o evento.')
+        waiting_message = ('Waiting for the traffic update. Resume PCSX2 and, '
+                           'if it is at Continue/menu, start the event.')
         if state is not Status.PAUSED:
-            message = ('Veículo criado. Pause agora o PCSX2 para finalizar antes de dirigir.' if flag == 2
+            message = ('Vehicle created. Pause PCSX2 now to finish before driving.' if flag == 2
                        else waiting_message)
             return {'pending': True, 'message': message, 'core_paused': False}
         live_hook = self.client.read_bytes(spawncode.HOOK, 8)
@@ -840,7 +840,7 @@ class EditorController:
             self.replay_queue.clear()
             self._journal('spawn_interrupted', nonce=pending.nonce)
             return {'pending': False, 'core_paused': True,
-                    'message': 'O estado foi recarregado. A criação pendente foi cancelada, sem repetição automática.'}
+                    'message': 'The state was reloaded. The pending creation was cancelled, without automatic repetition.'}
         self._validate_pending_bytes(pending, live_hook, scratch)
         if flag != 2:
             return {'pending': True, 'core_paused': True,
@@ -848,7 +848,7 @@ class EditorController:
         if object_ptr == 0:
             self._cleanup_completed_request(pending, 'spawn_refused',
                 reason='allocator_returned_null', object_pointer=object_ptr, node_pointer=node_ptr)
-            raise EditorError('O jogo recusou criar o veículo. A edição temporária foi removida.')
+            raise EditorError('The game refused to create the vehicle. The temporary edit was removed.')
         snap = self._snapshot(pending=True)
         new_id = (object_ptr - 0x539C10) // 0x180
         row = snap.vehicles.get(new_id)
@@ -873,11 +873,11 @@ class EditorController:
             self._cleanup_completed_request(pending, 'spawn_not_finalized', reason=mismatch,
                 object_pointer=object_ptr, node_pointer=node_ptr)
             return {'pending': False, 'core_paused': True, 'warning': True,
-                    'message': 'Criação executada, mas o veículo mudou ou saiu do cenário. '
-                               'Código temporário removido. Alinhamento não confirmado.'}
+                    'message': 'Creation ran, but the vehicle changed or left the scene. '
+                               'Temporary code removed. Alignment not confirmed.'}
         if not row['initialized']:
             return {'pending': True, 'core_paused': True,
-                    'message': 'A física ainda está inicializando. Retome por um instante e pause novamente.'}
+                    'message': 'Physics is still initializing. Resume for a moment and pause again.'}
         # Snapshot reads take time: confirm the request again before touching
         # even the newly created actor, not only before restoring the hook.
         self._check_pending(pending)
@@ -887,7 +887,7 @@ class EditorController:
         except Exception:
             self.unsafe = True
             self._journal('finalize_unconfirmed', nonce=pending.nonce)
-            raise EditorError('A finalização não pôde ser confirmada. Recarregue um estado limpo antes de repetir.')
+            raise EditorError('The finish could not be confirmed. Reload a clean state before repeating.')
         self.pending = None
         self.actor_keys[new_id] = pending.created_key
         self.replay_ids[pending.created_key] = new_id
@@ -900,28 +900,28 @@ class EditorController:
             result.setdefault('new_vehicle_id', new_id)
             return result
         return {'pending': False, 'core_paused': True, 'new_vehicle_id': new_id,
-                'message': 'Veículo adicionado e edição finalizada. Retome com Esc para testar.'}
+                'message': 'Vehicle added and edit finished. Resume with Esc to test.'}
 
     def save_preset(self, path: str):
         if self.pending or not self.recipe or not self.baseline:
-            raise EditorError('Finalize pelo menos uma edição antes de salvar um preset.')
+            raise EditorError('Finish at least one edit before saving a preset.')
         if any(op.get('target',{}).get('kind') == 'observed' for op in self.recipe):
-            raise EditorError('Há edições em veículos que surgiram depois da referência inicial e não podem ser '
-                              'recriados por esta receita. Use Salvar estado… (.p2s) para manter o cenário, '
-                              'ou conecte novamente para iniciar uma receita com a cena atual.')
+            raise EditorError('Some edits are on vehicles that appeared after the initial reference and cannot be '
+                              'recreated by this recipe. Use Save state… (.p2s) to keep the scene, '
+                              'or reconnect to start a recipe with the current scene.')
         destination = Path(path)
         payload = {'format': 'burnout3-current-event-recipe', 'version': 1,
                    'profile': 'SLUS-21050/BEBF8793', 'baseline': self.baseline,
                    'operations': self.recipe}
         text = json.dumps(payload, indent=2, ensure_ascii=False, allow_nan=False) + '\n'
         if len(text.encode('utf8')) > 131072 or len(self.recipe) > 256:
-            raise EditorError('O preset ultrapassa o limite desta versão.')
+            raise EditorError('The preset exceeds the limit of this version.')
         destination.write_text(text, encoding='utf8')
-        return {'message': 'Preset salvo. Ele exige o mesmo estado inicial para ser reaplicado.'}
+        return {'message': 'Preset saved. It needs the same initial state to be reapplied.'}
 
     def load_preset(self, path: str, *, experimental=False):
         if type(experimental) is not bool:
-            raise EditorError('Modo experimental inválido.')
+            raise EditorError('Invalid experimental mode.')
         allow_experimental = experimental
         snap = self._ready()
         source = Path(path)
@@ -930,32 +930,32 @@ class EditorController:
         try:
             data = json.loads(source.read_text(encoding='utf8'))
         except (json.JSONDecodeError, UnicodeDecodeError):
-            raise EditorError('O arquivo não contém um preset JSON válido.')
+            raise EditorError('The file does not contain a valid JSON preset.')
         if (not isinstance(data, dict) or data.get('format') != 'burnout3-current-event-recipe'
                 or type(data.get('version')) is not int or data.get('version') != 1
                 or data.get('profile') != 'SLUS-21050/BEBF8793'):
-            raise EditorError('Formato de preset incompatível.')
+            raise EditorError('Incompatible preset format.')
         if data.get('baseline') != _fingerprint(snap):
-            raise EditorError('Recarregue o mesmo estado inicial usado para criar este preset.')
+            raise EditorError('Reload the same initial state used to create this preset.')
         operations = data.get('operations')
         if not isinstance(operations, list) or not 1 <= len(operations) <= 256:
-            raise EditorError('Lista de operações inválida.')
+            raise EditorError('Invalid list of operations.')
         # Validate every operation before making the first mutation.
         created = set()
         created_models = {}
         for op in operations:
             if not isinstance(op, dict) or op.get('op') not in ('move_lateral','add_behind','add_at','set_speed'):
-                raise EditorError('Operação não suportada no preset.')
+                raise EditorError('Operation not supported in the preset.')
             experimental = op.get('experimental',False)
             if type(experimental) is not bool:
-                raise EditorError('Modo experimental inválido no preset.')
+                raise EditorError('Invalid experimental mode in the preset.')
             if experimental and not allow_experimental:
-                raise EditorError('Esta receita usa o modo experimental. Ative o modo e leia o aviso antes de carregá-la.')
+                raise EditorError('This recipe uses experimental mode. Enable the mode and read the warning before loading it.')
             ref = op.get('target')
-            if not isinstance(ref, dict): raise EditorError('Alvo inválido no preset.')
+            if not isinstance(ref, dict): raise EditorError('Invalid target in the preset.')
             if ref.get('kind') == 'created':
                 if type(ref.get('key')) is not int or ref.get('key') not in created:
-                    raise EditorError('Referência fora de ordem no preset.')
+                    raise EditorError('Reference out of order in the preset.')
             else:
                 self._resolve(ref,snap,for_creation=op['op'] in ('add_behind','add_at'),
                     experimental=experimental,for_speed=op['op']=='set_speed')
@@ -963,21 +963,21 @@ class EditorController:
                 try:
                     speed.validate_control(op.get('control_value'),experimental=experimental)
                 except profile.ProfileError as error:
-                    raise EditorError(f'Velocidade inválida no preset: {error}') from error
+                    raise EditorError(f'Invalid speed in the preset: {error}') from error
             elif op['op'] == 'move_lateral':
                 value = op.get('lateral_percent')
                 if (type(value) not in (int,float) or not math.isfinite(value)
                         or (not experimental and not 0 <= value <= 100)):
-                    raise EditorError('Posição inválida no preset.')
+                    raise EditorError('Invalid position in the preset.')
                 try:
                     profile._lane_fraction_word(value/100)
                 except profile.ProfileError as error:
-                    raise EditorError('Posição fora do intervalo float32 no preset.') from error
+                    raise EditorError('Position outside the float32 range in the preset.') from error
             else:
                 model_id = op.get('model_id')
                 if type(op.get('variant',0)) is not int or not 0 <= op.get('variant',0) <= 7:
-                    raise EditorError('Variação visual inválida no preset.')
-                if not isinstance(model_id, str): raise EditorError('Modelo inválido no preset.')
+                    raise EditorError('Invalid visual variant in the preset.')
+                if not isinstance(model_id, str): raise EditorError('Invalid model in the preset.')
                 model = snap.models.get(model_id)
                 from .batch import model_pair
                 _primary, secondary = model_pair(snap,model_id,op.get('secondary_model_id'))
@@ -989,25 +989,25 @@ class EditorController:
                 if (op['op'] == 'add_behind' and not experimental and
                         (secondary is not None or reference_is_truck or model.get('type') == 5)
                         and (type(gap) not in (int,float) or gap < 30)):
-                    raise EditorError('Use distância de 30 a 50 unidades para ônibus ou conjuntos de cabine e carga.')
+                    raise EditorError('Use a distance of 30 to 50 units for buses or cab-and-trailer sets.')
                 if (not model or not model.get('eligible') or type(key) is not int
                         or not 1 <= key <= 10000 or key in created):
-                    raise EditorError('Criação inválida no preset.')
+                    raise EditorError('Invalid creation in the preset.')
                 if op['op'] == 'add_behind':
                     if (type(gap) not in (int,float) or not math.isfinite(gap)
                             or (gap <= 0 if experimental else not 8 <= gap <= 50)):
-                        raise EditorError('Distância inválida no preset.')
+                        raise EditorError('Invalid distance in the preset.')
                 else:
                     for axis in ('x','z'):
                         coordinate = op.get(axis)
                         if type(coordinate) not in (int,float) or not math.isfinite(coordinate):
-                            raise EditorError('Ponto inválido no preset.')
+                            raise EditorError('Invalid point in the preset.')
                         try:
                             valid = math.isfinite(struct.unpack('<f',struct.pack('<f',coordinate))[0])
                         except (OverflowError,struct.error):
                             valid = False
                         if not valid:
-                            raise EditorError('Ponto fora do intervalo float32 no preset.')
+                            raise EditorError('Point outside the float32 range in the preset.')
                 created.add(key)
                 created_models[key] = model_id
         self.recipe.clear()
@@ -1052,12 +1052,12 @@ class EditorController:
                                                variant=r.get('variant',0)) for r in group],
                              **({'experimental':True} if experimental else {}))
                 if self.replay_queue:
-                    result['message'] += f' Fila: {len(self.replay_queue)} restantes; retome e pause para o próximo grupo.'
+                    result['message'] += f' Queue: {len(self.replay_queue)} left; resume and pause for the next group.'
                 return result
         return {'pending': False, 'core_paused': True,
-                'message': 'Preset aplicado. Retome o jogo com Esc para conferir.'}
+                'message': 'Preset applied. Resume the game with Esc to check it.'}
 
     def close(self):
         if self.pending:
-            raise EditorError('Finalize a criação ou recarregue um estado limpo antes de fechar.')
+            raise EditorError('Finish the creation or reload a clean state before closing.')
         self.client.close()

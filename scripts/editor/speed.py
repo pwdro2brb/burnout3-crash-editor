@@ -18,7 +18,7 @@ CONTROL_TO_TRAVEL = 0.44704
 CONTROL_TO_NOMINAL_KMH = 1.609344
 TRAVEL_TO_NOMINAL_KMH = 3.6
 MAX_NORMAL_CONTROL = 240.0
-UNITS = 'Controle original do jogo; conversão nominal de mph, sem medição física.'
+UNITS = "The game's original control; nominal conversion from mph, no physical measurement."
 
 
 def _number(value):
@@ -67,33 +67,33 @@ def summarize(row) -> dict:
         units=UNITS,conversion='nominal',physical_speed_measured=False,
         can_set_speed=can_set_speed(row),
         stopped=travel == 0 if travel is not None else None,
-        note=('Velocidade controlada pela cabine; a carga não tem controle próprio.'
+        note=('Speed controlled by the cab; the trailer has no control of its own.'
               if row.get('parent_id') is not None else
-              'Velocidade indisponível: este registro não tem nó de tráfego reconhecido.' if not has_node else
-              'O avanço pode ser reduzido por filas, obstáculos e pelo estado do tráfego.'))
+              'Speed unavailable: this record has no recognized traffic node.' if not has_node else
+              'Progress can be reduced by queues, obstacles and the state of the traffic.'))
 
 
 def validate_control(new_control,*,experimental=False) -> float:
     """Validate a recipe/API value before any mutation; return finite float32."""
     if type(experimental) is not bool:
-        raise profile.ProfileError('Modo experimental inválido.')
+        raise profile.ProfileError('Invalid experimental mode.')
     value = _number(new_control)
     if value is None or value < 0 or (not experimental and value > MAX_NORMAL_CONTROL):
-        raise profile.ProfileError('Use controle de velocidade de 0 a 240.' if not experimental else
-                                   'Use um controle de velocidade positivo ou zero e finito.')
+        raise profile.ProfileError('Use a speed control from 0 to 240.' if not experimental else
+                                   'Use a positive or zero, finite speed control.')
     try:
         packed = struct.pack('<f',value)
     except (OverflowError,struct.error) as error:
-        raise profile.ProfileError('A velocidade desejada está fora do intervalo float32.') from error
+        raise profile.ProfileError('The target speed is outside the float32 range.') from error
     if not math.isfinite(struct.unpack('<f',packed)[0]):
-        raise profile.ProfileError('A velocidade desejada está fora do intervalo float32 finito.')
+        raise profile.ProfileError('The target speed is outside the finite float32 range.')
     return struct.unpack('<f',packed)[0]
 
 
 def _selected(state,vehicle_id):
     row = state.vehicles.get(vehicle_id) if type(vehicle_id) is int else None
     if row is None or row.get('id') != vehicle_id or not can_set_speed(row):
-        raise profile.ProfileError('Selecione um veículo ou cabine com nó, caminho e física prontos.')
+        raise profile.ProfileError('Select a vehicle or cab whose node, path and physics are ready.')
     return row
 
 
@@ -102,17 +102,17 @@ def _control_patch(state,row,vehicle_id,value_word):
     if (memory.u8(node+0x49) != row['node_index'] or memory.u8(node+0x4A) != vehicle_id
             or memory.u8(node+0x41) != row['path'] or not 1 <= memory.u8(node+0x46) <= 7
             or memory.u32(row['address']+0x114) != node):
-        raise profile.ProfileError('O nó de velocidade não corresponde mais ao veículo selecionado.')
+        raise profile.ProfileError('The speed node no longer matches the selected vehicle.')
     current = memory.read(node,'<f')[0]
     if not math.isfinite(current) or current < 0 or current != row['speed']:
-        raise profile.ProfileError('O controle de velocidade mudou; atualize a lista antes de editar.')
+        raise profile.ProfileError('The speed control changed; refresh the list before editing.')
     return Patch(node,4,memory.u32(node),value_word)
 
 
 def patches(state,vehicle_id,new_control,*,experimental=False) -> list[Patch]:
     """Return one expected-value patch of node+0, never current speed/spacing."""
     if getattr(state,'core_paused',False) is not True:
-        raise profile.ProfileError('Pause o PCSX2 antes de alterar a velocidade desejada.')
+        raise profile.ProfileError('Pause PCSX2 before changing the target speed.')
     value=validate_control(new_control,experimental=experimental)
     row=_selected(state,vehicle_id)
     word=struct.unpack('<I',struct.pack('<f',value))[0]
@@ -127,18 +127,18 @@ def patches_many(state,vehicle_ids,new_control,*,experimental=False) -> list[Pat
     call; that transport operation remains best effort rather than atomic.
     """
     if getattr(state,'core_paused',False) is not True:
-        raise profile.ProfileError('Pause o PCSX2 antes de alterar a velocidade desejada.')
+        raise profile.ProfileError('Pause PCSX2 before changing the target speed.')
     value=validate_control(new_control,experimental=experimental)
     if (type(vehicle_ids) not in (list,tuple)
             or not 1 <= len(vehicle_ids) <= profile.POOL_COUNT):
-        raise profile.ProfileError('Selecione de 1 a 254 veículos ou cabines para alterar a velocidade.')
+        raise profile.ProfileError('Select 1 to 254 vehicles or cabs to change the speed.')
     if any(type(index) is not int or not 0 <= index < profile.POOL_COUNT for index in vehicle_ids):
-        raise profile.ProfileError('A seleção contém um identificador de veículo inválido.')
+        raise profile.ProfileError('The selection contains an invalid vehicle identifier.')
     if len(set(vehicle_ids)) != len(vehicle_ids):
-        raise profile.ProfileError('A seleção contém veículos repetidos.')
+        raise profile.ProfileError('The selection contains repeated vehicles.')
     rows=[_selected(state,index) for index in vehicle_ids]
     if len({row['node'] for row in rows}) != len(rows):
-        raise profile.ProfileError('Dois veículos selecionados apontam para o mesmo nó de tráfego.')
+        raise profile.ProfileError('Two selected vehicles point to the same traffic node.')
     word=struct.unpack('<I',struct.pack('<f',value))[0]
     # Validate every live backlink and expected current value before returning
     # any patches. A late mismatch discards the entire prepared selection.

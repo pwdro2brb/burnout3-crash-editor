@@ -127,7 +127,7 @@ class CompletedRequestTests(unittest.TestCase):
             result = controller.poll()
         snapshot.assert_called_once_with(client, require_paused=True, allow_editor_hook=True)
         self.assertEqual((result['pending'], result['core_paused'], result['warning']), (False, True, True))
-        self.assertIn('Alinhamento não confirmado', result['message'])
+        self.assertIn('Alignment not confirmed', result['message'])
         self.assert_clean_without_actor_write(controller, client)
         journal.assert_called_once_with('spawn_not_finalized', nonce=pending.nonce,
             reason='object_no_longer_active', object_pointer=OBJECT, node_pointer=NODE)
@@ -167,7 +167,7 @@ class CompletedRequestTests(unittest.TestCase):
         with patch.object(c.profile, 'snapshot', return_value=SimpleNamespace(vehicles={})), \
              patch.object(c.profile, 'lateral_patches') as align, \
              patch.object(controller, '_journal') as journal:
-            with self.assertRaisesRegex(c.EditorError, 'Recarregue um estado limpo'):
+            with self.assertRaisesRegex(c.EditorError, 'Reload a clean state'):
                 controller.poll()
         align.assert_not_called()
         self.assertTrue(controller.unsafe)

@@ -83,7 +83,7 @@ class NativeIsoTests(unittest.TestCase):
         bad = bytearray(range(62))
         bad[-1] = 0
         edits = {'TRACKS/CRASH.RWS': (bytes(bad), b'X' + bytes(bad[1:]))}
-        with patch.object(iso, 'CHUNK', 13), self.assertRaisesRegex(ValueError, 'difere'):
+        with patch.object(iso, 'CHUNK', 13), self.assertRaisesRegex(ValueError, 'differs'):
             iso.export_iso(self.source, self.dest, edits)
         self.assertEqual(list(self.root.iterdir()), [self.source])
 

@@ -48,7 +48,7 @@ class _BudgetMemory:
                 last = min(RAM_SIZE,(address+size+0xFFF)&~0xFFF)
                 cost = last-first
         if self.used+cost > self.budget:
-            raise _ReadBudgetExceeded('O orçamento de leitura dos caminhos foi atingido.')
+            raise _ReadBudgetExceeded('The path read budget was reached.')
         if not self.cached:
             self.requested += cost
         if hasattr(self.memory,'read_bytes'):
@@ -57,7 +57,7 @@ class _BudgetMemory:
 
     def read(self,address,format_):
         if not format_.startswith('<'):
-            raise profile.ProfileError('Formato de leitura inválido.')
+            raise profile.ProfileError('Invalid read format.')
         return struct.unpack(format_,self.read_bytes(address,struct.calcsize(format_)))
 
     def u8(self,address): return self.read(address,'<B')[0]
@@ -71,13 +71,13 @@ _INVALID = (profile.ProfileError,KeyError,TypeError,ValueError,OverflowError,str
 def _point(values):
     point = [float(v) for v in values]
     if len(point) != 3 or not all(math.isfinite(v) for v in point):
-        raise profile.ProfileError('O caminho contém coordenadas inválidas.')
+        raise profile.ProfileError('The path contains invalid coordinates.')
     try:
         packed = struct.pack('<3f',*point)
     except (OverflowError,struct.error) as error:
-        raise profile.ProfileError('Coordenada do caminho excede float32.') from error
+        raise profile.ProfileError('Path coordinate exceeds float32.') from error
     if not all(math.isfinite(v) for v in struct.unpack('<3f',packed)):
-        raise profile.ProfileError('Coordenada do caminho excede float32.')
+        raise profile.ProfileError('Path coordinate exceeds float32.')
     return point
 
 
@@ -97,10 +97,10 @@ def _header(memory,path):
         raise profile.ProfileError('Descritor sem identidade correspondente.')
     geometry = memory.u32(descriptor)
     if not 0 < geometry <= RAM_SIZE-0x14:
-        raise profile.ProfileError('Geometria ausente ou fora da memória.')
+        raise profile.ProfileError('Geometry missing or outside memory.')
     pairs,vertices,count = memory.u32(geometry),memory.u32(geometry+0xC),memory.u32(geometry+0x10)
     if not 2 <= count <= 65536 or not 0 < pairs <= RAM_SIZE-count*4 or not 0 < vertices <= RAM_SIZE-16:
-        raise profile.ProfileError('Tabelas de geometria fora dos limites.')
+        raise profile.ProfileError('Geometry tables out of bounds.')
     # The actual spline evaluator verifies each sampled vertex address.
     profile.lane(memory,path,0.,.5)
     return dict(id=path,count=count,descriptor=descriptor)
@@ -166,7 +166,7 @@ def _sample(memory,header,samples,rows):
         source='vehicle_reference' if rows else 'descriptor_candidate',
         reference_observed=bool(rows),
         approximate=True,sampled_geometry=True,
-        direction_label='Progressão do caminho',
+        direction_label='Path progression',
         traffic_direction_verified=verified,direction_verification_limited=direction_limited)
 
 
@@ -181,13 +181,13 @@ def build_network(state, *, point_budget=DEFAULT_POINT_BUDGET,
     checks; their presence does not establish connectivity or drivability.
     """
     if getattr(state,'core_paused',True) is not True:
-        raise profile.ProfileError('Pause o PCSX2 antes de ler os caminhos.')
+        raise profile.ProfileError('Pause PCSX2 before reading the paths.')
     if type(point_budget) is not int or not 2 <= point_budget <= MAX_POINT_BUDGET:
-        raise profile.ProfileError('Use um orçamento de 2 a 8192 amostras de caminho.')
+        raise profile.ProfileError('Use a budget of 2 to 8192 path samples.')
     if type(read_budget) is not int or not 1 <= read_budget <= 8*1024*1024:
-        raise profile.ProfileError('Orçamento de leitura dos caminhos inválido.')
+        raise profile.ProfileError('Invalid path read budget.')
     if type(scan_unreferenced) is not bool:
-        raise profile.ProfileError('Opção de descoberta de caminhos inválida.')
+        raise profile.ProfileError('Invalid path discovery option.')
     memory = _BudgetMemory(state.memory,read_budget)
     refs = _references(state)
     order = sorted(refs)
@@ -237,12 +237,12 @@ def build_network(state, *, point_budget=DEFAULT_POINT_BUDGET,
     bounds = ({'min':[min(p[k] for p in points) for k in range(3)],
                'max':[max(p[k] for p in points) for k in range(3)]} if points else None)
     xz_bounds = [bounds['min'][0],bounds['min'][2],bounds['max'][0],bounds['max'][2]] if bounds else None
-    warning = ('Visualização parcial: orçamento de caminhos atingido.' if truncated else '')
+    warning = ('Partial view: path budget reached.' if truncated else '')
     if omitted:
-        warning += (' ' if warning else '')+'Caminhos com dados incompletos ou inválidos foram omitidos.'
+        warning += (' ' if warning else '')+'Paths with incomplete or invalid data were left out.'
     unreferenced = sum(not path['reference_observed'] for path in paths)
     if unreferenced:
-        warning += (' ' if warning else '')+'Inclui descritores sem veículo de referência; o uso atual desses caminhos não foi confirmado.'
+        warning += (' ' if warning else '')+'Includes descriptors with no reference vehicle; the current use of these paths was not confirmed.'
     return dict(paths=paths,bounds=bounds,xz_bounds=xz_bounds,
         point_budget=point_budget,sample_count=sum(path['sample_count'] for path in paths),
         read_bytes=memory.used,read_budget=read_budget,
@@ -250,4 +250,4 @@ def build_network(state, *, point_budget=DEFAULT_POINT_BUDGET,
         omitted_path_ids=sorted(set(omitted)),truncated=truncated,
         unreferenced_path_count=unreferenced,
         scan_complete=scan_complete,approximate=True,warning=warning,
-        direction_label='Setas indicam a progressão do caminho; não representam conectividade entre vias.')
+        direction_label='Arrows show the direction of travel along the path; they do not show connections between lanes.')

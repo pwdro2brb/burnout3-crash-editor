@@ -91,7 +91,7 @@ class RecoveryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             editor,client,_payload,_row,log = self.fixture(folder)
             log.unlink()
-            with self.assertRaisesRegex(c.EditorError,'registro local'):
+            with self.assertRaisesRegex(c.EditorError,'local log'):
                 editor.finalize_pending()
             self.assertEqual(client.writes,[])
 
@@ -131,7 +131,7 @@ class RecoveryTests(unittest.TestCase):
                     if reads == 2: client.memory[s.CAVE+0x20] ^= 1
                 return original(address,length)
             with patch.object(client,'read_bytes',side_effect=concurrent_change):
-                with self.assertRaisesRegex(c.EditorError,'mudou'):
+                with self.assertRaisesRegex(c.EditorError,'changed'):
                     editor.finalize_pending()
             self.assertEqual(client.writes,[])
 
@@ -139,7 +139,7 @@ class RecoveryTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as folder:
             editor,client,_payload,_row,_log = self.fixture(folder)
             client.fail_cleanup = True
-            with self.assertRaisesRegex(c.EditorError,'não pôde ser confirmada'):
+            with self.assertRaisesRegex(c.EditorError,'could not be confirmed'):
                 editor.finalize_pending()
             self.assertTrue(editor.unsafe)
             with self.assertRaises(c.EditorError):
@@ -176,7 +176,7 @@ class RecoveryTests(unittest.TestCase):
                 row['items'][index][key]=value
                 log.write_text(json.dumps(row),encoding='utf8')
                 before=client.memory.copy()
-                with self.assertRaisesRegex(c.EditorError,'registro local'):
+                with self.assertRaisesRegex(c.EditorError,'local log'):
                     editor.finalize_pending()
                 self.assertEqual(client.memory,before)
                 self.assertEqual(client.writes,[])
@@ -187,7 +187,7 @@ class RecoveryTests(unittest.TestCase):
                 editor,client,_payload,row,log=self.fixture(folder)
                 row['items']=value
                 log.write_text(json.dumps(row),encoding='utf8')
-                with self.assertRaisesRegex(c.EditorError,'registro local'):editor.finalize_pending()
+                with self.assertRaisesRegex(c.EditorError,'local log'):editor.finalize_pending()
                 self.assertEqual(client.writes,[])
 
     def test_legacy_journal_cannot_authorize_nonzero_appearance_variants(self):

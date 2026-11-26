@@ -72,7 +72,7 @@ class ReferenceEligibilityTests(unittest.TestCase):
                 self.assertFalse(row['can_reference'])
                 public=state.public()['vehicles'][0]
                 self.assertIsNone(public['edit_reason'])
-                self.assertIn('parâmetros nativos',public['reference_reason'])
+                self.assertIn('native speed or spacing parameters',public['reference_reason'])
 
     def test_zero_speed_does_not_bypass_unknown_direction_or_path_owner(self):
         for mutation in ('path','forward'):
@@ -87,9 +87,9 @@ class ReferenceEligibilityTests(unittest.TestCase):
                 self.assertEqual(state.memory.data,before)
 
     def test_public_reasons_distinguish_cold_missing_node_and_missing_path(self):
-        for changes,expected in ((dict(initialized=False),'pontos físicos'),
-                                 (dict(node_index=None),'nó de tráfego'),
-                                 (dict(path=255),'caminho de tráfego')):
+        for changes,expected in ((dict(initialized=False),'physics points'),
+                                 (dict(node_index=None),'traffic node'),
+                                 (dict(path=255),'traffic path')):
             with self.subTest(changes=changes):
                 state=self.fixture()
                 row=state.vehicles[9]

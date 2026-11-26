@@ -142,7 +142,7 @@ class RouteNetworkTests(unittest.TestCase):
                 path=routes.build_network(state,scan_unreferenced=False)['paths'][0]
                 self.assertEqual(path['traffic_direction_verified'],expected)
                 self.assertTrue(all(a['to'][0]>a['from'][0] for a in path['arrows']))
-                self.assertEqual(path['direction_label'],'Progressão do caminho')
+                self.assertEqual(path['direction_label'],'Path progression')
 
     def test_reversed_control_points_produce_reversed_arrows(self):
         state=self.fixture()

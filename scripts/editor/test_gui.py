@@ -85,12 +85,12 @@ def truck_app(*, reference_is_truck=True):
                   'eligible': True, 'trailer_model_ids': ['cargo']},
         'cargo': {'id': 'cargo', 'label': 'Carga nativa', 'kind': 'trailer',
                   'eligible': False, 'eligible_as_trailer': True},
-        'other': {'id': 'other', 'label': 'Carga de outro caminhão', 'kind': 'trailer',
+        'other': {'id': 'other', 'label': 'Trailer of another truck', 'kind': 'trailer',
                   'eligible': False, 'eligible_as_trailer': True},
     }
-    app.model_choices = {'Mesmo modelo do selecionado': None, 'Cabine': 'truck'}
-    app.model_choice = Var('Mesmo modelo do selecionado' if reference_is_truck else 'Cabine')
-    app.secondary_choices, app.secondary_choice = {}, Var('Selecione a carga')
+    app.model_choices = {'Same model as selected': None, 'Cabine': 'truck'}
+    app.model_choice = Var('Same model as selected' if reference_is_truck else 'Cabine')
+    app.secondary_choices, app.secondary_choice = {}, Var('Select the trailer')
     app.secondary_box, app.secondary_label = Mock(), Mock()
     app.count_label, app.count_box = Widget(), Widget()
     app.trailer_visible, app.root = False, Mock()
@@ -127,7 +127,7 @@ class InterfaceContractTests(unittest.TestCase):
         with patch.object(gui.messagebox, 'showinfo') as info:
             app.add_behind()
         app._change.assert_not_called()
-        self.assertIn('carga compatível', info.call_args.args[1])
+        self.assertIn('compatible trailer', info.call_args.args[1])
 
     def test_batch_is_submitted_once_with_explicit_native_pair(self):
         app = truck_app(reference_is_truck=False)
@@ -268,16 +268,16 @@ class InterfaceContractTests(unittest.TestCase):
         app = app_shell()
         app.pending_banner, app.pending_text = Mock(), Var()
         app.pending = True
-        app.status.set('Carro criado. Pause o emulador novamente para finalizar.')
+        app.status.set('Car created. Pause the emulator again to finish.')
         app._update_controls()
         app.pending_banner.grid.assert_called_once()
-        self.assertIn('antes de dirigir', app.pending_text.get())
-        self.assertIn('1. Retome', app.pending_text.get())
+        self.assertIn('before driving', app.pending_text.get())
+        self.assertIn('1. Resume', app.pending_text.get())
         self.assertIn('2. Pause', app.pending_text.get())
-        self.assertIn('Sistema → Pausar', app.pending_text.get())
+        self.assertIn('System → Pause', app.pending_text.get())
         self.assertIn(app.status.get(), app.pending_text.get())
         app.pending = False
-        app.status.set('Veículo adicionado e edição finalizada.')
+        app.status.set('Vehicle added and edit finished.')
         app._update_controls()
         app.pending_banner.grid_remove.assert_called_once()
 
@@ -288,9 +288,9 @@ class InterfaceContractTests(unittest.TestCase):
             {'id': 'bus', 'label': 'BUS01', 'type_label': 'Bus', 'eligible': False},
         ]
         self.assertEqual(gui.catalog_rows(models), [
-            ('COMPCAR14', 'Car', 'Disponível'),
-            ('VAN01', 'Van', 'Disponível'),
-            ('BUS01', 'Bus', 'Criação não validada'),
+            ('COMPCAR14', 'Car', 'Available'),
+            ('VAN01', 'Van', 'Available'),
+            ('BUS01', 'Bus', 'Creation not validated'),
         ])
         app = app_shell()
         app.table, app.catalog_table = Mock(), Mock()
@@ -300,12 +300,12 @@ class InterfaceContractTests(unittest.TestCase):
         app.model_choice = Var()
         app._selection_changed = Mock()
         app._snapshot({'models': models, 'vehicles': [
-            {'id': 9, 'label': 'Veículo 9 — Carro — COMPCAR14',
-             'model_id': 'car', 'type_label': 'Carro'}]})
+            {'id': 9, 'label': 'Vehicle 9 — Car — COMPCAR14',
+             'model_id': 'car', 'type_label': 'Car'}]})
         self.assertEqual(app.catalog_table.insert.call_count, 3)
         self.assertEqual(set(app.model_choices.values()), {None, 'car', 'van'})
         self.assertEqual(app.table.insert.call_args.kwargs['values'],
-                         ('Veículo 9', 'Carro', 'car','—'))
+                         ('Vehicle 9', 'Car', 'car','—'))
 
     def test_reconnect_clears_finished_pending_state_without_mutation(self):
         app = app_shell()
@@ -315,7 +315,7 @@ class InterfaceContractTests(unittest.TestCase):
         app._snapshot = Mock()
         app._schedule_pending_poll = Mock()
         snapshot = {'pending': False, 'core_paused': True,
-                    'warning': True, 'message': 'A preparação temporária foi removida.'}
+                    'warning': True, 'message': 'The temporary setup was removed.'}
         app.controller = types.SimpleNamespace(
             connect=Mock(return_value={'game': 'Burnout 3 USA', 'pending': False}),
             refresh=Mock(return_value=snapshot))
@@ -330,7 +330,7 @@ class InterfaceContractTests(unittest.TestCase):
         app.controller.refresh.assert_called_once()
         app._snapshot.assert_called_once_with(snapshot)
         app._schedule_pending_poll.assert_not_called()
-        self.assertEqual(app.status.get(), 'Atenção: ' + snapshot['message'])
+        self.assertEqual(app.status.get(), 'Warning: ' + snapshot['message'])
 
     def test_connect_while_running_keeps_editing_disabled(self):
         app = app_shell({'id': 9, 'editable': True})
@@ -359,7 +359,7 @@ class InterfaceContractTests(unittest.TestCase):
             app.close()
         app._submit.assert_not_called()
         info.assert_called_once()
-        self.assertIn('Conectar novamente', info.call_args.args[1])
+        self.assertIn('Connect again', info.call_args.args[1])
 
     def test_top_down_bounds_include_all_valid_positions(self):
         self.assertEqual(gui.xz([10, 99, -4]), (10, -4))
@@ -427,7 +427,7 @@ class InterfaceContractTests(unittest.TestCase):
         app = app_shell({'id': 9, 'editable': True})
         app.pending, app.pending_poll_id = True, 'old-timer'
         app.status_label = Widget()
-        warning = 'O veículo já saiu da referência. A preparação temporária foi removida.'
+        warning = 'The vehicle already left the reference. The temporary setup was removed.'
         result = {'pending': False, 'core_paused': True, 'warning': True, 'message': warning}
         snapshot = {'pending': False, 'core_paused': True}
         app.controller = types.SimpleNamespace(poll=Mock(return_value=result),
@@ -447,7 +447,7 @@ class InterfaceContractTests(unittest.TestCase):
         app._snapshot.assert_called_once_with(snapshot, None)
         self.assertFalse(app.pending)
         self.assertTrue(app.core_paused)
-        self.assertEqual(app.status.get(), 'Atenção: ' + warning)
+        self.assertEqual(app.status.get(), 'Warning: ' + warning)
         self.assertEqual(app.status_label.options['foreground'], '#8a5200')
         self.assertEqual(app.move_button.options['state'], 'normal')
         self.assertEqual(app.add_button.options['state'], 'normal')
@@ -474,7 +474,7 @@ class InterfaceContractTests(unittest.TestCase):
         app = app_shell(paused=None)
         app._set_core_state({'core_paused': True, 'status': 'Lista atualizada.'})
         self.assertTrue(app.core_paused)
-        self.assertEqual(app.core_text.get(), 'Jogo pausado')
+        self.assertEqual(app.core_text.get(), 'Game paused')
         app._set_core_state({'core_paused': False})
         self.assertFalse(app.core_paused)
         app._set_core_state({'core_status': 'paused'})
@@ -499,19 +499,19 @@ class InterfaceContractTests(unittest.TestCase):
 
     def test_refresh_failure_does_not_repeat_successful_mutation(self):
         app = app_shell()
-        app.controller = types.SimpleNamespace(refresh=Mock(side_effect=RuntimeError('jogo retomado')))
+        app.controller = types.SimpleNamespace(refresh=Mock(side_effect=RuntimeError('game resumed')))
         app._snapshot = Mock()
         jobs = []
         app._submit = lambda label, work, done: jobs.append((work, done))
-        action = Mock(return_value={'message': 'Posição aplicada.'})
+        action = Mock(return_value={'message': 'Position applied.'})
         app._change('Mover', action)
         work, done = jobs.pop()
         done(work())
         action.assert_called_once()
         app.controller.refresh.assert_called_once()
         app._snapshot.assert_not_called()
-        self.assertIn('Posição aplicada.', app.status.get())
-        self.assertIn('Atualizar lista', app.status.get())
+        self.assertIn('Position applied.', app.status.get())
+        self.assertIn('Refresh list', app.status.get())
 
     def test_invalid_distance_is_not_a_backend_request(self):
         for value in ('NaN', 'Inf', '-Inf', '0', '-2', 'texto'):
@@ -526,7 +526,7 @@ class RecoveryAndExportTests(unittest.TestCase):
         app = app_shell()
         app.controller = controller
         app.connection_text = Var()
-        app.model_choice = Var('Mesmo modelo do selecionado')
+        app.model_choice = Var('Same model as selected')
         app.models, app.model_choices, app.vehicles = {}, {}, {}
         app.table, app.catalog_table = Mock(), Mock()
         app.table.get_children.return_value = ()
@@ -538,7 +538,7 @@ class RecoveryAndExportTests(unittest.TestCase):
     def test_connection_with_rejected_profile_skips_second_read_and_allows_finalize(self):
         connection = {'game': 'Burnout 3 USA', 'profile': 'SLUS-21050', 'core_paused': True,
                       'profile_valid': False, 'warning': True, 'models': [], 'vehicles': [],
-                      'message': 'As estruturas de tráfego não passaram na verificação.'}
+                      'message': 'The traffic structures did not pass the check.'}
         controller = types.SimpleNamespace(connect=Mock(return_value=connection), refresh=Mock())
         app = self.connection_app(controller)
         jobs = []
@@ -638,8 +638,8 @@ class RecoveryAndExportTests(unittest.TestCase):
         app.status_label, app.finalize_button = Widget(), Widget()
         app.controller = types.SimpleNamespace(
             finalize_pending=Mock(return_value={'pending': False, 'core_paused': True,
-                'warning': True, 'message': 'Pendência finalizada; alinhamento não confirmado.'}),
-            refresh=Mock(side_effect=RuntimeError('perfil inválido')))
+                'warning': True, 'message': 'Pending request finished; alignment not confirmed.'}),
+            refresh=Mock(side_effect=RuntimeError('invalid profile')))
         jobs = []
         app._submit = lambda label, work, done: jobs.append((work, done))
         app.finalize_pending()
@@ -649,8 +649,8 @@ class RecoveryAndExportTests(unittest.TestCase):
         self.assertFalse(app.pending)
         self.assertTrue(app.core_paused)
         self.assertFalse(app.profile_valid)
-        self.assertIn('Pendência finalizada; alinhamento não confirmado.', app.status.get())
-        self.assertIn('perfil inválido', app.status.get())
+        self.assertIn('Pending request finished; alignment not confirmed.', app.status.get())
+        self.assertIn('invalid profile', app.status.get())
         self.assertEqual(app.status_label.options['foreground'], '#8a5200')
         self.assertEqual(app.move_button.options['state'], 'disabled')
         self.assertEqual(app.add_button.options['state'], 'disabled')
@@ -726,7 +726,7 @@ class RecoveryAndExportTests(unittest.TestCase):
             app.export_state()
             self.assertEqual(dialog.call_args.kwargs['initialdir'], str(Path(folder) / 'events'))
             self.assertTrue((Path(folder) / 'events').is_dir())
-            self.assertTrue(dialog.call_args.kwargs['initialfile'].startswith('evento-editado-'))
+            self.assertTrue(dialog.call_args.kwargs['initialfile'].startswith('edited-event-'))
         work, done = jobs.pop()
         done(work())
         self.assertIn('Estado verificado.', app.status.get())
@@ -735,14 +735,14 @@ class RecoveryAndExportTests(unittest.TestCase):
 
     def test_bus_type_five_uses_large_gap_without_exposing_trailer_controls(self):
         app = truck_app(reference_is_truck=False)
-        app.models['bus'] = {'id': 'bus', 'label': 'Ônibus', 'kind': 'independent', 'type': 5}
-        app.model_choices['Ônibus'], app.model_choice = 'bus', Var('Ônibus')
+        app.models['bus'] = {'id': 'bus', 'label': 'Bus', 'kind': 'independent', 'type': 5}
+        app.model_choices['Bus'], app.model_choice = 'bus', Var('Bus')
         app.gap_hint = Widget()
         app._update_secondary_choices()
         self.assertEqual(app.gap.get(), '30')
-        self.assertIn('Ônibus/caminhão', app.gap_hint.options['text'])
+        self.assertIn('Bus/truck', app.gap_hint.options['text'])
         self.assertFalse(app.trailer_visible)
-        self.assertEqual(app.count_label.options['text'], 'Quantidade')
+        self.assertEqual(app.count_label.options['text'], 'Amount')
 
     def test_bus_reference_uses_large_gap_and_van_type_three_keeps_small_gap(self):
         for reference_bus in (False, True):
@@ -763,8 +763,8 @@ class ExperimentalPlacementTests(unittest.TestCase):
         app = app_shell({'id': 9, 'model_id': 'car', 'editable': True, 'can_reference': True})
         app.root = Mock()
         app.models = {'car': {'id': 'car', 'kind': 'independent', 'type': 1}}
-        app.model_choices = {'Mesmo modelo do selecionado': None}
-        app.model_choice = Var('Mesmo modelo do selecionado')
+        app.model_choices = {'Same model as selected': None}
+        app.model_choice = Var('Same model as selected')
         app.experimental = Var(experimental)
         app.gap, app.count = Var('10'), Var('1')
         app.point_x, app.point_z = Var('100'), Var('200')
@@ -866,7 +866,7 @@ class ExperimentalPlacementTests(unittest.TestCase):
         app._update_secondary_choices()
         self.assertEqual(app.gap.get(), '.5')
         self.assertIn('Experimental', app.gap_hint.options['text'])
-        self.assertIn('capacidade', app.gap_hint.options['text'])
+        self.assertIn('capacity', app.gap_hint.options['text'])
 
     def test_map_world_conversion_matches_displayed_axes_and_rejects_invalid_view(self):
         self.assertEqual(gui.map_to_world((100, 200, 100), 500, 400, 250, 200), (100, 200))
@@ -960,17 +960,17 @@ class ExperimentalPlacementTests(unittest.TestCase):
 
     def test_capacity_summary_does_not_claim_free_resources_when_unknown(self):
         summary = gui.capacity_summary({'vehicles': [{'initialized': True}, {'initialized': False}]})
-        self.assertIn('Objetos ativos: 2', summary)
-        self.assertIn('Física pronta: 1', summary)
-        self.assertNotIn('livres', summary)
+        self.assertIn('Active objects: 2', summary)
+        self.assertIn('Physics ready: 1', summary)
+        self.assertNotIn('Free', summary)
         summary = gui.capacity_summary({'capacity': {'active_objects': 60, 'initialized_objects': 48,
             'free_objects': 194, 'free_nodes': 191, 'queued_operations': 13,
-            'physics_warning': 'Alguns veículos não estão prontos.'}})
-        self.assertIn('Objetos ativos: 60', summary)
-        self.assertIn('Física pronta: 48', summary)
-        self.assertIn('Nós livres: 191', summary)
-        self.assertIn('Na fila: 13', summary)
-        self.assertIn('Alguns veículos não estão prontos.', summary)
+            'physics_warning': 'Some vehicles are not ready.'}})
+        self.assertIn('Active objects: 60', summary)
+        self.assertIn('Physics ready: 48', summary)
+        self.assertIn('Free nodes: 191', summary)
+        self.assertIn('Queued: 13', summary)
+        self.assertIn('Some vehicles are not ready.', summary)
 
 
 class RouteAndSpeedTests(unittest.TestCase):
@@ -1019,7 +1019,7 @@ class RouteAndSpeedTests(unittest.TestCase):
                    if call.kwargs.get('arrow')==gui.tk.LAST)
         self.assertEqual(arrow.kwargs['dash'],(3,3))
         labels=[call.kwargs.get('text','') for call in app.map_canvas.create_text.call_args_list]
-        self.assertTrue(any('progressão do caminho' in label for label in labels))
+        self.assertTrue(any('path direction' in label for label in labels))
 
     def test_selected_vehicle_path_is_highlighted_below_the_actor(self):
         vehicle={'id':9,'path':3,'initialized':True,'position':[0,0,0]}
@@ -1061,10 +1061,10 @@ class RouteAndSpeedTests(unittest.TestCase):
         nominal={'speed_info':dict(control_value=0,travel_value=0,nominal_target_kmh=0,
                                    nominal_travel_kmh=0)}
         self.assertEqual(gui.speed_summary(nominal),'0,000 / 0,000')
-        self.assertIn('nominal',gui.speed_summary(nominal,detailed=True))
-        legacy={'speed_info':dict(control_value=0,travel_value=None,units='unidades internas')}
+        self.assertIn('Nominal',gui.speed_summary(nominal,detailed=True))
+        legacy={'speed_info':dict(control_value=0,travel_value=None,units='internal units')}
         self.assertEqual(gui.speed_summary(legacy),'0,000 / —')
-        self.assertIn('unidades internas',gui.speed_summary(legacy,detailed=True))
+        self.assertIn('internal units',gui.speed_summary(legacy,detailed=True))
         self.assertEqual(gui.speed_summary({}),'—')
 
     def test_speed_action_converts_nominal_kmh_once_and_runs_on_worker(self):
@@ -1149,9 +1149,9 @@ class RouteAndSpeedTests(unittest.TestCase):
         app.speed_selection_text = Var()
         app._update_controls()
         self.assertEqual(app.speed_button.options['state'], 'disabled')
-        self.assertEqual(app.speed_button.options['text'], 'Aplicar aos 2 selecionados')
-        self.assertIn('2 selecionados · 1 aptos · 1 bloqueados', app.speed_selection_text.get())
-        self.assertIn('cabine', app.speed_selection_text.get())
+        self.assertEqual(app.speed_button.options['text'], 'Apply to the 2 selected')
+        self.assertIn('2 selected · 1 eligible · 1 blocked', app.speed_selection_text.get())
+        self.assertIn('cab', app.speed_selection_text.get())
         with patch.object(gui.messagebox, 'showinfo') as info:
             app.set_speed()
         app._change.assert_not_called()
@@ -1279,10 +1279,10 @@ class RouteAndSpeedTests(unittest.TestCase):
 
     def test_route_budget_warning_remains_visible_in_paused_notice(self):
         app=self.map_app()
-        app.routes['warning']='Visualização parcial: orçamento de caminhos atingido.'
+        app.routes['warning']='Partial view: path budget reached.'
         app._set_core_state({'core_paused':True})
-        self.assertIn('Visualização parcial',app.map_notice.get())
-        self.assertIn('alturas podem se sobrepor',app.map_notice.get())
+        self.assertIn('Partial view',app.map_notice.get())
+        self.assertIn('heights can overlap',app.map_notice.get())
 
     def test_unreferenced_descriptor_is_drawn_as_a_candidate_instead_of_active_road(self):
         app=self.map_app()
@@ -1291,7 +1291,7 @@ class RouteAndSpeedTests(unittest.TestCase):
         self.assertEqual(app.map_canvas.create_polygon.call_args.kwargs['fill'],'#eff2f5')
         labels=[call.kwargs.get('text','') for call in app.map_canvas.create_text.call_args_list]
         self.assertIn('P3?',labels)
-        self.assertTrue(any('sem veículo associado' in text for text in labels))
+        self.assertTrue(any('no associated vehicle' in text for text in labels))
 
     def test_details_canvas_tracks_full_content_height_without_changing_the_map(self):
         app=app_shell()
@@ -1324,7 +1324,7 @@ class EventProjectTests(unittest.TestCase):
         app=app_shell({'id':9,'editable':True})
         app.root=Mock()
         app.event_projects=True
-        app.project=dict(path='event.b3event.json',name='Cruzamento',scene_revision=2) if existing else None
+        app.project=dict(path='event.b3event.json',name='Crossing',scene_revision=2) if existing else None
         app.project_name,app.project_text=Var('Meu cruzamento'),Var()
         for name in ('project_name_entry','new_project_button','open_project_button',
                      'save_project_button','test_project_button','restart_project_button','restore_base_button',
@@ -1356,12 +1356,12 @@ class EventProjectTests(unittest.TestCase):
 
     def test_project_context_survives_refresh_and_can_be_explicitly_cleared(self):
         app=self.app()
-        project=dict(path='folder/event.b3event.json',name='Avenida',base_path='base.p2s',
+        project=dict(path='folder/event.b3event.json',name='Avenue',base_path='base.p2s',
                      scene_path='scene.p2s',scene_revision=3)
         app._set_core_state(dict(core_paused=True,event_projects=True,project=project))
         self.assertEqual(app.project,project)
-        self.assertEqual(app.project_name.get(),'Avenida')
-        self.assertIn('Cena salva 3',app.project_text.get())
+        self.assertEqual(app.project_name.get(),'Avenue')
+        self.assertIn('Saved scene 3',app.project_text.get())
         self.assertIn('folder/event.b3event.json',app.project_text.get())
         app._set_core_state(dict(core_paused=False))
         self.assertTrue(app.event_projects)
@@ -1371,7 +1371,7 @@ class EventProjectTests(unittest.TestCase):
         self.assertEqual(app.project,project)
         app._set_core_state(dict(project=None))
         self.assertIsNone(app.project)
-        self.assertIn('Nenhum projeto',app.project_text.get())
+        self.assertIn('No project open',app.project_text.get())
 
     def test_create_chooses_parent_and_submits_one_new_child_and_trimmed_name(self):
         app=self.app()
@@ -1386,7 +1386,7 @@ class EventProjectTests(unittest.TestCase):
             actions[0]()
             directory,name=app.controller.create_project.call_args.args
             self.assertEqual(Path(directory).parent,Path(folder))
-            self.assertTrue(Path(directory).name.startswith('evento-'))
+            self.assertTrue(Path(directory).name.startswith('event-'))
             self.assertFalse(Path(directory).exists(),'Backend owns exclusive directory creation')
             self.assertEqual(name,'Minha avenida')
             self.assertTrue(dialog.call_args.kwargs['mustexist'])
@@ -1400,10 +1400,10 @@ class EventProjectTests(unittest.TestCase):
             first.mkdir()
             second=gui.project_suggestion(parent)
             second.write_text('occupied',encoding='utf8')
-            self.assertEqual(gui.project_suggestion(parent).name,'evento-20261115-120000-002')
+            self.assertEqual(gui.project_suggestion(parent).name,'event-20261115-120000-002')
 
     def test_cancelled_or_invalid_create_does_not_reach_the_controller(self):
-        for name in ('','   ','x'*101,'A\nB','Válido'):
+        for name in ('','   ','x'*101,'A\nB','Valid'):
             with self.subTest(name=name):
                 app=self.app()
                 app.project_name.set(name)
@@ -1412,7 +1412,7 @@ class EventProjectTests(unittest.TestCase):
                      patch.object(gui.messagebox,'showinfo') as info:
                     app.create_project()
                 app._change.assert_not_called()
-                if name=='Válido':
+                if name=='Valid':
                     dialog.assert_called_once()
                     info.assert_not_called()
                 else:
@@ -1428,7 +1428,7 @@ class EventProjectTests(unittest.TestCase):
             app.open_project()
         self.assertFalse(app.profile_valid)
         app.controller.open_project.assert_not_called()
-        self.assertEqual(dialog.call_args.kwargs['filetypes'],[('Projeto de evento','*.b3event.json')])
+        self.assertEqual(dialog.call_args.kwargs['filetypes'],[('Event project','*.b3event.json')])
         actions[0]()
         app.controller.open_project.assert_called_once_with(str(Path('saved.b3event.json')))
 
@@ -1471,7 +1471,7 @@ class EventProjectTests(unittest.TestCase):
     def test_test_response_cancels_stale_timer_and_keeps_running_despite_stale_refresh(self):
         app=self.app(existing=True)
         app.pending_poll_id='old-timer'
-        project=dict(path='event.b3event.json',name='Cruzamento',scene_revision=3)
+        project=dict(path='event.b3event.json',name='Crossing',scene_revision=3)
         result=dict(pending=False,core_paused=False,project=project,message='Cena salva. Pode jogar.')
         app.controller=types.SimpleNamespace(test_project=Mock(return_value=result),
             refresh=Mock(return_value=dict(core_paused=True,vehicles=[],models=[])))
@@ -1490,19 +1490,19 @@ class EventProjectTests(unittest.TestCase):
         self.assertIsNone(app.pending_poll_id)
         app.root.after_cancel.assert_called_once_with('old-timer')
         self.assertEqual(app.project,project)
-        self.assertEqual(app.project_text.get().splitlines()[0],'Cruzamento · Cena salva 3')
+        self.assertEqual(app.project_text.get().splitlines()[0],'Crossing · Saved scene 3')
         self.assertEqual(app.restart_project_button.options['state'],'disabled')
         self.assertEqual(app.move_button.options['state'],'disabled')
         self.assertEqual(app.status.get(),result['message'])
 
     def test_reconnect_preserves_project_and_accepts_capability(self):
-        project=dict(path='event.b3event.json',name='Avenida',scene_revision=4)
+        project=dict(path='event.b3event.json',name='Avenue',scene_revision=4)
         connection=dict(core_paused=True,vehicles=[],models=[],event_projects=True)
         controller=types.SimpleNamespace(connect=Mock(return_value=connection))
         app=RecoveryAndExportTests.connection_app(controller)
         app.event_projects=False
         app.project=project
-        app.project_text,app.project_name=Var('Avenida'),Var('Avenida')
+        app.project_text,app.project_name=Var('Avenue'),Var('Avenue')
         jobs=[]
         app._submit=lambda _label,work,done:jobs.append((work,done))
         app.connect()
@@ -1510,21 +1510,21 @@ class EventProjectTests(unittest.TestCase):
         done(work())
         self.assertTrue(app.event_projects)
         self.assertEqual(app.project,project)
-        self.assertEqual(app.project_name.get(),'Avenida')
+        self.assertEqual(app.project_name.get(),'Avenue')
 
     def test_manual_import_uses_new_project_location_and_current_state_file(self):
         app=self.app()
         app.controller=types.SimpleNamespace(import_project=Mock())
-        app._new_project_location=Mock(return_value=('new-folder','Avenida'))
+        app._new_project_location=Mock(return_value=('new-folder','Avenue'))
         actions=[]
         app._change=lambda _label,action:actions.append(action)
         with patch.object(gui.filedialog,'askopenfilename',return_value='manual.p2s') as dialog:
             app.import_project()
-        self.assertEqual(dialog.call_args.kwargs['filetypes'],[('Estado PCSX2','*.p2s')])
+        self.assertEqual(dialog.call_args.kwargs['filetypes'],[('PCSX2 state','*.p2s')])
         app.controller.import_project.assert_not_called()
         self.assertEqual(len(actions),1)
         actions[0]()
-        app.controller.import_project.assert_called_once_with('new-folder','Avenida',str(Path('manual.p2s')))
+        app.controller.import_project.assert_called_once_with('new-folder','Avenue',str(Path('manual.p2s')))
 
     def test_manual_save_scene_requires_existing_project_and_uses_one_worker(self):
         for existing in (False,True):
@@ -1555,7 +1555,7 @@ class EventProjectTests(unittest.TestCase):
                     with patch.object(gui.filedialog,'askopenfilename',return_value='other.b3event.json') as dialog:
                         (app.confirm_project_base if base else app.confirm_project_scene)()
                     self.assertFalse(app.profile_valid)
-                    self.assertEqual(dialog.call_args.kwargs['filetypes'],[('Projeto de evento','*.b3event.json')])
+                    self.assertEqual(dialog.call_args.kwargs['filetypes'],[('Event project','*.b3event.json')])
                     if existing:
                         self.assertEqual(dialog.call_args.kwargs['initialfile'],'event.b3event.json')
                     app.controller.confirm_project.assert_not_called()
@@ -1567,7 +1567,7 @@ class EventProjectTests(unittest.TestCase):
         for method in ('import_project','save_project_from_state','confirm_project_scene','confirm_project_base'):
             with self.subTest(method=method):
                 app=self.app(existing=True)
-                app._new_project_location=Mock(return_value=('new-folder','Avenida'))
+                app._new_project_location=Mock(return_value=('new-folder','Avenue'))
                 app._change=Mock()
                 with patch.object(gui.filedialog,'askopenfilename',return_value=''):
                     getattr(app,method)()
@@ -1643,17 +1643,17 @@ class AlternatingAndSlotTests(unittest.TestCase):
         app=app_shell({'id':9,'model_id':'car','editable':True,'can_reference':True})
         app.root=Mock()
         app.models={
-            'car':dict(id='car',label='Carro',kind='independent',type=1,eligible=True),
+            'car':dict(id='car',label='Car',kind='independent',type=1,eligible=True),
             'van':dict(id='van',label='Van',kind='independent',type=3,eligible=True),
-            'bus':dict(id='bus',label='Ônibus',kind='independent',type=5,eligible=True),
+            'bus':dict(id='bus',label='Bus',kind='independent',type=5,eligible=True),
             'truck':dict(id='truck',label='Cabine',kind='truck',type=4,eligible=True),
             'cargo':dict(id='cargo',label='Carga',kind='trailer',type=11,eligible=False),
             'cold':dict(id='cold',kind='independent',type=1,eligible=False)}
-        app.model_choice=Var('Mesmo modelo do selecionado')
-        app.model_choices={'Mesmo modelo do selecionado':None}
+        app.model_choice=Var('Same model as selected')
+        app.model_choices={'Same model as selected':None}
         app.mixed_model_ids=['van','car']
         app.mixed_text=Var()
-        app.spawn_mode=Var('Alternar modelos')
+        app.spawn_mode=Var('Alternate models')
         app.spawn_color=Var('Original (0)')
         app.gap,app.count=Var('10'),Var('4')
         app.controller=types.SimpleNamespace(add_mixed_behind=Mock(),add_many_behind=Mock())
@@ -1665,7 +1665,7 @@ class AlternatingAndSlotTests(unittest.TestCase):
         app.mixed_model_ids=['van','truck','car','cold','missing']
         app._refresh_mixed_models()
         self.assertEqual(app.mixed_model_ids,['van','car'])
-        self.assertIn('Van → Carro → repete',app.mixed_text.get())
+        self.assertIn('Van → Car → repeats',app.mixed_text.get())
         del app.models['van']
         app._refresh_mixed_models()
         self.assertEqual(app.mixed_model_ids,['car'])
@@ -1679,7 +1679,7 @@ class AlternatingAndSlotTests(unittest.TestCase):
         app.controller.add_mixed_behind.assert_not_called()
         actions.pop()()
         app.controller.add_mixed_behind.assert_called_once_with(9,[dict(model_id='van'),dict(model_id='car')],10.,4)
-        app.spawn_color.set('Alternar variações (0–7)')
+        app.spawn_color.set('Alternate variants (0–7)')
         app.experimental=Var(True)
         app.count.set('20')
         app.add_behind()
@@ -1690,8 +1690,8 @@ class AlternatingAndSlotTests(unittest.TestCase):
 
     def test_single_model_cycle_uses_existing_batch_api(self):
         app=self.mixed_app()
-        app.spawn_mode.set('Modelo único')
-        app.spawn_color.set('Alternar variações (0–7)')
+        app.spawn_mode.set('Single model')
+        app.spawn_color.set('Alternate variants (0–7)')
         actions=[]
         app._change=lambda _label,action:actions.append(action)
         app.add_behind()
@@ -1705,7 +1705,7 @@ class AlternatingAndSlotTests(unittest.TestCase):
         app._change=Mock()
         with patch.object(gui.messagebox,'showinfo') as info:
             app.add_behind()
-        self.assertIn('30 e 50',info.call_args.args[1])
+        self.assertIn('30 and 50',info.call_args.args[1])
         app._change.assert_not_called()
         app.gap.set('30')
         app.add_behind()
@@ -1717,7 +1717,7 @@ class AlternatingAndSlotTests(unittest.TestCase):
         app._change=Mock()
         with patch.object(gui.messagebox,'showinfo') as info:
             app.add_behind()
-        self.assertIn('pelo menos dois',info.call_args.args[1])
+        self.assertIn('at least two',info.call_args.args[1])
         app._change.assert_not_called()
 
     def test_creation_action_cannot_bypass_pause_pending_or_reference_guards(self):
@@ -1748,7 +1748,7 @@ class AlternatingAndSlotTests(unittest.TestCase):
         self.assertIn('slot 9',text)
         self.assertIn('C:/test/a.p2s',text)
         self.assertIn('C:/test/nested/a.p2s',text)
-        self.assertIn('cópia verificada',text)
+        self.assertIn('verified copy',text)
         for change in (dict(slot=True),dict(slot=10),dict(occupied=False),dict(paths=[]),dict(blocked='Link'),dict(paths=[''])):
             with self.subTest(change=change),self.assertRaises(ValueError):
                 gui.slot_archive_description({**row,**change})
@@ -1792,7 +1792,7 @@ class AlternatingAndSlotTests(unittest.TestCase):
         jobs=[]
         app._submit=lambda _label,work,done:jobs.append((work,done))
         action,callback=Mock(side_effect=ValueError('Slot mudou')),Mock()
-        app._slot_job('Arquivando',action,callback)
+        app._slot_job('Archiving',action,callback)
         work,done=jobs.pop()
         result=work()
         done(result)
@@ -1815,16 +1815,16 @@ class AlternatingAndSlotTests(unittest.TestCase):
 
     def test_selection_distinguishes_position_eligibility_from_creation_reference_reason(self):
         row=dict(id=9,editable=True,can_reference=False,path=2,position=[1,2,3],
-                 edit_reason='Movimento lateral disponível.',reference_reason='O nó não pertence mais a este veículo.')
+                 edit_reason='Lateral movement available.',reference_reason='The node no longer belongs to this vehicle.')
         app=app_shell(row)
         app.selection_text,app.position_text,app.lateral=Var(),Var(),Var(50)
         app._lateral_changed,app._update_secondary_choices,app._update_controls,app._draw_traffic=Mock(),Mock(),Mock(),Mock()
         app._selection_changed()
-        self.assertIn('Movimento lateral disponível.',app.position_text.get())
-        self.assertIn('Adicionar atrás: O nó não pertence mais a este veículo.',app.position_text.get())
+        self.assertIn('Lateral movement available.',app.position_text.get())
+        self.assertIn('Add behind: The node no longer belongs to this vehicle.',app.position_text.get())
         row['can_reference']=True
         app._selection_changed()
-        self.assertNotIn('Adicionar atrás:',app.position_text.get())
+        self.assertNotIn('Add behind:',app.position_text.get())
 
 
 if __name__ == '__main__': unittest.main()

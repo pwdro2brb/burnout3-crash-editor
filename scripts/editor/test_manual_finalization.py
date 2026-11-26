@@ -36,7 +36,7 @@ class ManualFinalizationTests(unittest.TestCase):
                     result = editor.finalize_pending()
                 self.assertFalse(result['pending'])
                 self.assertTrue(result['warning'])
-                self.assertIn('mantidos', result['message'])
+                self.assertIn('were kept', result['message'])
                 self.assertEqual(pending.physics_wait_started, 100.)
                 self.fixture.assert_clean_owned_only(editor, client)
                 self.assertEqual(editor.actor_keys, {})
