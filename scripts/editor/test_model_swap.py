@@ -69,6 +69,49 @@ class ModelSwapTests(unittest.TestCase):
         self.assertEqual(first, encode_identifier("COMPCAR14"))
 
 
+class ModelAdditionTests(unittest.TestCase):
+    def setUp(self):
+        self.bgd = make_bgd()
+
+    def test_added_models_move_the_groups_to_the_free_tail_only(self):
+        edited = ms.add_models(self.bgd, EVENT, ["COMPCAR18", "HEVYCAR21"])
+        groups = read_groups(edited, EVENT)
+        self.assertEqual(groups[0], ("COMPCAR14", "COMPCAR12", "COMPCAR18"))
+        self.assertEqual(groups[2], ("HEVYCAR20", "HEVYCAR21"))
+        self.assertEqual(groups[1], GROUPS[1])
+        self.assertEqual(tw.read_waves(edited, EVENT).waves, tw.read_waves(self.bgd, EVENT).waves)
+        changed = [i - EVENT for i in range(len(edited)) if edited[i] != self.bgd[i]]
+        # Only the group headers (0x54..0x9C) and the new arrays in the old zero tail change.
+        old_end = max(s + 24 * c for s, c, _cap in (struct.unpack_from("<3I", self.bgd, EVENT + 0x54 + 12 * g)
+                                                     for g in range(6)))
+        self.assertTrue(all(0x54 <= i < 0x9C or i >= old_end for i in changed))
+        self.assertTrue(all(b == 0 for b in self.bgd[EVENT + old_end:EVENT + 0x1000]))
+
+    def test_additions_respect_groups_limits_and_duplicates(self):
+        groups = read_groups(self.bgd, EVENT)
+        self.assertIsNone(ms.can_add(groups, "COMPCAR18"))
+        self.assertIn("already loaded", ms.can_add(groups, "COMPCAR14"))
+        self.assertIn("not a traffic model", ms.can_add(groups, "HEVYCAR28"))
+        full = (tuple(ms.CANDIDATES[0][:6]),) + groups[1:]  # 6 cars + 4 others = 10, plus 2 trams
+        self.assertIn("at most 12", ms.can_add(full, "COMPCAR19", trams=("TSPCCAR1", "TSPCCAR2")))
+        with self.assertRaises(ValueError):
+            ms.add_models(self.bgd, EVENT, ["COMPCAR14"])
+        self.assertEqual(ms.group_of("HEVYCAR29"), 5)
+
+    def test_size_budget_uses_the_model_files(self):
+        import tempfile
+        with tempfile.TemporaryDirectory() as folder:
+            root = Path(folder)
+            for name in ("COMPCAR14", "COMPCAR12", "HEVYCAR33", "HEVYCAR20", "HEVYCAR22", "HEVYCAR27", "COMPCAR18"):
+                target = ms.model_file(root, name)
+                target.parent.mkdir(parents=True, exist_ok=True)
+                target.write_bytes(bytes(400_000))
+            groups = read_groups(self.bgd, EVENT)
+            self.assertEqual(ms.budget(groups, root=root)["bytes"], 6 * 400_000)
+            self.assertIn("more than any original event", ms.can_add(groups, "COMPCAR18", root=root))
+            self.assertIn("not found", ms.can_add(groups, "COMPCAR19", root=root))
+
+
 class ModelSwapExportTests(WaveExportTests):
     def test_prepare_changes_applies_swaps_then_order_and_waves(self):
         swaps = {"COMPCAR12": "COMPCAR18"}
@@ -79,6 +122,21 @@ class ModelSwapExportTests(WaveExportTests):
         (_rel, (_old, new)), = plan.items()
         self.assertEqual(read_groups(new, EVENT), orders)
         self.assertEqual(tw.read_waves(new, EVENT).waves[1].start, 3.5)
+
+    def test_prepare_changes_adds_a_model_used_by_the_waves(self):
+        added = ms.add_models(self.track.read_bytes(), EVENT, ["COMPCAR18"])
+        schedule = tw.read_waves(added, EVENT)
+        lane = schedule.waves[0].lanes[0]
+        from dataclasses import replace
+        lane = replace(lane, vehicles=(replace(lane.vehicles[0], model="COMPCAR18"),) + lane.vehicles[1:])
+        waves = replace(schedule, waves=(replace(schedule.waves[0], lanes=(lane,) + schedule.waves[0].lanes[1:]),)
+                        + schedule.waves[1:])
+        orders = (("COMPCAR14", "COMPCAR12", "COMPCAR18"), *GROUPS[1:])
+        plan = prepare_changes(self.root, self.event, orders, expected_orders=GROUPS, model_additions=["COMPCAR18"],
+                               waves=waves, expected_waves=self.schedule.waves)
+        (_rel, (_old, new)), = plan.items()
+        self.assertEqual(read_groups(new, EVENT), orders)
+        self.assertEqual(tw.read_waves(new, EVENT).waves[0].lanes[0].vehicles[0].model, "COMPCAR18")
 
     def test_prepare_changes_with_only_a_swap_is_a_change(self):
         plan = prepare_changes(self.root, self.event,

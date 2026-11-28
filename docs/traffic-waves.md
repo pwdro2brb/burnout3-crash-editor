@@ -51,30 +51,53 @@ print the same listing for any event.
 ### In the editor window
 
 **Waves & models (disc)…** (top-right button of the editor) opens the events on the
-disc; the **Traffic waves** tab has four parts:
+disc. The **Traffic waves** tab has:
 
-- A **timeline** across the top: one bar per wave from the moment it loads, with how
-  many cars it puts on the road, and a dot for every car that drives in later. Click a
-  bar to select that wave.
-- A small **map** next to it with the lanes of the selected wave, their cars on the
-  road (dots) and the points where late cars enter (triangles).
+- A **timeline**: one bar per wave from the moment it loads (with how many cars it puts
+  on the road), and one row per lane with a dot for every car that drives in later.
+  Click a bar to select that wave.
+- A **map** of the track: the lanes of the selected wave with their direction (arrow),
+  their cars on the road (dots) and where late cars enter (triangles). It frames the
+  selected wave or lane; use the **mouse wheel to zoom**, **drag** to move, and
+  **Whole track** / **Selected** (or double-click) to reframe it.
 - The **list** (wave → lane → vehicle). Cars that drive in later are blue.
-- A **panel** on the right that shows only what applies to the selected row:
-  - a **wave**: when it loads (wave 1 always at 0), **Remove wave**, and **+ Add lane**
-    to give it traffic on a road lane it does not use yet (the lane starts with one car
-    50 units after its entry);
-  - a **lane**: where its late cars enter, **Remove lane**, and **Add several**: N cars
-    *on the road*, every X units behind the last one, or N cars that *drive in* from T
-    seconds, one every S seconds;
+- A **panel** that shows only what applies to the selected row:
+  - a **wave**: when it loads (wave 1 always at 0), **Remove wave**, the lane speeds it
+    changes, and **+ Add lane**. The lanes it can use are listed by road
+    (`P21 · used in wave 1 · 2,641 units long`), the chosen one is drawn dashed on the
+    map, and **Pick on map** lets you click the road instead (free roads turn blue).
+    A new lane starts with one car 50 units after its entry;
+  - a **lane**: its **speed** (the game's unit, about miles per hour; the panel shows
+    km/h), where its late cars enter, **Remove lane**, and **Add several**: N cars *on
+    the road*, every X units behind the last one, or N cars that *drive in* from T
+    seconds, one every S seconds. Before you click **+ Add**, the panel lists the exact
+    positions or times, and the map and timeline show them as hollow circles;
   - a **vehicle**: model, trailer (trucks only), colour variant 0–7, and either
     **On the road at** a distance or **Drives in at** a time; **Duplicate** copies it
     15 units behind (on the road) or 1 s later (drives in); **Front/Back** reorder the
     queue.
+- The model lists show **every traffic model**: the ones the event loads first, then
+  the models of other events marked *not loaded yet*. Choosing one adds it to the
+  event's models after a confirmation (see [model replacement](model-replacement.md));
+  when the event cannot load more, the editor says why.
 
 **+ Add wave** appends an empty wave 5 s after the last one. **Export / Import waves
 JSON…** save or load the event's waves as a shareable file. Every change is checked
 against the rules below and the free space before it is accepted. **Build ISO copy…**
-(or **Export files…**) writes it together with the other edits of the event.
+shows the copy being written and verified, then reminds you how to test it: **boot the
+new ISO** in PCSX2 and enter the event from the menu (a savestate made with the
+original ISO brings the old event back).
+
+### Lane speeds
+
+Each wave can set the speed of road lanes. Wave 1 lists every lane of the event (in
+the originals: 0 to 120, 30 in most lanes); later waves list only the lanes they
+change (Grand Slam raises P21 from 30 to 50 when wave 2 loads at 9 s). The game reads
+a lane's speed when it **places or releases** each car, so a new speed applies to the
+cars that appear after that wave loads; cars already driving keep theirs. In the
+editor, a lane's speed is the one set by the latest wave so far; changing it in a later
+wave adds an entry to that wave (or removes it again if it matches the inherited
+speed). Speeds go from 0 to 240.
 
 ### As a JSON file
 
@@ -105,7 +128,9 @@ python scripts/waves.py export "Grand Slam" grand-slam.waves.json --game-root "<
 ```
 
 `source` and `slot` select the road slot (`path` is informative and checked).
-A vehicle has either `placed_at` (distance) or `enters_at_s` (time). Edit the
+A vehicle has either `placed_at` (distance) or `enters_at_s` (time). Each wave also
+has `lane_speeds` (`source`, `slot`, `path`, `speed`); files written before speeds
+were editable have none and keep the event's speeds. Edit the
 file, then build a new ISO or the edited resource files:
 
 ```powershell
@@ -141,6 +166,7 @@ The editor enforces these; the JSON importer and the CLI apply the same checks.
   a trailer; other vehicles cannot have one. Trams are allowed only in events
   that already use them. Use **Models and goals** to see what an event loads.
 - Colour variants are 0–7 (the exact colour per model is not mapped yet).
+- A wave sets each lane speed at most once, from 0 to 240.
 - Everything must fit inside the event block. Wave data is rewritten inside the
   block, reusing the old wave area and the zero padding at its end; the track
   file never changes size. Half of the original events have room for about 38
@@ -174,6 +200,7 @@ relative to its start and are relocated by the game when it loads the block.
 | block `+0x3C` / `+0x40` | traffic sources: 16 bytes each — offset of a `u32` path list, offset of a `u32` start-node list, lane count, two flag bytes |
 | block `+0x4C` / `+0x50` | **waves**: 0x58 bytes each |
 | wave `+0x00…+0x34` | fourteen table offsets (lane speeds, density tables, lane maps); counts at `+0x40`, `+0x44`, `+0x48`, `+0x53…+0x55` |
+| wave `+0x04` / `+0x08` / `+0x0C`, count `+0x40` | **lane speeds**: `f32` speed, `u8` source, `u8` slot per entry |
 | wave `+0x38` / `+0x3C` | offset and count of the **lane headers** |
 | wave `+0x4C` | `f32` start time in seconds |
 | lane header (12 bytes) | `+0x0` offset of the vehicle records · `+0x4` `f32` entry distance · `+0x8` total vehicles · `+0x9` placed vehicles · `+0xA` source index · `+0xB` slot within the source |
@@ -185,8 +212,11 @@ type 1, 2, 5, 3, 4 for *g* = 0…4; group 5 holds trailers.
 
 Waves after the first also change lane speeds (the speed tables of the wave),
 for example Grand Slam raises one lane of P21 from 30 to 50 when wave 2 loads.
-The editor keeps those tables unchanged; a new wave added by the editor only
-schedules vehicles.
+`FUN_00163700` (case 2) points each source slot of the traffic manager at its
+speed entry; `FUN_002662e0` (placed cars) and `FUN_00267ec0` (cars released later)
+pass that value to the vehicle creator, so it only affects cars created after the
+wave loads. The editor edits these speeds; the other tables of a wave (density,
+spacing per vehicle type) are kept unchanged.
 
 ## How this was established
 
@@ -223,9 +253,10 @@ block, and the waves read back from the ISO equal the requested file.
 
 ## Known limits and open questions
 
-- **Disc path not yet played.** The controlled test changed the block in a
-  savestate's RAM. An exported ISO must still be played from the game menu to
-  confirm the disc path end to end. The test ISO for that is described below.
+- **Disc path: confirmed by the user, not traced.** The controlled test changed the
+  block in a savestate's RAM. On 28/11/2026 the user played an edited ISO from the
+  game menu and reported that the edited traffic waves work; no savestate of that
+  run was taken, so the exact moments were not measured by the tools.
 - The clock starts with the event; whether it counts from the moment the
   event loads or from "GO" was not measured separately.
 - The flag at `0x00665ea0` is the **preview fly-by** shown before the countdown: while
@@ -241,6 +272,8 @@ block, and the waves read back from the ISO equal the requested file.
   This is an inference, not an observation.
 
 ## Play test: Grand Slam waves test ISO
+
+Status: **played by the user, who reported that the edited waves work (28/11/2026).**
 
 `outputs/Grand Slam - waves test.iso` (local, not in the repository) was built
 from the original ISO with `outputs/waves/grand-slam-test.waves.json`. Only

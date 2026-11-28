@@ -223,6 +223,67 @@ class TrafficWaveTests(unittest.TestCase):
             tw.read_waves(bytes(version), EVENT)
 
 
+class LaneSpeedTests(unittest.TestCase):
+    """Per-wave lane speeds: wave +0x04 floats, +0x08 sources, +0x0C slots, count +0x40."""
+
+    def setUp(self):
+        self.bgd = make_bgd()
+        self.schedule = tw.read_waves(self.bgd, EVENT)
+
+    def test_reads_the_speed_tables_of_each_wave(self):
+        self.assertEqual(self.schedule.waves[0].speeds, ())
+        self.assertEqual(self.schedule.waves[1].speeds, (tw.LaneSpeed(0, 0, 50.0),))
+        self.assertEqual(tw.lane_speed(self.schedule, 1, 0, 0), (50.0, 1))
+        self.assertEqual(tw.lane_speed(self.schedule, 0, 0, 0), (None, None))
+
+    def test_changing_an_existing_speed_writes_only_its_float(self):
+        edited = tw.with_lane_speed(self.schedule, 1, 0, 0, 65.0)
+        out = tw.write_waves(self.bgd, EVENT, edited)
+        changed = [i - EVENT for i in range(len(out)) if out[i] != self.bgd[i]]
+        self.assertTrue(changed and all(0x1C0 <= i <= 0x1C3 for i in changed))
+        self.assertEqual(tw.read_waves(out, EVENT).waves[1].speeds, (tw.LaneSpeed(0, 0, 65.0),))
+
+    def test_a_new_speed_entry_is_laid_out_inside_the_block(self):
+        edited = tw.with_lane_speed(self.schedule, 0, 1, 0, 40.0)
+        out = tw.write_waves(self.bgd, EVENT, edited)
+        again = tw.read_waves(out, EVENT)
+        self.assertEqual(again.waves[0].speeds, (tw.LaneSpeed(1, 0, 40.0),))
+        self.assertEqual(again.waves[1].speeds, self.schedule.waves[1].speeds)
+        self.assertEqual(tw.lane_speed(again, 1, 1, 0), (40.0, 0))
+        self.assertEqual(len(out), len(self.bgd))
+        # Unchanged lanes and vehicles survive the new layout.
+        self.assertEqual([w.lanes for w in again.waves], [w.lanes for w in self.schedule.waves])
+
+    def test_a_later_wave_repeating_the_inherited_speed_drops_its_entry(self):
+        first = tw.with_lane_speed(self.schedule, 0, 0, 0, 50.0)
+        self.assertEqual(first.waves[0].speeds, (tw.LaneSpeed(0, 0, 50.0),))
+        same = tw.with_lane_speed(first, 1, 0, 0, 50.0)
+        self.assertEqual(same.waves[1].speeds, ())
+
+    def test_invalid_speeds_are_rejected(self):
+        with self.assertRaises(ValueError):
+            tw.with_lane_speed(self.schedule, 1, 0, 0, 500.0)
+        with self.assertRaises(ValueError):
+            tw.with_lane_speed(self.schedule, 1, 0, 0, float("nan"))
+        bad = replace(self.schedule, waves=(self.schedule.waves[0],
+                                            replace(self.schedule.waves[1], speeds=(tw.LaneSpeed(9, 0, 30.0),))))
+        with self.assertRaisesRegex(ValueError, "does not exist"):
+            tw.validate_waves(bad)
+        twice = replace(self.schedule, waves=(self.schedule.waves[0], replace(
+            self.schedule.waves[1], speeds=(tw.LaneSpeed(0, 0, 30.0), tw.LaneSpeed(0, 0, 40.0)))))
+        with self.assertRaisesRegex(ValueError, "twice"):
+            tw.validate_waves(twice)
+
+    def test_json_carries_speeds_and_old_files_keep_them(self):
+        edited = tw.with_lane_speed(self.schedule, 0, 1, 0, 40.0)
+        data = tw.waves_to_dict(edited, event_key="1G0007EUC3V1")
+        self.assertEqual(data["waves"][0]["lane_speeds"], [{"source": 1, "slot": 0, "path": 7, "speed": 40.0}])
+        self.assertEqual(tw.waves_from_dict(data, self.schedule).waves, edited.waves)
+        for wave in data["waves"]:
+            del wave["lane_speeds"]
+        self.assertEqual(tw.waves_from_dict(data, self.schedule).waves[1].speeds, self.schedule.waves[1].speeds)
+
+
 class WaveExportTests(unittest.TestCase):
     """The waves edit travels through the same verified export path as goals and models."""
 

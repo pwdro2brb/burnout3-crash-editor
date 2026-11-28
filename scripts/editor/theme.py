@@ -191,6 +191,32 @@ def section(parent, title, *, row, padding=14, pady=(12, 0), subtitle=None) -> t
     return inner
 
 
+class ScrollArea(ttk.Frame):
+    """A vertically scrollable white panel; put widgets in ``.inner``."""
+
+    def __init__(self, parent, **options):
+        super().__init__(parent, style="Card.TFrame", **options)
+        self.columnconfigure(0, weight=1)
+        self.rowconfigure(0, weight=1)
+        self.canvas = tk.Canvas(self, highlightthickness=0, background=PALETTE["surface"], height=120)
+        self.canvas.grid(row=0, column=0, sticky="nsew")
+        self.bar = ttk.Scrollbar(self, orient="vertical", command=self.canvas.yview)
+        self.bar.grid(row=0, column=1, sticky="ns")
+        self.canvas.configure(yscrollcommand=self.bar.set)
+        self.inner = ttk.Frame(self.canvas, style="Card.TFrame")
+        self.window = self.canvas.create_window(0, 0, window=self.inner, anchor="nw")
+        self.inner.bind("<Configure>", lambda _e: self.canvas.configure(
+            scrollregion=self.canvas.bbox("all") or (0, 0, 1, 1)))
+        self.canvas.bind("<Configure>", lambda e: self.canvas.itemconfigure(self.window, width=e.width))
+        for widget in (self.canvas, self.inner):
+            widget.bind("<Enter>", lambda _e: self.bind_all("<MouseWheel>", self._wheel))
+            widget.bind("<Leave>", lambda _e: self.unbind_all("<MouseWheel>"))
+
+    def _wheel(self, event):
+        if self.canvas.bbox("all") and self.canvas.bbox("all")[3] > self.canvas.winfo_height():
+            self.canvas.yview_scroll(-1 if event.delta > 0 else 1, "units")
+
+
 def card(parent, *, padding=14, **grid) -> ttk.Frame:
     """A white panel with a hairline border, gridded when grid options are given."""
     outer = tk.Frame(parent, background=PALETTE['border'], borderwidth=0, highlightthickness=0)

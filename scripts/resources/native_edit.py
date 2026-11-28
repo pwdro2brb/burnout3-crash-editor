@@ -11,7 +11,7 @@ from resources.crash_events import (
     CrashEvent, CRASHBREAKER_OFFSET, STAGE_KEYS, STAGE_STRIDE, THRESHOLDS_OFFSET, bgd_path, stagehed_path,
 )
 from resources.native_traffic import read_groups, reorder_groups
-from resources.model_swap import replace_models
+from resources.model_swap import add_models, replace_models, tram_models
 from resources.traffic_waves import read_waves, write_waves
 
 
@@ -26,14 +26,15 @@ def _checked_descriptor(data, start, event, values, wrecks):
 
 def prepare_changes(root: Path, event: CrashEvent, orders, thresholds=None, *,
                     expected_orders=None, crashbreaker_wrecks=None, waves=None, expected_waves=None,
-                    model_swaps=None):
+                    model_swaps=None, model_additions=None):
     """Return relative path -> (source, replacement). Omitted fields retain each original value.
 
     ``waves`` is a WaveSchedule from resources.traffic_waves; ``expected_waves``
     guards against a track file that changed since the schedule was read.
     ``model_swaps`` maps an original model to a model of the same group from
-    another event (resources.model_swap); it is applied first, so ``orders``
-    and ``waves`` use the new names.
+    another event (resources.model_swap); ``model_additions`` lists models the
+    event should also load. Both are applied first, so ``orders`` and ``waves``
+    use the final names.
     """
     stage_path = stagehed_path(root)
     track_path = bgd_path(root, event.track)
@@ -48,6 +49,9 @@ def prepare_changes(root: Path, event: CrashEvent, orders, thresholds=None, *,
     if expected_waves is not None and read_waves(track, event.event_offset).waves != expected_waves:
         raise ValueError("The event's traffic waves changed on disk. Reopen the extracted folder.")
     edited_track = replace_models(track, event.event_offset, model_swaps or {})
+    if model_additions:
+        trams = tram_models(read_waves(edited_track, event.event_offset))
+        edited_track = add_models(edited_track, event.event_offset, model_additions, trams=trams)
     edited_track = reorder_groups(edited_track, event.event_offset, orders)
     if waves is not None:
         edited_track = write_waves(edited_track, event.event_offset, waves)

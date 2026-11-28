@@ -18,7 +18,7 @@ with or endorsed by Electronic Arts or Criterion Games.
 
 | Tool | What it does | Needs |
 | --- | --- | --- |
-| **Events on the disc** (button **Waves & models (disc)…**) | Browse the 100 Crash events and edit them: the **traffic waves** (when and where every vehicle appears, with a timeline and "add several"), **replace a traffic model with one from another event** (a tuk-tuk in Grand Slam, a minibus…), the medal goals and the Crashbreaker wreck count. Then build a new ISO. | The extracted game folder (and the ISO to build a copy). The emulator can be closed. |
+| **Events on the disc** (button **Waves & models (disc)…**) | Browse the 100 Crash events and edit them: the **traffic waves** (when and where every vehicle appears, lane speeds, a timeline, a zoomable map and "add several" with a preview), **replace or add traffic models from other events** (a tuk-tuk in Grand Slam, a minibus…), the medal goals and the Crashbreaker wreck count. Then build a new ISO (with a progress window). | The extracted game folder (and the ISO to build a copy). The emulator can be closed. |
 | **`scripts/waves.py`**, **`scripts/models.py`** | The same wave editing (shareable `.waves.json` files) and model replacement from the command line. | The extracted game folder. |
 | **Current-event editor** | Live edits of the event running in PCSX2: list vehicles, move them across the lane, add batches of cars or trucks **behind one or many vehicles at once** (including far and oncoming traffic that has no physics yet), change their speed, save and repeat scenes. | PCSX2 1.7.2521 with PINE enabled. |
 
@@ -69,15 +69,17 @@ python -B scripts/editor/run_editor.py
    game folder (it opens automatically if the folder sits next to this one with its
    default name, `Burnout 3 - Takedown (USA)`).
 2. Pick an event, for example **Grand Slam**.
-3. In **Traffic waves**, the timeline shows when each wave loads. Select a wave, a lane or
-   a vehicle in the list and the panel on the right shows only what can be changed there:
-   a wave's start time, a lane's entry point and **Add several** (a queue on the road or a
-   stream of cars that drive in later), or one vehicle's model, colour and position/time.
-   In **Models and goals**, replace a model with one from another event, or change the
-   goals and the Crashbreaker count.
+3. In **Traffic waves**, the timeline shows when each wave loads and when late cars drive
+   in. Select a wave, a lane or a vehicle in the list and the panel shows only what can be
+   changed there: a wave's start time and the road lanes it can add (also pickable on the
+   map), a lane's **speed**, entry point and **Add several** (a queue on the road or a
+   stream of cars that drive in later, previewed on the map), or one vehicle's model,
+   colour and position/time. Any traffic model can be chosen; one the event does not load
+   yet is added to it. In **Models and goals**, replace or add models, or change the goals
+   and the Crashbreaker count.
 4. Click **Build ISO copy…**, choose the original ISO and a new file name.
-5. Boot the new ISO in PCSX2 and enter the event from the game menu. (A savestate would
-   bring back the old event data.)
+5. Boot the **new ISO** in PCSX2 and enter the event from the game menu. A savestate made
+   with the original ISO brings back the old event data, so don't load one to test.
 
 ### Same thing from the command line
 

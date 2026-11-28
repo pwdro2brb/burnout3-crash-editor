@@ -146,7 +146,7 @@ def _plan(stream, changes):
     return sorted(plan)
 
 
-def _copy_overlay(source, output, plan, size):
+def _copy_overlay(source, output, plan, size, progress=None):
     source.seek(0)
     digest = hashlib.sha256()
     for start, name, before, after in [*plan, (size, '', b'', b'')]:
@@ -158,6 +158,8 @@ def _copy_overlay(source, output, plan, size):
             output.write(data)
             digest.update(data)
             remaining -= len(data)
+            if progress is not None:
+                progress('copying', source.tell(), size)
         for offset in range(0, len(before), CHUNK):
             if source.read(min(CHUNK, len(before) - offset)) != memoryview(before)[offset:offset + CHUNK]:
                 raise ValueError(f'The file {name} changed during the export.')
@@ -167,8 +169,13 @@ def _copy_overlay(source, output, plan, size):
     return digest.hexdigest()
 
 
-def export_iso(source_iso: Path, destination: Path, changes: dict[str, tuple[bytes, bytes]]) -> dict:
-    """Verify original files, stream and verify one private copy, then publish exclusively."""
+def export_iso(source_iso: Path, destination: Path, changes: dict[str, tuple[bytes, bytes]],
+               progress=None) -> dict:
+    """Verify original files, stream and verify one private copy, then publish exclusively.
+
+    ``progress(stage, done, total)`` is called from this thread while the copy
+    is written ('copying') and read back ('verifying'), in bytes.
+    """
     destination = Path(destination)
     if destination.suffix.lower() != '.iso':
         raise ValueError('Choose a destination with the .iso extension.')
@@ -176,12 +183,14 @@ def export_iso(source_iso: Path, destination: Path, changes: dict[str, tuple[byt
         raise FileExistsError('The destination already exists. Choose a new name for the ISO.')
     with Path(source_iso).open('rb') as source:
         original = os.fstat(source.fileno())
+        if progress is not None:
+            progress('checking', 0, original.st_size)
         plan = _plan(source, changes)
         temporary = tempfile.NamedTemporaryFile(dir=destination.parent, prefix='.burnout3-', suffix='.partial', delete=False)
         temp_path = Path(temporary.name)
         try:
             with temporary as output:
-                digest = _copy_overlay(source, output, plan, original.st_size)
+                digest = _copy_overlay(source, output, plan, original.st_size, progress)
                 output.flush()
                 os.fsync(output.fileno())
             current = os.fstat(source.fileno())
@@ -191,6 +200,8 @@ def export_iso(source_iso: Path, destination: Path, changes: dict[str, tuple[byt
             with temp_path.open('rb') as written:
                 for block in iter(lambda: written.read(CHUNK), b''):
                     check.update(block)
+                    if progress is not None:
+                        progress('verifying', written.tell(), original.st_size)
                 if written.tell() != original.st_size or check.hexdigest() != digest:
                     raise ValueError('Verifying the ISO copy on disk failed.')
             if os.name == 'nt':
