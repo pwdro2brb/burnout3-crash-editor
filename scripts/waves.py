@@ -24,7 +24,7 @@ from resources.crash_events import bgd_path, load_crash_events  # noqa: E402
 from resources.native_edit import export_resources  # noqa: E402
 from resources.native_iso import export_iso  # noqa: E402
 from resources.traffic_waves import (  # noqa: E402
-    describe, read_waves, waves_from_dict, waves_to_dict, write_waves,
+    density_warning, describe, read_waves, vehicle_total, waves_from_dict, waves_to_dict, write_waves,
 )
 
 
@@ -61,6 +61,10 @@ def plan_build(game: Path, events, documents) -> dict:
             tracks[path][1] = write_waves(current, event.event_offset, schedule)
         except ValueError as error:
             raise SystemExit(f"{source}: {error}") from error
+        baseline = vehicle_total(read_waves(tracks[path][0], event.event_offset))
+        warning = density_warning(vehicle_total(schedule), baseline)
+        if warning:
+            print(f"WARNING ({event.title.strip()}): {warning}")
     return {p.relative_to(game).as_posix(): (old, new) for p, (old, new) in tracks.items() if old != new}
 
 
@@ -93,8 +97,10 @@ def main(argv=None) -> int:
             data = tracks.setdefault(event.track, bgd_path(game, event.track).read_bytes())
             schedule = read_waves(data, event.event_offset)
             starts = ", ".join(f"{w.start:g}" for w in schedule.waves)
+            total = vehicle_total(schedule)
+            flag = ""
             print(f"{event.key}  {event.track:<9} {event.title.strip():<20} waves at [{starts}] s"
-                  f"  ~{schedule.free_bytes // 32} free vehicle slots")
+                  f"  {total:>3} vehicles{flag}  ~{schedule.free_bytes // 32} free vehicle slots")
         return 0
     if args.command in ("show", "export"):
         event = find_event(events, args.event)

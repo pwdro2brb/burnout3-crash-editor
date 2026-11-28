@@ -18,7 +18,7 @@ with or endorsed by Electronic Arts or Criterion Games.
 
 | Tool | What it does | Needs |
 | --- | --- | --- |
-| **Native events** (Project → Native events…) | Browse the 100 Crash events, edit the medal goals, the Crashbreaker wreck count, the model order and the **traffic waves**, then export the edited files or build a new ISO. | The extracted game folder (and the ISO to build a copy). The emulator can be closed. |
+| **Native events** (Traffic waves… button, or Project → Native events / traffic waves…) | Browse the 100 Crash events, edit the medal goals, the Crashbreaker wreck count, the model order and the **traffic waves**, then export the edited files or build a new ISO. | The extracted game folder (and the ISO to build a copy). The emulator can be closed. |
 | **`scripts/waves.py`** | The same traffic-wave editing from the command line, through shareable `.waves.json` files. | The extracted game folder. |
 | **Current-event editor** | Live edits of the event running in PCSX2: list vehicles, move them across the lane, add batches of cars or trucks behind a vehicle, change their speed, save and repeat scenes. | PCSX2 1.7.2521 with PINE enabled. |
 
@@ -60,8 +60,8 @@ python -B scripts/editor/run_editor.py
 
 ### Make a new version of a Crash event
 
-1. In the editor, open **Project → Native events…** and choose your extracted game
-   folder (it opens automatically if the folder sits next to this one with its default
+1. In the editor, click **Traffic waves…** (top right; also **Project → Native events /
+   traffic waves…**) and choose your extracted game folder (it opens automatically if the folder sits next to this one with its default
    name, `Burnout 3 - Takedown (USA)`).
 2. Pick an event, for example **Grand Slam**.
 3. Change the goals or the Crashbreaker count in **Models and goals**, and the traffic in

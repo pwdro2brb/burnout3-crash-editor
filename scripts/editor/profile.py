@@ -119,7 +119,9 @@ class Snapshot:
             elif row['type'] not in SUPPORTED_SINGLE_TYPES:
                 reason = 'This vehicle type is not enabled for editing yet.'
             elif not row['initialized']:
-                reason = "The game has not initialized this vehicle's physics points yet."
+                reason = ("The game has not initialized this vehicle's physics points yet: it does that only "
+                          "when the vehicle comes within about 250 game units of the player car. Drive "
+                          "closer and pause again, or change it in Traffic waves (on the disc).")
             elif row.get('node_index') is None:
                 reason = 'The vehicle has no traffic node; moving across the lane width is not available.'
             elif row.get('path') in (None, 0xFF):

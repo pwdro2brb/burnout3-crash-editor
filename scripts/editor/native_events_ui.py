@@ -15,8 +15,9 @@ from resources.native_iso import export_iso
 from resources.native_roads import point_at_distance, read_roads
 from resources.native_traffic import read_groups
 from resources.traffic_waves import (
-    TRUCK_TYPE, TYPE_NAMES, TrafficWave, WaveLane, WaveVehicle, loaded_models, read_waves,
-    vehicle_type_for, waves_from_dict, waves_to_dict, write_waves,
+    DENSITY_CRASH, DENSITY_WARNING, TRUCK_TYPE, TYPE_NAMES, TrafficWave, WaveLane, WaveVehicle,
+    density_warning, loaded_models, read_waves, vehicle_total, vehicle_type_for, waves_from_dict,
+    waves_to_dict, write_waves,
 )
 
 WAVE_HELP = ("Wave 1 loads with the event. Each later wave loads when the event clock reaches its start "
@@ -143,6 +144,7 @@ class NativeEventsWindow(tk.Toplevel):
         page.columnconfigure(1, weight=2)
         page.rowconfigure(1, weight=1)
         tabs.add(page, text="Traffic waves")
+        self.waves_page = page
         ttk.Label(page, text=WAVE_HELP, wraplength=640, justify="left").grid(
             row=0, column=0, columnspan=2, sticky="ew", pady=(0, 6))
         tree_frame = ttk.Frame(page)
@@ -205,6 +207,8 @@ class NativeEventsWindow(tk.Toplevel):
                               ("Remove", self.remove_vehicle), ("Up", lambda: self.move_vehicle(-1)),
                               ("Down", lambda: self.move_vehicle(1))):
             ttk.Button(buttons, text=text, command=command).pack(side="left", padx=(0, 3))
+        self.wave_warning = ttk.Label(page, text="", wraplength=640, justify="left")
+        self.wave_warning.grid(row=4, column=0, columnspan=2, sticky="ew", pady=(4, 0))
         files = ttk.Frame(page)
         files.grid(row=3, column=0, columnspan=2, sticky="ew", pady=(6, 0))
         self.wave_note = tk.StringVar()
@@ -252,13 +256,25 @@ class NativeEventsWindow(tk.Toplevel):
         self.update_wave_note()
         self.draw_waves()
 
+    def show_waves(self):
+        """Bring the Traffic waves tab to the front (used by the main window's buttons)."""
+        self.tabs.select(self.waves_page)
+        self.deiconify()
+        self.lift()
+
     def update_wave_note(self):
+        self.wave_warning.configure(text="")
         if self.schedule is None or not self.event:
             return
         placed = sum(l.initial for w in self.schedule.waves for l in w.lanes)
         total = sum(len(l.vehicles) for w in self.schedule.waves for l in w.lanes)
+        on_road = vehicle_total(self.schedule)
         self.wave_note.set(f"{len(self.schedule.waves)} waves · {placed} placed · {total - placed} timed · "
-                           f"{self.free_space_text()}")
+                           f"up to {on_road} on the road · {self.free_space_text()}")
+        base = self.initial[3] if getattr(self, "initial", None) and self.initial[3] else None
+        warning = density_warning(on_road, vehicle_total(base) if base is not None else None)
+        colour = "#b03a2e" if on_road >= DENSITY_CRASH else "#9a6700"
+        self.wave_warning.configure(text=("⚠ " + warning) if warning else "", foreground=colour)
 
     def free_space_text(self):
         try:

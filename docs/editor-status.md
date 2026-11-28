@@ -41,6 +41,7 @@ Trailers have a separate visual argument, preserved by the editor. Details in
 | 15/11/2026 (slots, mixed batches) | 380 + 50 private | three real-link subcases skipped by Windows permissions |
 | 19/11/2026 (native editing, Grand Slam ISO) | 424 distributable | the user confirmed the edited ISO worked |
 | 26/11/2026 (traffic waves, English) | 444 distributable | waves module, CLI and tab; full English UI |
+| 27/11/2026 (waves button, warnings) | 448 distributable | Traffic waves… button, 50/64 vehicle warnings, physics range on the map |
 
 "Private" tests use local captures of game memory and are not distributed.
 

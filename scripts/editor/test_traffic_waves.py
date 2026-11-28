@@ -191,6 +191,23 @@ class TrafficWaveTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             tw.waves_from_dict({"format": "other"}, self.schedule)
 
+    def test_vehicle_total_skips_timed_vehicles_a_later_wave_replaces(self):
+        # Lane (0,0) of wave 1 has a truck at 0.5 s; wave 2 (9 s) replaces lane (0,1), not (0,0).
+        self.assertEqual(tw.vehicle_total(self.schedule), 4 + 2)
+        lane = self.schedule.waves[0].lanes[0]
+        late = replace(lane, vehicles=lane.vehicles + (replace(lane.vehicles[2], time=20.0),))
+        replaced = replace(self.schedule.waves[1], lanes=(replace(self.schedule.waves[1].lanes[0], slot=0),))
+        schedule = replace(self.schedule, waves=(replace(self.schedule.waves[0], lanes=(late,) + self.schedule.waves[0].lanes[1:]),
+                                                 replaced))
+        self.assertEqual(tw.vehicle_total(schedule), 4 + 2)  # the 20 s truck never enters
+
+    def test_density_warning_thresholds_never_block(self):
+        self.assertEqual(tw.density_warning(50), "")
+        self.assertIn("does not work properly", tw.density_warning(51))
+        self.assertIn("crashed in tests", tw.density_warning(64))
+        self.assertEqual(tw.density_warning(56, original=56), "")
+        self.assertIn("above 50", tw.density_warning(57, original=56))
+
     def test_blocks_overlapping_or_unsupported_tables(self):
         overlap = bytearray(self.bgd)
         struct.pack_into("<I", overlap, EVENT + 0xC0, 0x240)  # a source path list inside vehicle data
