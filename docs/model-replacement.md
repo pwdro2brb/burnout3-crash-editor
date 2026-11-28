@@ -69,10 +69,31 @@ ISO `outputs/Grand Slam - models test.iso` (local, not in the repository) replac
 `COMPCAR12` (car) with `COMPCAR18` (tuk-tuk) and `HEVYCAR35` (van) with `HEVYCAR31`
 (minibus): the tuk-tuks should appear in the first queues of Grand Slam.
 
-Not offered yet:
+## Adding a model
 
-- **Adding a model** (growing a group): possible only in events with fewer than 12
-  models (71 of 100), and it needs the arrays after the groups moved. Not attempted.
+**Models and goals → Add a model to the event** (or choosing a *not loaded yet* model
+for a wave vehicle) makes the event load one more model of the same group. The model
+lists are the last data the game references in the event block, and the game relocates
+their start offsets when it loads the block (seen in savestate RAM), so the editor
+writes the six lists, with the new entry, into the empty space at the end of the block
+and points the group headers there. Nothing else in the block changes; 52 events keep
+bytes nobody references right after the old lists, so those are left untouched.
+
+Limits, both taken from the original events:
+
+- at most **12 models** in the game's table, counting the tram of tram events
+  (31 events are already full);
+- at most **2,728 KB** of model files, the largest set an original event loads
+  (Reiko-chet); the model files are 176–254 KB each.
+
+A model can be added in 65 of the 100 events (4 more lack room at the end of the
+block). Like a replacement, an added model needs a play test: the test ISO
+`outputs/Grand Slam - speed and added model test.iso` adds the tuk-tuk (`COMPCAR18`) to
+Grand Slam, turns the three cars in front of the player on P21 into tuk-tuks and sets
+that lane's speed to 10 (about 16 km/h), so they should crawl.
+
+Not offered:
+
 - Models never seen in a Crash event (lumber trailer `HEVYCAR28`, trams outside their
   events).
 

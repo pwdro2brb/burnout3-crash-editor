@@ -10,6 +10,7 @@ from unittest.mock import Mock, patch
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 from editor import gui, native_events_ui as ui
 from resources.crash_events import CrashEvent, bgd_path
+from resources.native_traffic import read_groups
 
 
 GROUPS = (("COMPCAR14", "COMPCAR12"), ("HEVYCAR33",), (), (), (), ())
@@ -136,7 +137,9 @@ class NativeEventGuiTests(unittest.TestCase):
         window.export(True)
         window.focus_event(self.b.key)  # In-flight export belongs to the event clicked.
         self.finish_job()
-        iso.assert_called_once_with(self.game / "source.iso", self.game / "dest.iso", changes)
+        iso.assert_called_once()
+        self.assertEqual(iso.call_args.args, (self.game / "source.iso", self.game / "dest.iso", changes))
+        self.assertTrue(callable(iso.call_args.kwargs["progress"]))
         self.assertIn("Grand Slam", window.status.get())
         self.assertTrue(window.close())
         self.confirm.assert_not_called()
@@ -335,44 +338,101 @@ class NativeWaveTabTests(NativeEventGuiTests):
         self.assertIn("On the road", window.inspector_text.get())
 
 
-class NativeModelReplaceTests(NativeWaveTabTests):
-    """Replacing a model renames it in the groups and the waves of the draft."""
+class NativeModelEditTests(unittest.TestCase):
+    """Replacing and adding models and lane speeds, on a generated track file (no patched readers)."""
+
+    @classmethod
+    def setUpClass(cls):
+        try:
+            cls.root = tk.Tk()
+        except tk.TclError as exc:
+            raise unittest.SkipTest(f"Tk unavailable: {exc}")
+        cls.root.withdraw()
+        cls.addClassCleanup(cls.root.destroy)
+
+    def setUp(self):
+        from editor import test_traffic_waves as synthetic
+        from resources import traffic_waves as tw
+        self.tw = tw
+        folder = tempfile.TemporaryDirectory()
+        self.addCleanup(folder.cleanup)
+        self.game = Path(folder.name)
+        self.event = CrashEvent("1G0007EUC3V1", "EU_C3_V1", "Grand Slam", 97, 0, 0, 0,
+                                synthetic.EVENT, (300, 200, 100), (300, 200, 100), 10, 10)
+        path = bgd_path(self.game, self.event.track)
+        path.parent.mkdir(parents=True)
+        self.bgd = synthetic.make_bgd()
+        path.write_bytes(self.bgd)
+        self.base = tw.read_waves(self.bgd, synthetic.EVENT)
+        for target, name, options in ((ui, "load_crash_events", dict(return_value=(self.event,))),
+                                      (ui, "read_roads", dict(return_value={"path_count": 1, "paths": [
+                                          {"center": [[0, 0, 0], [20, 0, 12]]}]})),
+                                      (ui.messagebox, "showerror", {}), (ui.messagebox, "showinfo", {})):
+            setting = patch.object(target, name, **options)
+            self.addCleanup(setting.stop)
+            setting.start()
+        self.answer = True
+        setting = patch.object(ui.messagebox, "askyesno", side_effect=lambda *a, **k: self.answer)
+        self.addCleanup(setting.stop)
+        setting.start()
+        with patch.object(Path, "is_file", return_value=False):
+            self.window = ui.NativeEventsWindow(self.root, lambda: None)
+        self.window.withdraw()
+        self.addCleanup(self.clean)
+        self.window.open_game(self.game)
+        self.wait_job()
+
+    def wait_job(self):
+        end = time.monotonic() + 5
+        while self.window.job is not None and time.monotonic() < end:
+            self.root.update()
+            time.sleep(0.005)
+        self.root.update()
+
+    def clean(self):
+        if self.window.winfo_exists():
+            self.window.worker.shutdown()
+            self.window.destroy()
+        self.root.update()
+
+    def pick(self, iid):
+        self.window.wave_tree.selection_set(iid)
+        self.root.update()
+        self.window.wave_selected()
+
+    def replace_second_car(self, target):
+        window = self.window
+        window.models.selection_set("0/1")
+        window.model_selected()
+        window.replacement.set(next(o for o in window.replacement.cget("values") if o.startswith(target)))
+        window.replace_model()
+
+    def export_kwargs(self):
+        with patch.object(ui, "prepare_changes", return_value={"x": (b"a", b"b")}) as call, \
+                patch.object(ui, "export_resources", return_value=self.game / "result"), \
+                patch.object(ui.filedialog, "askdirectory", return_value=str(self.game)):
+            self.window.export(False)
+            self.wait_job()
+            return call.call_args.kwargs
 
     def test_replace_model_updates_groups_waves_and_export(self):
         window = self.window
-        self.window.tabs.select(window.models_page)
-        window.models.selection_set("0/1")
-        window.model_selected()
-        options = window.replacement.cget("values")
-        self.assertTrue(any(o.startswith("COMPCAR18") for o in options))
-        window.replacement.set(next(o for o in options if o.startswith("COMPCAR18")))
-        window.replace_model()
+        self.replace_second_car("COMPCAR18")
         self.assertEqual(window.orders[0], ("COMPCAR14", "COMPCAR18"))
         names = {v.model for w in window.schedule.waves for l in w.lanes for v in l.vehicles}
         self.assertIn("COMPCAR18", names)
         self.assertNotIn("COMPCAR12", names)
         self.assertIn("replaces COMPCAR12", window.models.item("0/1", "values"))
-        prepared = self.replace(ui, "prepare_changes", return_value={"x": (b"a", b"b")})
-        self.replace(ui, "export_resources", return_value=self.game / "result")
-        self.replace(ui.filedialog, "askdirectory", return_value=str(self.game))
-        window.export(False)
-        self.finish_job()
-        self.assertEqual(prepared.call_args.kwargs["model_swaps"], {"COMPCAR12": "COMPCAR18"})
-        self.assertNotIn("waves", prepared.call_args.kwargs)
-        # Replacing back with the original removes the change.
-        window.models.selection_set("0/1")
-        window.model_selected()
-        window.replacement.set(next(o for o in window.replacement.cget("values") if o.startswith("COMPCAR12")))
-        window.replace_model()
+        kwargs = self.export_kwargs()
+        self.assertEqual(kwargs["model_swaps"], {"COMPCAR12": "COMPCAR18"})
+        self.assertNotIn("waves", kwargs)
+        self.replace_second_car("COMPCAR12")  # back to the original removes the change
         self.assertEqual(window.swaps, ())
-        self.assertEqual(window.schedule, self.base)
+        self.assertEqual(window.schedule.waves, self.base.waves)
 
-    def test_wave_edit_after_a_replacement_validates_against_the_original_file(self):
+    def test_wave_edit_after_a_replacement_uses_the_new_name(self):
         window = self.window
-        window.models.selection_set("0/1")
-        window.model_selected()
-        window.replacement.set(next(o for o in window.replacement.cget("values") if o.startswith("COMPCAR18")))
-        window.replace_model()
+        self.replace_second_car("COMPCAR18")
         self.pick("w0/l0")
         window.quick_model.set("COMPCAR18")
         window.quick_count.set("1")
@@ -380,3 +440,70 @@ class NativeModelReplaceTests(NativeWaveTabTests):
         lane = window.schedule.waves[0].lanes[0]
         self.assertEqual(lane.vehicles[lane.initial - 1].model, "COMPCAR18")
 
+    def test_vehicle_can_use_a_model_the_event_did_not_load(self):
+        window = self.window
+        self.pick("w0/l0/v0")
+        labels = window.vehicle_model.cget("values")
+        self.assertTrue(any(l.startswith("COMPCAR18") and l.endswith(ui.NOT_LOADED) for l in labels))
+        window.vehicle_model.set(next(l for l in labels if l.startswith("COMPCAR18")))
+        window.apply_vehicle()
+        self.assertEqual(window.schedule.waves[0].lanes[0].vehicles[0].model, "COMPCAR18")
+        self.assertIn("COMPCAR18", window.additions)
+        self.assertEqual(window.orders[0], ("COMPCAR14", "COMPCAR12", "COMPCAR18"))
+        self.assertIn("added", window.models.item("0/2", "values")[4])
+        kwargs = self.export_kwargs()
+        self.assertEqual(kwargs["model_additions"], ["COMPCAR18"])
+        self.assertEqual(kwargs["waves"].waves[0].lanes[0].vehicles[0].model, "COMPCAR18")
+        # The writers accept the same draft: add the model, then write the waves.
+        from resources.model_swap import add_models
+        offset = self.event.event_offset
+        new = self.tw.write_waves(add_models(self.bgd, offset, kwargs["model_additions"]), offset, kwargs["waves"])
+        self.assertEqual(read_groups(new, offset)[0], ("COMPCAR14", "COMPCAR12", "COMPCAR18"))
+        self.assertEqual(self.tw.read_waves(new, offset).waves[0].lanes[0].vehicles[0].model, "COMPCAR18")
+
+    def test_declining_the_addition_keeps_the_vehicle(self):
+        window = self.window
+        self.answer = False
+        self.pick("w0/l0/v0")
+        window.vehicle_model.set(next(l for l in window.vehicle_model.cget("values") if l.startswith("COMPCAR18")))
+        window.apply_vehicle()
+        self.assertEqual(window.schedule.waves[0].lanes[0].vehicles[0].model, "COMPCAR14")
+        self.assertEqual(window.additions, ())
+
+    def test_lane_speed_is_shown_and_edited(self):
+        window = self.window
+        self.pick("w0/l0")
+        self.assertEqual(window.lane_speed.get(), "")  # the generated wave 1 sets no speed
+        ui._set(window.lane_speed, "45")
+        window.apply_lane_speed()
+        lane = window.schedule.waves[0].lanes[0]
+        self.assertEqual(self.tw.lane_speed(window.schedule, 0, lane.source, lane.slot), (45.0, 0))
+        self.assertIn("72 km/h", window.lane_speed_note.get())
+        self.assertIn("speed 45", window.wave_tree.item("w0/l0", "values")[1])
+        kwargs = self.export_kwargs()
+        self.assertEqual(kwargs["waves"].waves[0].speeds[-1].speed, 45.0)
+
+    def test_lane_options_are_readable_and_can_be_added(self):
+        window = self.window
+        self.pick("w1")
+        options = window.new_lane.cget("values")
+        self.assertTrue(options)
+        self.assertTrue(all(o.startswith("P") for o in options))
+        self.assertTrue(any("used in wave" in o or "not used" in o for o in options))
+        window.new_lane.set(options[0])
+        window.add_lane()
+        self.assertEqual(len(window.schedule.waves[1].lanes), 2)
+
+    def test_add_several_shows_a_preview_before_adding(self):
+        window = self.window
+        self.pick("w0/l0")
+        window.quick_model.set("COMPCAR12")
+        window.quick_count.set("2")
+        ui._set(window.quick_spacing, "10")
+        window.preview_changed()
+        self.assertIn("125, 115", window.quick_preview.get())
+        self.assertIn("behind HEVYCAR33 at 135", window.quick_preview.get())
+
+
+if __name__ == "__main__":
+    unittest.main()

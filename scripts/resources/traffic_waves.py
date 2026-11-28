@@ -15,6 +15,12 @@ How the game releases Crash traffic (see docs/traffic-waves.md for the evidence)
   remaining vehicles enter one by one at the lane ``entry`` distance when the
   event clock reaches their ``time`` (seconds). Loading a later wave replaces
   the lane of the same source slot, discarding vehicles that never entered.
+* A wave also sets *lane speeds* (wave +0x04 floats, +0x08 source bytes, +0x0C
+  slot bytes, count +0x40). FUN_00163700 points each source slot at its speed;
+  FUN_002662e0/FUN_00267ec0 pass that value to the creator whenever a vehicle
+  is placed or released, so a speed applies to vehicles that appear after the
+  wave loads (vehicles already driving keep theirs). Wave 1 lists every source
+  slot of the event; later waves list only the slots they change.
 
 The game relocates every offset of this block by walking the same structure
 (FUN_00269fa0 in the USA executable), so a writer may place new arrays in free
@@ -41,6 +47,7 @@ MAX_WAVES = 32
 MAX_VEHICLES_PER_LANE = 255
 MAX_LANE_SLOTS = 4
 MAX_EVENT_TIME = 600.0
+MAX_LANE_SPEED = 240.0  # the live editor's normal-mode limit; originals use 0 to 120
 # Group index of the event's model lists -> vehicle type byte used by records.
 GROUP_TYPES = {0: 1, 1: 2, 2: 5, 3: 3, 4: 4}
 TRUCK_TYPE = 4
@@ -72,9 +79,17 @@ class WaveLane:
 
 
 @dataclass(frozen=True)
+class LaneSpeed:
+    source: int
+    slot: int
+    speed: float
+
+
+@dataclass(frozen=True)
 class TrafficWave:
     start: float
     lanes: tuple[WaveLane, ...]
+    speeds: tuple[LaneSpeed, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -283,7 +298,9 @@ def read_waves(bgd: bytes, event_offset: int) -> WaveSchedule:
             records = u32(header)
             lanes.append(WaveLane(u8(header + 10), u8(header + 11), f32(header + 4), initial,
                                   tuple(_vehicle(block, records + i * VEHICLE_SIZE) for i in range(total))))
-        waves.append(TrafficWave(f32(base + 0x4C), tuple(lanes)))
+        speeds = tuple(LaneSpeed(u8(u32(base + 0x08) + i), u8(u32(base + 0x0C) + i), f32(u32(base + 0x04) + 4 * i))
+                       for i in range(u32(base + 0x40)))
+        waves.append(TrafficWave(f32(base + 0x4C), tuple(lanes), speeds))
     models = _event_models(bgd, event_offset)
     for wave in waves:
         for lane in wave.lanes:
@@ -325,6 +342,14 @@ def validate_waves(schedule: WaveSchedule) -> None:
         if number > 1 and wave.start <= previous:
             raise ValueError("Wave start times must increase from one wave to the next.")
         previous = wave.start
+        speed_keys = set()
+        for item in wave.speeds:
+            if not 0 <= item.source < len(schedule.sources) or not 0 <= item.slot < len(schedule.sources[item.source].paths):
+                raise ValueError(f"Wave {number} sets the speed of a lane that does not exist.")
+            if (item.source, item.slot) in speed_keys:
+                raise ValueError(f"Wave {number} sets the same lane speed twice.")
+            speed_keys.add((item.source, item.slot))
+            _finite(item.speed, 0.0, MAX_LANE_SPEED, f"Wave {number}: use a lane speed from 0 to {MAX_LANE_SPEED:g}.")
         seen = set()
         for lane in wave.lanes:
             if not 0 <= lane.source < len(schedule.sources):
@@ -385,6 +410,38 @@ def vehicle_record_offsets(bgd: bytes, event_offset: int) -> list[int]:
     return offsets
 
 
+def lane_speed(schedule: WaveSchedule, wave: int, source: int, slot: int) -> tuple[float | None, int | None]:
+    """Speed a source slot has once ``wave`` has loaded, and the wave that set it."""
+    for number in range(min(wave, len(schedule.waves) - 1), -1, -1):
+        for item in schedule.waves[number].speeds:
+            if (item.source, item.slot) == (source, slot):
+                return item.speed, number
+    return None, None
+
+
+def with_lane_speed(schedule: WaveSchedule, wave: int, source: int, slot: int, speed: float) -> WaveSchedule:
+    """Set a lane speed from ``wave`` on. A later wave that would only repeat the
+    speed it inherits drops its entry, so untouched waves keep their layout."""
+    if not 0 <= wave < len(schedule.waves):
+        raise ValueError("Select a wave first.")
+    _finite(speed, 0.0, MAX_LANE_SPEED, f"Use a lane speed from 0 to {MAX_LANE_SPEED:g}.")
+    speed = float(struct.unpack("<f", struct.pack("<f", speed))[0])
+    current = schedule.waves[wave]
+    entries = list(current.speeds)
+    index = next((i for i, item in enumerate(entries) if (item.source, item.slot) == (source, slot)), None)
+    inherited = lane_speed(schedule, wave - 1, source, slot)[0] if wave else None
+    if wave and inherited is not None and inherited == speed:
+        if index is not None:
+            del entries[index]
+    elif index is not None:
+        entries[index] = LaneSpeed(source, slot, speed)
+    else:
+        entries.append(LaneSpeed(source, slot, speed))
+    waves = list(schedule.waves)
+    waves[wave] = replace(current, speeds=tuple(entries))
+    return replace(schedule, waves=tuple(waves))
+
+
 def vehicle_type_for(schedule: WaveSchedule, model: str) -> int | None:
     """Type byte that this event uses for a loaded model, or None if it is not loaded."""
     group = schedule.models.get(model)
@@ -441,6 +498,7 @@ def write_waves(bgd: bytes, event_offset: int, schedule: WaveSchedule) -> bytes:
     u32 = block.u32
     same_shape = (len(original.waves) == len(schedule.waves) and all(
         len(a.lanes) == len(b.lanes) and all(len(x.vehicles) == len(y.vehicles) for x, y in zip(a.lanes, b.lanes))
+        and [(i.source, i.slot) for i in a.speeds] == [(i.source, i.slot) for i in b.speeds]
         for a, b in zip(original.waves, schedule.waves)))
     sets = u32(0x4C)
     if same_shape:
@@ -454,6 +512,8 @@ def write_waves(bgd: bytes, event_offset: int, schedule: WaveSchedule) -> bytes:
                 for index, vehicle in enumerate(lane.vehicles):
                     struct.pack_into("<32s", data, u32(header) + index * VEHICLE_SIZE,
                                      _pack_vehicle(vehicle, index < lane.initial))
+            for index, item in enumerate(wave.speeds):
+                struct.pack_into("<f", data, u32(base + 0x04) + 4 * index, item.speed)
     else:
         regions = _free_regions(block)
         old_sets = sets
@@ -483,6 +543,22 @@ def write_waves(bgd: bytes, event_offset: int, schedule: WaveSchedule) -> bytes:
                 fresh[0x50:WAVE_SIZE] = bytes(WAVE_SIZE - 0x50)
                 data[base:base + WAVE_SIZE] = fresh
             struct.pack_into("<f", data, base + 0x4C, wave.start)
+            old_speeds = original.waves[number].speeds if number < len(original.waves) else ()
+            keys = [(i.source, i.slot) for i in wave.speeds]
+            if keys == [(i.source, i.slot) for i in old_speeds] and keys:
+                for index, item in enumerate(wave.speeds):
+                    struct.pack_into("<f", data, struct.unpack_from("<I", data, base + 0x04)[0] + 4 * index, item.speed)
+            elif wave.speeds or old_speeds:
+                count = len(wave.speeds)
+                values = allocator.take(4 * count, 16) if count else empty_target
+                sources = allocator.take(count, 16) if count else empty_target
+                slots = allocator.take(count, 16) if count else empty_target
+                for index, item in enumerate(wave.speeds):
+                    struct.pack_into("<f", data, values + 4 * index, item.speed)
+                    data[sources + index] = item.source
+                    data[slots + index] = item.slot
+                struct.pack_into("<3I", data, base + 0x04, values, sources, slots)
+                struct.pack_into("<I", data, base + 0x40, count)
             headers = allocator.take(len(wave.lanes) * LANE_SIZE, 16) if wave.lanes else empty_target
             struct.pack_into("<2I", data, base + 0x38, headers, len(wave.lanes))
             for lane_index, lane in enumerate(wave.lanes):
@@ -512,7 +588,9 @@ def _normalised(wave: TrafficWave) -> TrafficWave:
                                  time=0.0 if i < lane.initial else float(struct.unpack("<f", struct.pack("<f", v.time))[0]))
                          for i, v in enumerate(lane.vehicles))
         lanes.append(replace(lane, entry=float(struct.unpack("<f", struct.pack("<f", lane.entry))[0]), vehicles=vehicles))
-    return replace(wave, start=float(struct.unpack("<f", struct.pack("<f", wave.start))[0]), lanes=tuple(lanes))
+    speeds = tuple(replace(item, speed=float(struct.unpack("<f", struct.pack("<f", item.speed))[0])) for item in wave.speeds)
+    return replace(wave, start=float(struct.unpack("<f", struct.pack("<f", wave.start))[0]), lanes=tuple(lanes),
+                   speeds=speeds)
 
 
 # Vehicle counts reported by the user's play tests. The editors warn; they never block.
@@ -614,7 +692,9 @@ def waves_to_dict(schedule: WaveSchedule, *, event_key: str | None = None) -> di
             lanes.append({"source": lane.source, "slot": lane.slot,
                           "path": schedule.lane_path(lane),
                           "entry_distance": _short(lane.entry), "vehicles": vehicles})
-        waves.append({"start_s": _short(wave.start), "lanes": lanes})
+        speeds = [{"source": item.source, "slot": item.slot, "path": schedule.sources[item.source].paths[item.slot],
+                   "speed": _short(item.speed)} for item in wave.speeds]
+        waves.append({"start_s": _short(wave.start), "lanes": lanes, "lane_speeds": speeds})
     result = {"format": JSON_FORMAT, "version": JSON_VERSION, "waves": waves}
     if event_key:
         result["event"] = event_key
@@ -679,7 +759,23 @@ def waves_from_dict(data: dict, base: WaveSchedule) -> WaveSchedule:
         start = raw_wave.get("start_s")
         if type(start) not in (int, float):
             raise ValueError(f"Wave {number} needs a numeric start_s.")
-        waves.append(TrafficWave(float(start), tuple(lanes)))
+        if "lane_speeds" in raw_wave:
+            speeds = []
+            for item in raw_wave["lane_speeds"] if isinstance(raw_wave["lane_speeds"], list) else [None]:
+                if (not isinstance(item, dict) or type(item.get("source")) is not int or type(item.get("slot")) is not int
+                        or type(item.get("speed")) not in (int, float)):
+                    raise ValueError(f"Wave {number}: each lane speed needs integer source/slot and a numeric speed.")
+                source, slot = item["source"], item["slot"]
+                if not 0 <= source < len(base.sources) or not 0 <= slot < len(base.sources[source].paths):
+                    raise ValueError(f"Wave {number} sets the speed of a lane this event does not have.")
+                if "path" in item and item["path"] != base.sources[source].paths[slot]:
+                    raise ValueError(f"Wave {number}: a lane speed path does not match this event's track.")
+                speeds.append(LaneSpeed(source, slot, float(item["speed"])))
+            speeds = tuple(speeds)
+        else:
+            # Files written before lane speeds were editable keep the event's speeds.
+            speeds = base.waves[number - 1].speeds if number <= len(base.waves) else ()
+        waves.append(TrafficWave(float(start), tuple(lanes), speeds))
     schedule = replace(base, waves=tuple(waves))
     validate_waves(schedule)
     return schedule

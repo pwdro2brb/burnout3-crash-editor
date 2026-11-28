@@ -55,12 +55,31 @@ the same event block or its descriptor:
 ## Traffic models
 
 - **Done (file side):** replace a model with one that another event uses in the same
-  group ([model replacement](model-replacement.md)). Waiting for a play test of
-  `Grand Slam - models test.iso`.
-- **Next:** add a model to an event that loads fewer than 12 (71 of 100 events); this
-  needs the arrays after the model groups to move inside the event block.
+  group, and add a model to events that load fewer than 12
+  ([model replacement](model-replacement.md)). Waiting for play tests of
+  `Grand Slam - models test.iso` and `Grand Slam - speed and added model test.iso`.
 - **Out of reach for now:** garage (player) cars as traffic, and loading a model that
   the event did not load while the event is running.
+
+## Why only some traffic explodes (open question)
+
+Players see that tanker trailers explode after a hard enough hit or a nearby
+explosion, that the small `COMPCAR` cars explode when crushed hard against a bus or
+truck, and that other traffic only explodes after falling off the track. What we know
+so far:
+
+- The explosion effects are named in the executable (`fxexplosionfire`,
+  `fxexplosionflash`, `fxexplosionsmoke`, `fxfire`) and used through a table of effect
+  definitions, not referenced directly by the traffic code we decoded.
+- The traffic model files have no obvious "explosive" flag. Their header holds two
+  sizes that match half the length and width of the vehicle (compact cars 2.4–3.4,
+  bigger cars and vans 3.0–4.5, buses and trucks 5.1–7.5, trams 8.5–51) and a small
+  option byte that does not single out the tanker.
+- The rule therefore looks like it lives in the game code (vehicle class or type, for
+  example the compact-car group, and the tanker model) rather than in the files.
+
+Next step: savestates taken just before and after a compact car explodes against a bus
+and a bigger car that does not, to compare the traffic objects' damage and state fields.
 
 ## Vehicle limits
 
