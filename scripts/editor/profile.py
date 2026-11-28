@@ -29,6 +29,9 @@ EDITOR_JUMP = struct.pack('<II', 0x08000000 | (0xB3000 >> 2), 0)
 PLAYER_TRANSFORM_POINTER = 0x64D388
 TRAILER_CATEGORIES = {'freight_container', 'flatbed', 'lumber_trailer', 'tanker', 'covered_trailer'}
 SUPPORTED_SINGLE_TYPES = frozenset((1, 2, 3, 5))
+# FUN_00186850 marks traffic within 250 units of a player (cleared at 275);
+# only marked vehicles get physics points. Distant traffic follows its node.
+PHYSICS_RANGE = 250.0
 
 
 class ProfileError(ValueError):
@@ -119,9 +122,9 @@ class Snapshot:
             elif row['type'] not in SUPPORTED_SINGLE_TYPES:
                 reason = 'This vehicle type is not enabled for editing yet.'
             elif not row['initialized']:
-                reason = ("The game has not initialized this vehicle's physics points yet: it does that only "
-                          "when the vehicle comes within about 250 game units of the player car. Drive "
-                          "closer and pause again, or change it in Traffic waves (on the disc).")
+                reason = ("Far from the player: the game turns on a vehicle's physics only within about "
+                          "250 game units of the player car, so it cannot be moved sideways yet. "
+                          "It can still be used as a reference to add vehicles behind it.")
             elif row.get('node_index') is None:
                 reason = 'The vehicle has no traffic node; moving across the lane width is not available.'
             elif row.get('path') in (None, 0xFF):
@@ -146,6 +149,7 @@ class Snapshot:
                 'secondary_model_id': row['secondary_model_id'],
                 'native_pair_valid': row['native_pair_valid'],
                 'can_reference': row['can_reference'],
+                'reference_far': bool(row['can_reference'] and row.get('far_reference')),
                 'reference_reason': reference_reason,
                 'can_edit_compound': row['can_edit_compound'],
                 'can_add': row['can_reference'] and model['eligible'],
@@ -158,7 +162,7 @@ class Snapshot:
                   'native_pair_valid')}
                   for row in self.models.values()]
         result = {'vehicles': vehicles, 'models': models,
-                'status': 'Jogo pausado' if self.core_paused else 'Pause the game in PCSX2 to edit.',
+                'status': 'Game paused' if self.core_paused else 'Pause the game in PCSX2 to edit.',
                 'core_paused': self.core_paused}
         if self.player:
             result['player'] = {key: list(value) for key, value in self.player.items()}
@@ -195,7 +199,9 @@ def _compound_metadata(vehicles, models):
         row['secondary_model_id'] = None
         row['native_pair_valid'] = False
         row['can_edit_compound'] = False
-        row['can_reference'] = row['editable'] and _reference_parameters_ready(row)
+        row['far_reference'] = _far_single_ready(row) and _reference_parameters_ready(row)
+        row['can_reference'] = ((row['editable'] and _reference_parameters_ready(row))
+                                or row['far_reference'])
     for primary in vehicles.values():
         child = vehicles.get(primary['child_id'])
         if not child:
@@ -214,8 +220,12 @@ def _compound_metadata(vehicles, models):
         primary['secondary_model_id'] = child['model_id']
         primary['can_edit_compound'] = _compound_layout_ready(primary, child)
         primary['editable'] = primary['can_edit_compound']
-        primary['can_reference'] = (primary['can_edit_compound']
-            and _reference_parameters_ready(primary))
+        # A distant cab keeps a valid path node even before the game places
+        # its physics points; only its path parameters are used as a reference.
+        primary['far_reference'] = (not primary.get('initialized') and primary.get('path_valid') is True
+            and primary.get('node_index') is not None and _reference_parameters_ready(primary))
+        primary['can_reference'] = ((primary['can_edit_compound']
+            and _reference_parameters_ready(primary)) or primary['far_reference'])
         truck['trailer_model_ids'].add(child['model_id'])
         trailer['truck_model_ids'].add(primary['model_id'])
     for name, model in models.items():
@@ -233,6 +243,20 @@ def _compound_metadata(vehicles, models):
         model['independent_observed_types'] = sorted(model['independent_observed_types'])
         model['trailer_model_ids'] = sorted(model['trailer_model_ids'])
         model['truck_model_ids'] = sorted(model['truck_model_ids'])
+
+
+def _far_single_ready(row):
+    """An independent vehicle outside the physics range can still be a reference.
+
+    The game simulates distant traffic only along its path node: the physics
+    points stay zero until the vehicle comes within ~250 units of the player
+    (FUN_00186850), but progress, lane fraction, speed and the node's forward
+    axis are kept up to date. In savestates the render centre of such vehicles
+    sits within 0.5 units of the spline point at (progress, lane fraction).
+    """
+    return (not row.get('initialized') and row.get('type') in SUPPORTED_SINGLE_TYPES
+            and row.get('independent') is True and row.get('path_valid') is True
+            and row.get('node_index') is not None)
 
 
 def _reference_parameters_ready(row):
@@ -523,13 +547,32 @@ def lateral_patches(state: Snapshot, vehicle_id: int, lateral_percent: float, *,
             try:
                 packed = struct.pack('<f', value)
             except (OverflowError, struct.error) as error:
-                raise ProfileError('Coordenada fora do intervalo permitido.') from error
+                raise ProfileError('Coordinate outside the admitted range.') from error
             if not math.isfinite(struct.unpack('<f', packed)[0]):
                 raise ProfileError('Non-finite coordinate.')
             patches.append(Patch(address, 4, state.memory.u32(address), struct.unpack('<I', packed)[0]))
     address = row['node']+0x34
     patches.append(Patch(address, 4, state.memory.u32(address), target_word))
     return patches
+
+
+def far_lateral_patches(state: Snapshot, vehicle_id: int, lateral_percent: float, *, experimental: bool = False) -> list[Patch]:
+    """Set only the path-node lane fraction of a vehicle without active physics.
+
+    A distant vehicle has no physics points to translate; the game places it
+    from its node (progress + lane fraction) and initializes the physics there
+    when the player comes close. The cab of a pair carries the node.
+    """
+    if type(vehicle_id) is not int or vehicle_id not in state.vehicles:
+        raise ProfileError('Select a valid vehicle from the current list.')
+    if (type(experimental) is not bool or type(lateral_percent) not in (int, float)
+            or not math.isfinite(lateral_percent) or (not experimental and not 0 <= lateral_percent <= 100)):
+        raise ProfileError('The lateral position must be between 0% and 100%.')
+    row = state.vehicles[vehicle_id]
+    if row.get('initialized') or not row.get('node') or row.get('node_index') is None or not row.get('path_valid'):
+        raise ProfileError('Only a distant vehicle with a valid path node can be aligned this way.')
+    address = row['node']+0x34
+    return [Patch(address, 4, state.memory.u32(address), _lane_fraction_word(lateral_percent/100.0))]
 
 
 def compound_lateral_patches(state: Snapshot, primary_id: int, lateral_percent: float, *, experimental: bool = False) -> list[Patch]:
@@ -564,7 +607,7 @@ def compound_lateral_patches(state: Snapshot, primary_id: int, lateral_percent: 
                 try:
                     packed = struct.pack('<f', value)
                 except (OverflowError, struct.error) as error:
-                    raise ProfileError('Coordenada fora do intervalo permitido.') from error
+                    raise ProfileError('Coordinate outside the admitted range.') from error
                 if not math.isfinite(struct.unpack('<f', packed)[0]):
                     raise ProfileError('Non-finite coordinate.')
                 patches.append(Patch(address, 4, state.memory.u32(address), struct.unpack('<I', packed)[0]))

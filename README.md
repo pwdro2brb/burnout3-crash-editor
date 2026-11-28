@@ -18,18 +18,23 @@ with or endorsed by Electronic Arts or Criterion Games.
 
 | Tool | What it does | Needs |
 | --- | --- | --- |
-| **Native events** (Traffic waves… button, or Project → Native events / traffic waves…) | Browse the 100 Crash events, edit the medal goals, the Crashbreaker wreck count, the model order and the **traffic waves**, then export the edited files or build a new ISO. | The extracted game folder (and the ISO to build a copy). The emulator can be closed. |
-| **`scripts/waves.py`** | The same traffic-wave editing from the command line, through shareable `.waves.json` files. | The extracted game folder. |
-| **Current-event editor** | Live edits of the event running in PCSX2: list vehicles, move them across the lane, add batches of cars or trucks behind a vehicle, change their speed, save and repeat scenes. | PCSX2 1.7.2521 with PINE enabled. |
+| **Events on the disc** (button **Waves & models (disc)…**) | Browse the 100 Crash events and edit them: the **traffic waves** (when and where every vehicle appears, with a timeline and "add several"), **replace a traffic model with one from another event** (a tuk-tuk in Grand Slam, a minibus…), the medal goals and the Crashbreaker wreck count. Then build a new ISO. | The extracted game folder (and the ISO to build a copy). The emulator can be closed. |
+| **`scripts/waves.py`**, **`scripts/models.py`** | The same wave editing (shareable `.waves.json` files) and model replacement from the command line. | The extracted game folder. |
+| **Current-event editor** | Live edits of the event running in PCSX2: list vehicles, move them across the lane, add batches of cars or trucks **behind one or many vehicles at once** (including far and oncoming traffic that has no physics yet), change their speed, save and repeat scenes. | PCSX2 1.7.2521 with PINE enabled. |
 
 ### How Crash traffic works
 
 Crash traffic is scripted, not random. Each event has **waves**: wave 1 places most of
 the vehicles on the road as soon as the event starts; later waves load at fixed times
 (1 to 21 seconds in the original events). Inside a wave, each lane lists vehicles that
-are either **placed** at a distance along the road when the wave loads, or **released**
-one by one at the lane's entry point at a given time. That is why many levels start
-with a big group of cars and get a smaller batch a few seconds later.
+are either **on the road** at a distance along the road when the wave loads, or
+**drive in later**, one by one at the lane's entry point at a given time. That is why
+many levels start with a big group of cars and get a smaller batch a few seconds later.
+
+Each event loads at most 12 traffic models, listed in six groups (cars, big cars and
+vans, buses, type-3 vans, truck cabs, trailers). The model files are global
+(`PVEH/COMP`, `PVEH/HEVY`), so a model used by any event can replace one of the same
+group in another event; see [model replacement](docs/model-replacement.md).
 
 Read [docs/traffic-waves.md](docs/traffic-waves.md) for the full explanation, the data
 format and the evidence behind it.
@@ -60,13 +65,16 @@ python -B scripts/editor/run_editor.py
 
 ### Make a new version of a Crash event
 
-1. In the editor, click **Traffic waves…** (top right; also **Project → Native events /
-   traffic waves…**) and choose your extracted game folder (it opens automatically if the folder sits next to this one with its default
-   name, `Burnout 3 - Takedown (USA)`).
+1. In the editor, click **Waves & models (disc)…** (top right) and choose your extracted
+   game folder (it opens automatically if the folder sits next to this one with its
+   default name, `Burnout 3 - Takedown (USA)`).
 2. Pick an event, for example **Grand Slam**.
-3. Change the goals or the Crashbreaker count in **Models and goals**, and the traffic in
-   **Traffic waves**: move a car by changing its distance, add vehicles, make a wave come
-   earlier, or add a new wave.
+3. In **Traffic waves**, the timeline shows when each wave loads. Select a wave, a lane or
+   a vehicle in the list and the panel on the right shows only what can be changed there:
+   a wave's start time, a lane's entry point and **Add several** (a queue on the road or a
+   stream of cars that drive in later), or one vehicle's model, colour and position/time.
+   In **Models and goals**, replace a model with one from another event, or change the
+   goals and the Crashbreaker count.
 4. Click **Build ISO copy…**, choose the original ISO and a new file name.
 5. Boot the new ISO in PCSX2 and enter the event from the game menu. (A savestate would
    bring back the old event data.)
@@ -84,11 +92,19 @@ Edit the JSON between `export` and `build`. Several files (several events) can b
 built into one ISO. The original files and ISO are never modified, and every output is
 read back and verified.
 
+```powershell
+python scripts/models.py --game-root "C:\Games\Burnout 3 - Takedown (USA)" show "Grand Slam"
+python scripts/models.py --game-root "C:\Games\Burnout 3 - Takedown (USA)" build "Grand Slam" --swap COMPCAR12=COMPCAR18 --iso "C:\Games\Burnout 3.iso" --out "Grand Slam - tuk-tuk.iso"
+```
+
 ### Live editing in PCSX2
 
 See the [first-use guide](docs/editor-quickstart.md). In short: load the event in the
-PCSX2 test installation, click **Connect / new session**, pause with **Pause PCSX2**,
-edit, then **Resume**. Live edits are lost when the event restarts; save a scene in the
+PCSX2 test installation, click **Connect**, pause with **Pause PCSX2**, edit, then
+**Resume**. Select several vehicles (or **Last car of each lane**) to add the same set
+behind each of them. Far vehicles, such as oncoming traffic at the start, show as
+*Far (no physics)*: you can add behind them, and the game gives the new vehicles physics
+when you get close. Live edits are lost when the event restarts; save a scene in the
 **Project** tab to repeat it.
 
 ## Documentation
@@ -97,6 +113,7 @@ edit, then **Resume**. Live edits are lost when the event restarts; save a scene
 | --- | --- |
 | How Crash traffic is scheduled and how to edit it | [traffic-waves.md](docs/traffic-waves.md) |
 | Editing events on the disc (goals, Crashbreaker, models, ISO export) | [native-crash-events.md](docs/native-crash-events.md) |
+| Using models from other events (and why not garage cars) | [model-replacement.md](docs/model-replacement.md) |
 | Live editor: first use | [editor-quickstart.md](docs/editor-quickstart.md) |
 | Live editor: status, catalogue and evidence | [editor-status.md](docs/editor-status.md) |
 | Scene projects and slots | [custom-event-projects.md](docs/custom-event-projects.md), [slots-and-mixed-traffic.md](docs/slots-and-mixed-traffic.md) |
@@ -116,6 +133,7 @@ Open Editor.cmd            Windows launcher for the editor
 config.example.json        Template for local paths (copy to config.local.json)
 scripts/
   waves.py                 Command-line traffic-wave tool
+  models.py                Command-line model replacement tool
   common.py                Shared path/config handling for the research scripts
   editor/                  Tkinter editor, PINE client, live-session profile and tests
   resources/               Readers/writers for the game files (events, paths, waves, ISO)

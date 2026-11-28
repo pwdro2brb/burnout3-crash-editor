@@ -95,12 +95,12 @@ transport failure can still interrupt the write; it is not an atomic transaction
 Physics and computed fields stay under the game's control; progress, acceleration,
 the `+0x24` field and the trailer are never written directly.
 
-**Save configuration…** keeps the speed action in the JSON recipe with the other
+**Save recipe…** keeps the speed action in the JSON recipe with the other
 actions; the recipe needs its matching initial reference, and an experimental action
 needs experimental mode when loading. A `.p2s` keeps a moment of the session.
 Restarting or changing event can rebuild the original traffic values. A vehicle seen
 after the initial reference can still be edited when it passes the profile checks,
-but **Save configuration…** refuses a recipe that depends on it.
+but **Save recipe…** refuses a recipe that depends on it.
 
 ## Basis of the interpretation
 

@@ -408,7 +408,7 @@ class EditorController:
             raise EditorError('The resume button could not find the emulator window of this connection.')
         self.pause_control.set_paused(False)
         return {'pending':self.pending is not None,'core_paused':False,'emulator_control':True,
-                'message':'PCSX2 retomado. '+('Pause again to finish the batch before driving.'
+                'message':'PCSX2 resumed. '+('Pause again to finish the batch before driving.'
                                              if self.pending else 'You can test the event.')}
 
     def _paused(self):
@@ -539,7 +539,8 @@ class EditorController:
             return {'kind':'observed','id':row['id'],'model_id':row['model_id'],'path':row['path']}
         return {'kind': 'initial', 'id': row['id'], 'model_id': row['model_id'], 'path': row['path']}
 
-    def _resolve(self, reference, snap, *, for_creation=False, experimental=False, for_speed=False):
+    def _resolve(self, reference, snap, *, for_creation=False, experimental=False, for_speed=False,
+                 allow_observed=False):
         if for_speed:
             select = self._speed_selected
         elif for_creation:
@@ -548,7 +549,9 @@ class EditorController:
             select = lambda state, index: self._selected(state,index,experimental=experimental)
         if reference.get('kind') == 'created':
             vehicle_id = self.replay_ids.get(reference.get('key'))
-        elif reference.get('kind') == 'initial':
+        elif reference.get('kind') == 'initial' or (allow_observed and reference.get('kind') == 'observed'):
+            # 'observed' (late traffic) only resolves within this session's own
+            # queue, never from a file: the slot must hold the same model/path.
             vehicle_id = reference.get('id')
             row = select(snap, vehicle_id)
             if row['model_id'] != reference.get('model_id') or row['path'] != reference.get('path'):
@@ -680,6 +683,83 @@ class EditorController:
             result['message'] += f' Alternating queue: {count-8} left; resume and pause for each group.'
         if color_mode == 'cycle':
             result['message'] += ' Visual variants 0–7: the effect on colour depends on the model and still needs confirmation.'
+        return result
+
+    def add_behind_each(self, vehicle_ids, choices, gap, count, *, experimental=False, color_mode='original'):
+        """Add ``count`` vehicles behind each selected reference ("addition set").
+
+        ``choices`` is the model sequence (``model_id`` None = the reference's own
+        model, with its native trailer for a cab). Requests run in groups of up
+        to eight per traffic update; the remainder waits in the queue and keeps
+        each chain behind the vehicle created before it.
+        """
+        if type(experimental) is not bool:
+            raise EditorError('Invalid experimental mode.')
+        if color_mode not in ('original','cycle'):
+            raise EditorError('Choose the original look or alternating visual variants.')
+        if (type(vehicle_ids) not in (list,tuple) or not 1 <= len(vehicle_ids) <= 64
+                or any(type(v) is not int for v in vehicle_ids) or len(set(vehicle_ids)) != len(vehicle_ids)):
+            raise EditorError('Select 1 to 64 different reference vehicles.')
+        per_reference = 253 if experimental else 8
+        if type(count) is not int or not 1 <= count <= per_reference:
+            raise EditorError(f'Use 1 to {per_reference} vehicles per reference.')
+        total_limit = 253 if experimental else 64
+        if count*len(vehicle_ids) > total_limit:
+            raise EditorError(f'That adds {count*len(vehicle_ids)} vehicles; the limit is {total_limit} '
+                              + ('in experimental mode.' if experimental else 'outside experimental mode.'))
+        if (type(choices) not in (list,tuple) or not 1 <= len(choices) <= 12
+                or any(not isinstance(item,dict) or set(item)-{'model_id','secondary_model_id'} for item in choices)):
+            raise EditorError('Choose 1 to 12 loaded models for the sequence.')
+        from . import batch
+        snap = self._ready()
+        plans = []
+        for vehicle_id in vehicle_ids:
+            target = batch.reference(snap,vehicle_id)
+            items = []
+            for index in range(count):
+                choice = choices[index % len(choices)]
+                model_id = choice.get('model_id') or target['model_id']
+                secondary = choice.get('secondary_model_id')
+                if (secondary is None and model_id == target['model_id']
+                        and target.get('native_pair_valid') and target.get('type') == 4):
+                    secondary = target.get('secondary_model_id')
+                batch.model_pair(snap,model_id,secondary)
+                items.append(dict(model_id=model_id,secondary_model_id=secondary,
+                                  variant=index % 8 if color_mode == 'cycle' else 0))
+            plans.append((target,items))
+        flat = [(target,item) for target,items in plans for item in items]
+        objects = sum(2 if item['secondary_model_id'] else 1 for _target,item in flat)
+        keys = list(range(self.next_key,self.next_key+len(flat)))
+        first,rest = flat[:spawncode.BATCH_MAX_REQUESTS],flat[spawncode.BATCH_MAX_REQUESTS:]
+        segments,last_key = [],{}
+        for (target,item),key in zip(first,keys):
+            if not segments or segments[-1]['vehicle_id'] != target['id']:
+                segments.append({'vehicle_id':target['id'],'items':[],'keys':[]})
+            segments[-1]['items'].append(item)
+            segments[-1]['keys'].append(key)
+            last_key[target['id']] = key
+        result = batch.stage_segments(self,segments,gap,experimental=experimental,
+                                      reserve=(len(flat),objects) if rest else None)
+        for (target,item),key in zip(rest,keys[len(first):]):
+            reference = ({'kind':'created','key':last_key[target['id']]} if target['id'] in last_key
+                         else self._reference(target))
+            operation = dict(op='add_behind',target=reference,model_id=item['model_id'],
+                             gap=float(gap),created_key=key)
+            if experimental:
+                operation['experimental'] = True
+            if item['secondary_model_id'] is not None:
+                operation['secondary_model_id'] = item['secondary_model_id']
+            if item['variant']:
+                operation['variant'] = item['variant']
+            self.replay_queue.append(operation)
+            last_key[target['id']] = key
+        self.next_key = max(self.next_key, keys[-1]+1)
+        if rest:
+            groups = -(-len(rest)//spawncode.BATCH_MAX_REQUESTS)
+            result['message'] += (f' Queue: {len(rest)} more in {groups} group(s) of up to eight; '
+                                  'resume and pause once for each group.')
+        if color_mode == 'cycle':
+            result['message'] += ' Visual variants 0–7: the effect on colour depends on the model.'
         return result
 
     def add_at(self, vehicle_id, model_id, x, z, secondary_model_id=None, *, experimental=False):
@@ -926,7 +1006,7 @@ class EditorController:
         snap = self._ready()
         source = Path(path)
         if source.stat().st_size > 131072:
-            raise EditorError('Preset grande demais.')
+            raise EditorError('The preset file is too large.')
         try:
             data = json.loads(source.read_text(encoding='utf8'))
         except (json.JSONDecodeError, UnicodeDecodeError):
@@ -1025,7 +1105,7 @@ class EditorController:
             experimental = op.get('experimental',False)
             vehicle_id = self._resolve(op['target'],snap,
                 for_creation=op['op'] in ('add_behind','add_at'),experimental=experimental,
-                for_speed=op['op']=='set_speed')
+                for_speed=op['op']=='set_speed',allow_observed=True)
             if op['op'] == 'set_speed':
                 self.set_speed(vehicle_id,op['control_value'],**({'experimental':True} if experimental else {}))
             elif op['op'] == 'move_lateral':
@@ -1038,13 +1118,41 @@ class EditorController:
                         secondary_model_id=op.get('secondary_model_id'),variant=op.get('variant',0))])
             else:
                 group = [op]
+                segments = [{'vehicle_id':vehicle_id,'ops':[op]}]
                 while self.replay_queue and len(group) < 8:
                     nxt = self.replay_queue[0]
-                    if (nxt.get('op') != 'add_behind' or nxt.get('target') != {'kind':'created','key':group[-1]['created_key']}
-                            or nxt.get('gap') != op.get('gap')
+                    if (nxt.get('op') != 'add_behind' or nxt.get('gap') != op.get('gap')
                             or nxt.get('experimental',False) != experimental):
                         break
+                    target = nxt.get('target') or {}
+                    if target == {'kind':'created','key':segments[-1]['ops'][-1]['created_key']}:
+                        segments[-1]['ops'].append(nxt)
+                    else:
+                        # Another chain whose reference already exists joins the
+                        # same traffic update; a chain on a vehicle that this
+                        # group is still creating waits for the next group.
+                        in_group = {o['created_key'] for o in group}
+                        if target.get('kind') == 'created' and target.get('key') in in_group:
+                            break
+                        try:
+                            other = self._resolve(target,snap,for_creation=True,experimental=experimental,
+                                                  allow_observed=True)
+                        except (EditorError,profile.ProfileError):
+                            break
+                        if any(segment['vehicle_id'] == other for segment in segments):
+                            break
+                        segments.append({'vehicle_id':other,'ops':[nxt]})
                     group.append(self.replay_queue.pop(0))
+                if len(segments) > 1:
+                    from .batch import stage_segments
+                    result = stage_segments(self,[{'vehicle_id':segment['vehicle_id'],
+                        'items':[dict(model_id=r['model_id'],secondary_model_id=r.get('secondary_model_id'),
+                                      variant=r.get('variant',0)) for r in segment['ops']],
+                        'keys':[r['created_key'] for r in segment['ops']]} for segment in segments],
+                        op['gap'],experimental=experimental)
+                    if self.replay_queue:
+                        result['message'] += f' Queue: {len(self.replay_queue)} left; resume and pause for the next group.'
+                    return result
                 from .batch import stage
                 result = stage(self,vehicle_id,op['model_id'],op['gap'],len(group),op.get('secondary_model_id'),
                              created_keys=[r['created_key'] for r in group],

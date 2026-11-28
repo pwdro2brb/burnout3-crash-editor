@@ -9,10 +9,10 @@ import types
 import unittest
 from unittest.mock import Mock, patch
 
-import gui
-import run_editor
-
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+import gui  # noqa: E402
+import run_editor  # noqa: E402
+
 from editor.profile import ProfileError
 from editor.pine import PineTransportError
 
@@ -45,7 +45,7 @@ class SelectionTable(Widget):
     def delete(self, *items):
         for item in items: self.rows.pop(item, None)
         self.chosen = tuple(item for item in self.chosen if item in self.rows)
-    def insert(self, _parent, _where, *, iid, values): self.rows[iid] = values
+    def insert(self, _parent, _where, *, iid, values, **_options): self.rows[iid] = values
 
 
 def app_shell(vehicle=None, *, paused=True):
@@ -114,7 +114,7 @@ class InterfaceContractTests(unittest.TestCase):
         self.assertEqual(app.lateral_scale.options['state'], 'disabled')
         self.assertEqual(app.add_button.options['state'], 'normal')
         self.assertEqual(app.count_box.options['state'], 'normal')
-        self.assertEqual(app.count_label.options['text'], 'Conjuntos')
+        self.assertEqual(app.count_label.options['text'], 'Sets')
         self.assertEqual(app.gap.get(), '30')
         self.assertEqual(set(app.secondary_choices.values()), {None, 'cargo'})
         self.assertEqual(app.secondary_choice.get(), 'Carga nativa')
@@ -305,7 +305,7 @@ class InterfaceContractTests(unittest.TestCase):
         self.assertEqual(app.catalog_table.insert.call_count, 3)
         self.assertEqual(set(app.model_choices.values()), {None, 'car', 'van'})
         self.assertEqual(app.table.insert.call_args.kwargs['values'],
-                         ('Vehicle 9', 'Car', 'car','—'))
+                         ('Vehicle 9', 'Car', 'car','—','Not active'))
 
     def test_reconnect_clears_finished_pending_state_without_mutation(self):
         app = app_shell()
@@ -1325,7 +1325,7 @@ class RouteAndSpeedTests(unittest.TestCase):
             setattr(app,name,Widget())
         app._details_resize(types.SimpleNamespace(width=280))
         app.details_canvas.itemconfigure.assert_called_once_with(17,width=280)
-        self.assertEqual(app.speed_label.options['wraplength'],256)
+        self.assertEqual(app.speed_label.options['wraplength'],216)
         app.details_canvas.configure.assert_called_once_with(scrollregion=(0,0,280,1000))
         app.closed=True
         app.details_canvas.reset_mock()
@@ -1841,5 +1841,82 @@ class AlternatingAndSlotTests(unittest.TestCase):
         app._selection_changed()
         self.assertNotIn('Add behind:',app.position_text.get())
 
+
+
+class MultiReferenceInterfaceTests(unittest.TestCase):
+    def app(self, vehicles, selected):
+        app = multi_app(vehicles, selected, focus=selected[0])
+        app.models = {'car': {'id': 'car', 'kind': 'independent', 'type': 1, 'eligible': True}}
+        app.model_choices = {'Same model as selected': None}
+        app.model_choice = Var('Same model as selected')
+        app.secondary_choices, app.secondary_choice = {}, Var('Select the trailer')
+        app.gap, app.count = Var('12'), Var('3')
+        app.experimental, app.spawn_mode, app.spawn_color = Var(False), Var('Single model'), Var('Original (0)')
+        app.mixed_model_ids = []
+        app.root = Mock()
+        return app
+
+    def vehicles(self):
+        return [{'id': 1, 'model_id': 'car', 'can_reference': True, 'path': 4, 'progress': 50.0},
+                {'id': 2, 'model_id': 'car', 'can_reference': True, 'path': 4, 'progress': 20.0},
+                {'id': 3, 'model_id': 'car', 'can_reference': True, 'reference_far': True,
+                 'initialized': False, 'path': 9, 'progress': 80.0},
+                {'id': 4, 'model_id': 'car', 'can_reference': False, 'path': 9, 'progress': 5.0}]
+
+    def test_add_behind_each_sends_every_usable_reference(self):
+        app = self.app(self.vehicles(), [1, 3, 4])
+        app._change = Mock()
+        app.controller = types.SimpleNamespace(add_behind_each=Mock(return_value={}))
+        app.add_behind()
+        label, action = app._change.call_args.args
+        self.assertIn('2 reference', label)
+        action()
+        args, kwargs = app.controller.add_behind_each.call_args
+        self.assertEqual(args, ([1, 3], [{'model_id': None, 'secondary_model_id': None}], 12.0, 3))
+        self.assertEqual(kwargs, {'experimental': False, 'color_mode': 'original'})
+
+    def test_total_over_the_normal_limit_is_refused_in_the_interface(self):
+        vehicles = [dict(v, id=i, path=i) for i, v in enumerate([self.vehicles()[0]] * 9)]
+        app = self.app(vehicles, list(range(9)))
+        app.count = Var('8')
+        app._change = Mock()
+        with patch.object(gui.messagebox, 'showinfo') as info:
+            app.add_behind()
+        app._change.assert_not_called()
+        self.assertIn('limit is 64', info.call_args.args[1])
+
+    def test_multi_text_counts_skipped_selections(self):
+        app = self.app(self.vehicles(), [1, 3, 4])
+        app.multi_text = Var('')
+        app._update_multi_text()
+        self.assertIn('2 reference vehicles', app.multi_text.get())
+        self.assertIn('6 in total', app.multi_text.get())
+        self.assertIn('1 selected vehicle(s) cannot', app.multi_text.get())
+
+    def test_lane_tails_pick_the_lowest_progress_reference_per_path(self):
+        app = self.app(self.vehicles(), [1])
+        app._selection_changed = Mock()
+        app._set_status = Mock()
+        app.select_lane_tails()
+        self.assertEqual(set(app.table.selection()), {'row-2', 'row-3'})
+
+    def test_far_reference_is_drawn_hollow_and_selectable(self):
+        app = app_shell()
+        app.map_canvas, app.table = Mock(), Mock()
+        app.map_canvas.winfo_width.return_value = 500
+        app.map_canvas.winfo_height.return_value = 400
+        app.table.selection.return_value = ()
+        app.map_view, app.player = None, None
+        app.vehicles = {'far': {'initialized': False, 'reference_far': True, 'position': [100, 0, 200]},
+                        'cold': {'initialized': False, 'position': [900, 0, 900]}}
+        app._draw_traffic()
+        self.assertEqual([hit[2] for hit in app.map_hits], ['far'])
+        fill = app.map_canvas.create_oval.call_args.kwargs['fill']
+        self.assertEqual(fill, gui.theme.PALETTE['map_bg'])
+
+    def test_physics_column_names_far_and_inactive_vehicles(self):
+        self.assertEqual(gui.physics_label({'initialized': True}), 'Active')
+        self.assertEqual(gui.physics_label({'initialized': False, 'reference_far': True}), 'Far (no physics)')
+        self.assertEqual(gui.physics_tag({'initialized': False}), 'blocked')
 
 if __name__ == '__main__': unittest.main()
