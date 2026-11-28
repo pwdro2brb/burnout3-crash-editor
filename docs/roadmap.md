@@ -35,13 +35,52 @@ The GitHub issues hold the completion criteria and results as the research advan
 To move the crash itself, the following event data still need to be decoded, all in
 the same event block or its descriptor:
 
-- the player's start position and the junction camera (resource 0 of the event
-  descriptor holds a series of matrices; candidates);
-- the `+0x9C` list of 4-byte points (0 to 24 per event). Read as a 16-bit node and a
-  16-bit path, Grand Slam's two points are (node 193, P20) and (node 322, P21), the
-  two lanes its waves use. That reading is a guess so far;
+- **Resource 0 of the event descriptor** (0x800 bytes in Grand Slam, loaded right
+  before the event block; the game relocates its two offsets at `+0x3E0`/`+0x3E4`).
+  Observed layout in Grand Slam, meanings still to be confirmed:
+  - `+0x000…+0x1DF`: six 0x50-byte transforms (3×4 rotation, position, value 0x25),
+    next to the player's starting point — candidates for the start grid;
+  - `+0x1E0…+0x25F`: four 0x20-byte entries (position, a float of 13–20, a direction)
+    in two pairs, one near the start and one near the queue of P20 — candidates for
+    the intro fly-by camera;
+  - `+0x3E0` → a list of 0x20-byte points (13 in Grand Slam, count at `+0x3F8`), each
+    a position plus a code such as `0x700…0x703`, `0x604…0x607`, `0x204…0x206`,
+    `0x408`, `0x200` (type in the high byte, index in the low byte) — candidates for
+    the bonus tokens of the junction;
+- **the `+0x9C` list** of 4-byte points (0 to 24 per event). Every one of the 725
+  points of the 100 events decodes as a valid (16-bit node, 16-bit path) position on
+  a traffic path of its track, often the same node on neighbouring lanes, and 412 of
+  them sit on lanes used by the waves. Grand Slam has (node 193, P20) and (node 322,
+  P21). Their purpose (stop lines, crash zone or the results camera) is open;
+- **the results camera.** After the countdown the camera travels along a fixed route,
+  showing each wrecked vehicle's value, and stops after the last wrecked vehicle on
+  the route or at the end of the route; in several events it stops before showing
+  every wreck. Its route data are not located yet. The next step is a few savestates
+  taken during that camera (start, middle, stop) in an event where it shows every
+  wreck and in one where it stops early, to find the camera in RAM and match it to
+  the data above;
 - the traffic sources (`+0x3C`) that bind lanes to paths, and the per-wave lane speeds;
 - the crash-zone and scoring rules (unknown location).
+
+## Vehicle limits
+
+- **The game.** The crash-physics manager holds a fixed table of 64 records of 9,264
+  bytes (`0x2430`), embedded in a larger structure with other tables after it
+  (initializer `0x001b9850`). It matches the user's observation that the game crashes
+  at around 64 crashed vehicles. Raising it would mean patching the executable to
+  move that table to free memory and fix every access to it: possible in principle,
+  large and risky, not started.
+- **The editors** do not cap the number of vehicles. They warn instead: above 50
+  vehicles the game does not work properly (lost physics or rendering), and around
+  64 crashed vehicles is where it crashed in tests. The Traffic waves tab and
+  `scripts/waves.py` count the vehicles an event can put on the road and warn only
+  when an edit goes beyond 50 and beyond the original event (four original events
+  already schedule 51 to 56 over the whole event). The live editor warns from the
+  number of vehicles present.
+- **The event block.** What does limit wave edits is the free space inside the
+  event block (fixed by the sector layout of the track file). Growing a block means
+  moving the following resources of the BGD and, in RAM, the resources loaded after
+  it; not done yet.
 
 ## Dependencies that can change the plan
 

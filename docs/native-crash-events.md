@@ -1,6 +1,6 @@
 # Editing an event in the game files
 
-Open **Open Editor.cmd → Project → Native events…**. This window works with PCSX2
+Open **Open Editor.cmd** and click **Traffic waves…** or **Project → Native events / traffic waves…**. This window works with PCSX2
 closed. Choose **Open game folder…** and pick the extracted Burnout 3 USA folder that
 contains `DATA` and `TRACKS`. If the extraction sits next to the editor with its
 default name, the window opens the catalogue automatically.

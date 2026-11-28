@@ -15,6 +15,8 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 from typing import Any, Callable, Protocol
 
+from resources.traffic_waves import density_warning
+
 
 EXPORT_DIRECTORY = Path(__file__).resolve().parents[2] / 'outputs' / 'events'
 PROJECT_DIRECTORY = Path(__file__).resolve().parents[2] / 'outputs' / 'projects'
@@ -122,7 +124,7 @@ def coordinate(value: Any) -> str:
         result = float(value)
     except (TypeError, ValueError):
         return '—'
-    return f'{result:.3f}'.replace('.', ',') if math.isfinite(result) else '—'
+    return f'{result:.3f}' if math.isfinite(result) else '—'
 
 
 def model_label(model: dict[str, Any], index: int) -> str:
@@ -187,7 +189,7 @@ def route_points(network: Any) -> list[tuple[float,float]]:
 def speed_value(value: Any) -> str:
     if type(value) not in (int,float) or not math.isfinite(value):
         return '—'
-    return f'{value:.3f}'.replace('.',',')
+    return f'{value:.3f}'
 
 
 def speed_summary(vehicle: dict[str,Any] | None, *, detailed=False) -> str:
@@ -222,6 +224,9 @@ def map_to_world(view: tuple[float, float, float], width: float, height: float,
     return result
 
 
+PHYSICS_RANGE = 250.0  # game units; FUN_00186850 marks traffic within this radius of a player
+
+
 def capacity_summary(snapshot: dict[str, Any]) -> str:
     vehicles = snapshot.get('vehicles') or []
     counts = snapshot.get('capacity') or snapshot.get('counts') or {}
@@ -238,6 +243,10 @@ def capacity_summary(snapshot: dict[str, Any]) -> str:
     warning = counts.get('physics_warning')
     if isinstance(warning, str) and warning:
         parts.append(warning)
+    independent = sum(1 for v in vehicles if v.get('type') != 11)
+    density = density_warning(independent)
+    if density:
+        parts.append(density)
     return ' · '.join(parts)
 
 
@@ -332,6 +341,9 @@ class EditorApp:
         self.connect_button.grid(row=0, column=1, rowspan=2, padx=(15, 8))
         self.refresh_button = ttk.Button(header, text='Refresh list', command=self.refresh)
         self.refresh_button.grid(row=0, column=2, rowspan=2)
+        self.waves_button = ttk.Button(header, text='Traffic waves…',
+                                       command=lambda: self.open_native_events(tab='waves'))
+        self.waves_button.grid(row=0, column=3, rowspan=2, padx=(8, 0))
         connection = ttk.Frame(container)
         connection.grid(row=1, column=0, sticky='ew', pady=(15, 4))
         connection.columnconfigure(0, weight=1)
@@ -364,7 +376,8 @@ class EditorApp:
             variable=self.experimental, command=self._experimental_changed)
         self.experimental_check.grid(row=1, column=0, sticky='w', pady=(6, 0))
         self.experimental_warning = ttk.Label(instructions,
-            text='High risk of freezes/lost physics. Save a state before testing. '
+            text='High risk of freezes/lost physics. Above 50 vehicles the game does not work properly; '
+                 'around 64 crashed vehicles it crashed in tests. Save a state before testing. '
                  'The queue uses groups of up to 8; resume and pause to finish each group.',
             foreground='#a33922', wraplength=850)
         self.experimental_warning.grid(row=2, column=0, sticky='w', pady=(4, 0))
@@ -475,7 +488,7 @@ class EditorApp:
         project_tab.columnconfigure(0, weight=1)
         project_tab.columnconfigure(1, weight=1)
         ttk.Label(project_tab, text='Name for a new project').grid(row=0, column=0, sticky='w')
-        ttk.Button(project_tab, text='Native events…', command=self.open_native_events).grid(
+        ttk.Button(project_tab, text='Native events / traffic waves…', command=self.open_native_events).grid(
             row=0, column=1, sticky='e')
         self.project_name_entry = ttk.Entry(project_tab, textvariable=self.project_name)
         self.project_name_entry.grid(row=1, column=0, columnspan=2, sticky='ew', pady=(5, 10))
@@ -611,6 +624,10 @@ class EditorApp:
             values=('Original (0)','Alternate variants (0–7)'),state='readonly',width=29)
         self.spawn_color_box.grid(row=10,column=0,sticky='ew',pady=(5,0))
         self.add_button.grid(row=11, column=0, sticky='ew', pady=(11, 0))
+        ttk.Label(addition, text='Cars that arrive later in the event (waves) are scheduled on the disc:',
+                  wraplength=300, foreground='#5f6875').grid(row=12, column=0, sticky='w', pady=(12, 0))
+        ttk.Button(addition, text='Open traffic waves…',
+                   command=lambda: self.open_native_events(tab='waves')).grid(row=13, column=0, sticky='ew', pady=(5, 0))
 
         footer = ttk.Frame(container)
         footer.grid(row=4, column=0, sticky='ew', pady=(16, 0))
@@ -698,7 +715,7 @@ class EditorApp:
             target = info.get('nominal_target_kmh')
             if type(target) not in (int,float) and type(info.get('control_value')) in (int,float):
                 target = info['control_value']*NOMINAL_KMH_PER_CONTROL
-            self.speed_target_kmh.set(f'{target:.9g}'.replace('.',',')
+            self.speed_target_kmh.set(f'{target:.9g}'
                 if type(target) in (int,float) and math.isfinite(target) else '')
         if vehicle is None:
             self.selection_text.set('Select a vehicle in the list.')
@@ -1090,9 +1107,14 @@ class EditorApp:
                 canvas.create_line(px, py, px + forward[0] / length * 23,
                                    py - forward[1] / length * 23, arrow=tk.LAST,
                                    fill='#b43c39', width=3)
+            radius = PHYSICS_RANGE * scale
+            canvas.create_oval(px - radius, py - radius, px + radius, py + radius,
+                               outline='#d08a84', dash=(4, 4), width=1)
+            canvas.create_text(px, py - radius - 3, anchor='s', fill='#b43c39',
+                               text=f'physics range ≈ {PHYSICS_RANGE:g} un.')
             canvas.create_oval(px - 5, py - 5, px + 5, py + 5,
                                fill='#b43c39', outline='#ffffff', width=1)
-            canvas.create_text(px + 9, py + 10, anchor='nw', text='Jogador', fill='#b43c39')
+            canvas.create_text(px + 9, py + 10, anchor='nw', text='Player', fill='#b43c39')
         if target is not None:
             px, py = project(target)
             if -8 <= px <= width + 8 and -8 <= py <= height + 8:
@@ -1104,7 +1126,7 @@ class EditorApp:
         canvas.create_text(15, height - 25, anchor='sw', text=f'{marker / scale:.1f} un.', fill='#5f6875')
 
     def _lateral_changed(self, _value: Any = None) -> None:
-        self.lateral_text.set(f'{self.lateral.get():.1f}%'.replace('.', ','))
+        self.lateral_text.set(f'{self.lateral.get():.1f}%')
 
     def _set_core_state(self, response: dict[str, Any]) -> None:
         if 'event_projects' in response:
@@ -1911,16 +1933,18 @@ class EditorApp:
     def confirm_project_base(self) -> None:
         self._confirm_project(base=True)
 
-    def open_native_events(self) -> None:
+    def open_native_events(self, tab: str | None = None) -> None:
         from editor.native_events_ui import NativeEventsWindow
         window = getattr(self, 'native_window', None)
         if window is None or not window.winfo_exists():
-            self.native_window = NativeEventsWindow(
+            window = self.native_window = NativeEventsWindow(
                 self.root, lambda: getattr(self, 'native_identity', None)
                 if self.connected and self.profile_valid and self.core_paused is True else None)
         else:
             window.lift()
             window.focus_set()
+        if tab == 'waves' and hasattr(window, 'show_waves'):
+            window.show_waves()
 
     def open_project(self) -> None:
         if not self._project_ready():

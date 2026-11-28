@@ -279,6 +279,13 @@ class NativeWaveTabTests(NativeEventGuiTests):
         self.assertTrue(window.close())
         self.confirm.assert_not_called()
 
+    def test_main_window_buttons_open_the_waves_tab(self):
+        self.window.tabs.select(0)
+        self.window.show_waves()
+        self.assertEqual(self.window.tabs.select(), str(self.window.waves_page))
+        self.assertIn("up to 6 on the road", self.window.wave_note.get())
+        self.assertEqual(self.window.wave_warning.cget("text"), "")
+
     def test_waves_json_round_trip_through_the_tab(self):
         window = self.window
         target = self.game / "grand.waves.json"

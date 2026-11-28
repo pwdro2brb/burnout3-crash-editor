@@ -501,9 +501,51 @@ def _normalised(wave: TrafficWave) -> TrafficWave:
     return replace(wave, start=float(struct.unpack("<f", struct.pack("<f", wave.start))[0]), lanes=tuple(lanes))
 
 
+# Vehicle counts reported by the user's play tests. The editors warn; they never block.
+DENSITY_WARNING = 50   # above this the game does not work properly (lost physics or rendering)
+DENSITY_CRASH = 64     # around this many crashed vehicles the game crashed
+
+
+def density_warning(vehicles: int, original: int | None = None) -> str:
+    """Warning text for a number of vehicles; empty up to DENSITY_WARNING.
+
+    With ``original`` (the unedited event's count) nothing is reported unless the
+    edit goes beyond it: four original events already schedule 51 to 56 vehicles
+    over the whole event, and vehicles that drive away are removed by the game.
+    """
+    if type(vehicles) is not int or vehicles <= DENSITY_WARNING:
+        return ""
+    if type(original) is int and vehicles <= original:
+        return ""
+    if vehicles >= DENSITY_CRASH:
+        return (f"{vehicles} vehicles: from {DENSITY_CRASH} on is where the game crashed in tests "
+                f"(crashed vehicles). Above {DENSITY_WARNING} it does not work properly.")
+    return (f"{vehicles} vehicles: above {DENSITY_WARNING} the game does not work properly "
+            "(lost physics or rendering).")
+
+
+def vehicle_total(schedule: WaveSchedule) -> int:
+    """Vehicles the schedule can put on the road during the event (a truck with its trailer counts once).
+
+    Timed vehicles of a lane that a later wave replaces before their time never
+    enter and are not counted. Vehicles that drive out of the area are not
+    subtracted, so this is an upper bound of what can be on the road at once.
+    """
+    total = 0
+    waves = schedule.waves
+    for number, wave in enumerate(waves):
+        for lane in wave.lanes:
+            slot = (lane.source, lane.slot)
+            cutoff = next((later.start for later in waves[number + 1:]
+                           if any((l.source, l.slot) == slot for l in later.lanes)), math.inf)
+            total += lane.initial + sum(1 for v in lane.vehicles[lane.initial:] if v.time < cutoff)
+    return total
+
+
 def describe(schedule: WaveSchedule) -> list[str]:
     """Plain-text summary used by the CLI and the editor."""
-    lines = []
+    total = vehicle_total(schedule)
+    lines = [f"Up to {total} vehicles on the road during the event."]
     for number, wave in enumerate(schedule.waves, 1):
         placed = sum(lane.initial for lane in wave.lanes)
         timed = sum(len(lane.vehicles) - lane.initial for lane in wave.lanes)

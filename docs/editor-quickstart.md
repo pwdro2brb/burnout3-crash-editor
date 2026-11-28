@@ -55,6 +55,22 @@ paused** in the test PCSX2 (`CloseOnEsc=disabled` in `PCSX2_ui.ini` in the
 researched install). The editor never changes that setting. See
 [pause and preservation](batches-trucks-and-pause.md).
 
+## Why only vehicles near the player can be edited
+
+The game builds the full physics body of a traffic vehicle only when the vehicle
+comes within about **250 game units** of the player car (the per-object update
+`FUN_00186850` marks vehicles closer than 250 units and clears the mark beyond
+275). Until then the vehicle only follows its path and its two physics points are
+still zero. In 38 savestates, all 538 vehicles inside that radius had their physics
+ready, while 223 of the 251 vehicles outside it did not.
+
+The live editor needs those physics points to move a vehicle or to add vehicles
+behind it without breaking the game's physics, so it blocks vehicles that have not
+been near the player yet; the details say so. The **Top view** draws that radius as
+a dashed circle around the player. To change vehicles that are still far away,
+drive closer and pause again, or edit the event itself in **Traffic waves** (button
+in the top-right corner), which has no distance limit.
+
 ## Create an event project
 
 In the **Project** tab, name the event and use **Create project…** with PCSX2

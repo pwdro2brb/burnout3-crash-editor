@@ -50,7 +50,7 @@ print the same listing for any event.
 
 ### In the editor window
 
-**Project → Native events… → Traffic waves** shows the waves of the selected
+**Traffic waves…** (top-right button of the editor, or **Project → Native events / traffic waves…**) shows the waves of the selected
 event as a tree (wave → lane → vehicle) next to a small map that highlights the
 lanes of the selected wave, their placed vehicles (dots) and entry points
 (triangles).
@@ -111,6 +111,17 @@ python scripts/waves.py build grand-slam.waves.json --game-root "<extracted game
 same track file; both edits are kept. Use `--files-out <folder>` instead of
 `--iso/--out` to get only the edited `GAMEDATA.BGD`. The original game files
 and ISO are never modified, and every write is read back and verified.
+
+### How many vehicles
+
+The tab, `waves.py list` and `waves.py show` report how many vehicles the event can
+put on the road (a truck with its trailer counts once; timed vehicles of a lane that a
+later wave replaces before their time are not counted; vehicles that drive away are
+not subtracted). Nothing blocks a large number: above **50** the editor warns that
+the game does not work properly, and from **64** that this is where the game crashed
+in tests (around 64 crashed vehicles). The warning appears only when an edit goes
+beyond 50 and beyond the original event, because four original events (Neon
+Nightmare, Fear Factor, Sunshine Smash, Gate Crasher) already schedule 51 to 56.
 
 ### Rules the game relies on
 

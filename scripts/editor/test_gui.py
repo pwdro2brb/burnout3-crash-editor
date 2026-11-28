@@ -971,6 +971,9 @@ class ExperimentalPlacementTests(unittest.TestCase):
         self.assertIn('Free nodes: 191', summary)
         self.assertIn('Queued: 13', summary)
         self.assertIn('Some vehicles are not ready.', summary)
+        crowded = gui.capacity_summary({'vehicles': [{'type': 1}] * 64 + [{'type': 11}] * 5})
+        self.assertIn('64 vehicles', crowded)
+        self.assertIn('crashed in tests', crowded)
 
 
 class RouteAndSpeedTests(unittest.TestCase):
@@ -990,6 +993,18 @@ class RouteAndSpeedTests(unittest.TestCase):
             center=[[-100,0,0],[100,0,0]],right=[[-100,0,5],[100,0,5]],
             arrows=[{'from':[-20,0,0],'to':[20,0,0]}],traffic_direction_verified=True)]}
         return app
+
+    def test_player_is_labelled_and_physics_range_is_drawn_around_it(self):
+        app=self.map_app()
+        app.player={'position':[10,0,0],'forward':[1,0,0]}
+        app._draw_traffic()
+        labels=[call.kwargs.get('text','') for call in app.map_canvas.create_text.call_args_list]
+        self.assertIn('Player',labels)
+        self.assertTrue(any('physics range' in label for label in labels))
+        rings=[call for call in app.map_canvas.create_oval.call_args_list if call.kwargs.get('dash')==(4,4)]
+        self.assertEqual(len(rings),1)
+        x0,_,x1,_=rings[0].args
+        self.assertGreater(x1-x0,20)
 
     def test_route_only_snapshot_fits_and_draws_loaded_ribbon_without_actors(self):
         app=self.map_app()
@@ -1060,10 +1075,10 @@ class RouteAndSpeedTests(unittest.TestCase):
     def test_nominal_and_internal_speeds_distinguish_zero_from_missing(self):
         nominal={'speed_info':dict(control_value=0,travel_value=0,nominal_target_kmh=0,
                                    nominal_travel_kmh=0)}
-        self.assertEqual(gui.speed_summary(nominal),'0,000 / 0,000')
+        self.assertEqual(gui.speed_summary(nominal),'0.000 / 0.000')
         self.assertIn('Nominal',gui.speed_summary(nominal,detailed=True))
         legacy={'speed_info':dict(control_value=0,travel_value=None,units='internal units')}
-        self.assertEqual(gui.speed_summary(legacy),'0,000 / —')
+        self.assertEqual(gui.speed_summary(legacy),'0.000 / —')
         self.assertIn('internal units',gui.speed_summary(legacy,detailed=True))
         self.assertEqual(gui.speed_summary({}),'—')
 
