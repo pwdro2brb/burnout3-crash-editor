@@ -43,6 +43,7 @@ Trailers have a separate visual argument, preserved by the editor. Details in
 | 26/11/2026 (traffic waves, English) | 444 distributable | waves module, CLI and tab; full English UI |
 | 27/11/2026 (waves button, warnings) | 448 distributable | Traffic waves… button, 50/64 vehicle warnings, physics range on the map |
 | 28/11/2026 (far references, sets, models, new look) | 492 distributable | far/oncoming references, "add behind each selected", model replacement, redesigned windows |
+| 28/11/2026 (one ISO for several events, 3D map, levels) | 505 distributable | user confirmed lane speed and added model in game; several events per ISO, 3D lane map, level numbers and shared starts |
 | 28/11/2026 (lane speeds, added models, map) | 495 distributable | user confirmed the waves ISO; lane speeds, adding models, readable lanes and pick on map, zoomable map, add-several preview, ISO progress window |
 
 "Private" tests use local captures of game memory and are not distributed.

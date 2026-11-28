@@ -45,6 +45,13 @@ Observed in an isolated PCSX2 copy, sampling the camera position 20 times per se
 So the list at `+0x3E0` is the route the preview camera follows. What the high byte of
 each code means (7, 6, 2, 4: pause, look-at, speed?) is still open.
 
+## The crash (impact) camera
+
+Traced in an isolated PCSX2 (see [event structure](event-structure.md#the-crash-cameras)):
+about two seconds before the car hit the traffic queue, the camera cut to a fixed spot
+beside the road, then followed the wreck. Its position is not stored as world
+coordinates in the track file, so the game places it at run time.
+
 ## The results tally
 
 Not observed yet: the unattended test run ended without wrecked vehicles, so no tally

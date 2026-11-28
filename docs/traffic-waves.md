@@ -59,7 +59,7 @@ disc. The **Traffic waves** tab has:
 - A **map** of the track: the lanes of the selected wave with their direction (arrow),
   their cars on the road (dots) and where late cars enter (triangles). It frames the
   selected wave or lane; use the **mouse wheel to zoom**, **drag** to move, and
-  **Whole track** / **Selected** (or double-click) to reframe it.
+  **Whole track** / **Fit** (or double-click) to reframe it.
 - The **list** (wave → lane → vehicle). Cars that drive in later are blue.
 - A **panel** that shows only what applies to the selected row:
   - a **wave**: when it loads (wave 1 always at 0), **Remove wave**, the lane speeds it
@@ -81,12 +81,18 @@ disc. The **Traffic waves** tab has:
   event's models after a confirmation (see [model replacement](model-replacement.md));
   when the event cannot load more, the editor says why.
 
+The map has a **3D** switch: the roads are drawn with their heights (stretched ×2)
+so slopes, bridges and roads on top of each other are easier to read; right-drag turns
+the view. The event list shows each event's level number and the levels that start at
+the same spot.
+
 **+ Add wave** appends an empty wave 5 s after the last one. **Export / Import waves
 JSON…** save or load the event's waves as a shareable file. Every change is checked
 against the rules below and the free space before it is accepted. **Build ISO copy…**
 shows the copy being written and verified, then reminds you how to test it: **boot the
 new ISO** in PCSX2 and enter the event from the menu (a savestate made with the
-original ISO brings the old event back).
+original ISO brings the old event back). When several events have edits that are not
+exported yet, the editor offers to put all of them in the same ISO.
 
 ### Lane speeds
 

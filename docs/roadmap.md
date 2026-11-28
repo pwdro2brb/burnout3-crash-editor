@@ -12,13 +12,26 @@ The GitHub issues hold the completion criteria and results as the research advan
 | Step | Deliverable | Status (26/11/2026) | How to recognize the result |
 | ---: | --- | --- | --- |
 | 1 | Identify the origin of the red car in Grand Slam. | **Found.** Wave 1, lane P21, 4th placed vehicle: `COMPCAR14` at distance 1486.08. | The path, direction and condition that bring the car onto the road are explained. [Issue #1](https://github.com/pwdro2brb/burnout3-crash-editor/issues/1) |
-| 2 | Move a vehicle persistently on the ISO. | **Implemented**, play test pending (`Grand Slam - waves test.iso` moves it 40 units back). | An isolated edit changes where the car appears relative to a street landmark; re-entering from the menu brings it back to the chosen point, it follows the lane and takes part in the crash. [Issue #2](https://github.com/pwdro2brb/burnout3-crash-editor/issues/2) |
+| 2 | Move a vehicle persistently on the ISO. | **Done.** The user played the waves test ISO and confirmed the edited waves work (28/11/2026). | An isolated edit changes where the car appears relative to a street landmark; re-entering from the menu brings it back to the chosen point, it follows the lane and takes part in the crash. [Issue #2](https://github.com/pwdro2brb/burnout3-crash-editor/issues/2) |
 | 3 | Edit the position on the event map. | **Partly.** The Traffic waves tab draws lanes, placed vehicles and entries; distances are typed, not dragged yet. | The author picks the target, tells lane, direction and overlapping roads apart, chooses the destination and repeats the edit without typing coordinates. [Issue #3](https://github.com/pwdro2brb/burnout3-crash-editor/issues/3) |
-| 4 | Add and remove traffic in the native definition. | **Implemented** (vehicles, lanes and waves, within the free space of the event block); play test pending. | One variant gains a car and another loses the chosen vehicle; it also works for traffic that enters after the start. [Issue #4](https://github.com/pwdro2brb/burnout3-crash-editor/issues/4) |
-| 5 | Tune behaviour and special vehicles. | **Started.** Trucks with trailers, buses and trams are scheduled like any vehicle; per-wave lane speeds are located but not editable yet. | Speed and spacing on a free road and in a queue; oncoming traffic, stopped vehicles, buses and cab-with-trailer keep their link while turning and crashing. [Issue #5](https://github.com/pwdro2brb/burnout3-crash-editor/issues/5) |
-| 6 | Create a Crash at another junction of an existing track. | Next research target. | Inside an existing menu entry, the player starts, reaches the new junction, causes the crash and reaches the results screen; the round can be repeated. [Issue #6](https://github.com/pwdro2brb/burnout3-crash-editor/issues/6) |
+| 4 | Add and remove traffic in the native definition. | **Done** (vehicles, lanes and waves, within the free space of the event block); the user confirmed it works in every level they tried. | One variant gains a car and another loses the chosen vehicle; it also works for traffic that enters after the start. [Issue #4](https://github.com/pwdro2brb/burnout3-crash-editor/issues/4) |
+| 5 | Tune behaviour and special vehicles. | **Mostly done.** Lane speeds are editable per wave (play-tested: a lane at speed 10 crawled), models can be replaced or added from other events (play-tested with the tuk-tuk). | Speed and spacing on a free road and in a queue; oncoming traffic, stopped vehicles, buses and cab-with-trailer keep their link while turning and crashing. [Issue #5](https://github.com/pwdro2brb/burnout3-crash-editor/issues/5) |
+| 6 | Create a Crash at another junction of an existing track. | **Research started** ([event structure](event-structure.md)): the traffic paths cover the whole track, so a level needs a new start grid, preview route and traffic. Next: copy or move the start grid, then a test ISO. | Inside an existing menu entry, the player starts, reaches the new junction, causes the crash and reaches the results screen; the round can be repeated. [Issue #6](https://github.com/pwdro2brb/burnout3-crash-editor/issues/6) |
 | 7 | Reopen and share a native edit project. | **Partly.** Waves travel as `.waves.json`; `scripts/waves.py build` applies several files, including two events on the same track. Goals and model order are not in the file yet. | Two people with identical extractions apply the same project and get the same files; two events sharing a track keep both edits. [Issue #7](https://github.com/pwdro2brb/burnout3-crash-editor/issues/7) |
 | 8 | Investigate an own menu entry and progress. | Not started. | If extending the catalogue is viable, an extra event appears next to the original 100, opens by name and keeps its medal after restarting the game. [Issue #8](https://github.com/pwdro2brb/burnout3-crash-editor/issues/8) |
+
+## New levels (next steps)
+
+1. **Start grid editor**: show the start (car position and heading) on the lane map, copy
+   it from another event of the same track, or place it on any lane; build a test ISO
+   where one level starts at another level's start (open question U-0003 of the ledger).
+2. **Preview route**: copy or draw the camera route of resource 0 `+0x3E0` so the
+   fly-by shows the new place.
+3. **Resource 0 `+0x1E0` entries**: find what the two pairs of points do (a RAM
+   mutation before an automatic restart can show it).
+4. **Results tally camera**: needs savestates taken during the tally.
+5. **Model previews**: decode how the parts of a `.BTV` model are placed to draw each
+   traffic model.
 
 ## Testing the first persistent move
 

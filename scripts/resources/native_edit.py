@@ -26,7 +26,7 @@ def _checked_descriptor(data, start, event, values, wrecks):
 
 def prepare_changes(root: Path, event: CrashEvent, orders, thresholds=None, *,
                     expected_orders=None, crashbreaker_wrecks=None, waves=None, expected_waves=None,
-                    model_swaps=None, model_additions=None):
+                    model_swaps=None, model_additions=None, current=None):
     """Return relative path -> (source, replacement). Omitted fields retain each original value.
 
     ``waves`` is a WaveSchedule from resources.traffic_waves; ``expected_waves``
@@ -35,11 +35,18 @@ def prepare_changes(root: Path, event: CrashEvent, orders, thresholds=None, *,
     another event (resources.model_swap); ``model_additions`` lists models the
     event should also load. Both are applied first, so ``orders`` and ``waves``
     use the final names.
+
+    ``current`` chains several events into one export: a dict of relative path ->
+    bytes already edited by earlier calls. This call starts from those bytes,
+    stores its result there and still reports (original file, edited) pairs.
     """
     stage_path = stagehed_path(root)
     track_path = bgd_path(root, event.track)
-    stage = stage_path.read_bytes()
-    track = track_path.read_bytes()
+    stage_rel, track_rel = (path.relative_to(root).as_posix() for path in (stage_path, track_path))
+    original_stage = stage_path.read_bytes()
+    original_track = track_path.read_bytes()
+    stage = current.get(stage_rel, original_stage) if current is not None else original_stage
+    track = current.get(track_rel, original_track) if current is not None else original_track
     _checked_descriptor(stage, event.stage_offset, event, event.thresholds, event.crashbreaker_wrecks)
     _checked_descriptor(track, event.bgd_stage_offset, event, event.bgd_thresholds, event.bgd_crashbreaker_wrecks)
     if struct.unpack_from("<I", track, event.bgd_stage_offset + 0x3C8)[0] != event.event_offset:
@@ -78,22 +85,52 @@ def prepare_changes(root: Path, event: CrashEvent, orders, thresholds=None, *,
         track_pos = event.bgd_stage_offset + offset
         edited_stage = edited_stage[:stage_pos] + raw + edited_stage[stage_pos + len(raw):]
         edited_track = edited_track[:track_pos] + raw + edited_track[track_pos + len(raw):]
-    changes = {path.relative_to(root).as_posix(): (old, new)
-               for path, old, new in ((stage_path, stage, edited_stage), (track_path, track, edited_track))
-               if old != new}
-    if not changes:
+    if stage == edited_stage and track == edited_track:
         raise ValueError("Change a model, a goal, the Crashbreaker count or a traffic wave before exporting.")
+    if current is not None:
+        current[stage_rel], current[track_rel] = edited_stage, edited_track
+    changes = {rel: (old, new)
+               for rel, old, new in ((stage_rel, original_stage, edited_stage), (track_rel, original_track, edited_track))
+               if old != new}
     return changes
 
 
-def export_resources(root: Path, parent: Path, event: CrashEvent, changes) -> Path:
-    """Create a unique directory, verifying each exported file against the planned bytes."""
+def prepare_many(root: Path, edits) -> dict:
+    """Combine the edits of several events into one change set.
+
+    ``edits`` is a sequence of ``(event, orders, thresholds, options)`` where
+    ``options`` are prepare_changes keyword arguments. Events that share a
+    track file (or STAGEHED.BIN) are applied one after the other.
+    """
+    current, changes = {}, {}
+    keys = set()
+    for event, orders, thresholds, options in edits:
+        if event.key in keys:
+            raise ValueError(f"Event {event.key} is listed twice.")
+        keys.add(event.key)
+        for rel, pair in prepare_changes(root, event, orders, thresholds, current=current, **options).items():
+            changes[rel] = (pair[0], pair[1])
+    for rel in changes:
+        changes[rel] = (changes[rel][0], current[rel])
+    if not changes:
+        raise ValueError("None of the events has a change to export.")
+    return changes
+
+
+def export_resources(root: Path, parent: Path, event, changes) -> Path:
+    """Create a unique directory, verifying each exported file against the planned bytes.
+
+    ``event`` is one CrashEvent or a sequence of them (one export for several events).
+    """
     root, parent = root.resolve(), parent.resolve()
+    events = list(event) if isinstance(event, (list, tuple)) else [event]
     if parent.is_relative_to(root):
         raise ValueError("Choose an output folder outside the game extraction.")
-    if not re.fullmatch(r"1G[A-Z0-9]{10}", event.key):
+    if not events or any(not re.fullmatch(r"1G[A-Z0-9]{10}", item.key) for item in events):
         raise ValueError("Invalid event key for export.")
-    allowed = {p.relative_to(root).as_posix() for p in (stagehed_path(root), bgd_path(root, event.track))}
+    event = events[0]
+    allowed = {stagehed_path(root).relative_to(root).as_posix()}
+    allowed |= {bgd_path(root, item.track).relative_to(root).as_posix() for item in events}
     if not changes or not changes.keys() <= allowed:
         raise ValueError("Unexpected files in the export.")
     for rel, (source, replacement) in changes.items():

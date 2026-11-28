@@ -144,6 +144,43 @@ class NativeEventGuiTests(unittest.TestCase):
         self.assertTrue(window.close())
         self.confirm.assert_not_called()
 
+    def test_one_export_can_hold_every_edited_event(self):
+        window = self.window
+        self.swap_first_group()                      # edit Grand Slam
+        window.focus_event(self.b.key)
+        self.swap_first_group()                      # edit the other event too
+        changes = {"DATA/STAGEHED.BIN": (b"old", b"new")}
+        many = self.replace(ui, "prepare_many", return_value=changes)
+        single = self.replace(ui, "prepare_changes", return_value=changes)
+        written = self.replace(ui, "export_resources", return_value=self.game / "result")
+        self.replace(ui.filedialog, "askdirectory", return_value=str(self.game))
+        self.confirm.return_value = True
+        window.export(False)
+        self.finish_job()
+        single.assert_not_called()
+        edits = many.call_args.args[1]
+        self.assertEqual({edit[0].key for edit in edits}, {self.a.key, self.b.key})
+        self.assertEqual([e.key for e in written.call_args.args[2]], [self.b.key, self.a.key])
+        self.assertIn("Grand Slam", window.status.get())
+        self.confirm.return_value = False
+        self.assertTrue(window.close())          # both drafts count as exported now
+
+    def test_declining_the_combined_export_keeps_the_open_event_only(self):
+        window = self.window
+        self.swap_first_group()
+        window.focus_event(self.b.key)
+        self.swap_first_group()
+        changes = {"DATA/STAGEHED.BIN": (b"old", b"new")}
+        single = self.replace(ui, "prepare_changes", return_value=changes)
+        many = self.replace(ui, "prepare_many", return_value=changes)
+        self.replace(ui, "export_resources", return_value=self.game / "result")
+        self.replace(ui.filedialog, "askdirectory", return_value=str(self.game))
+        self.confirm.return_value = False
+        window.export(False)
+        self.finish_job()
+        many.assert_not_called()
+        self.assertEqual(single.call_args.args[1], self.b)
+
     def test_crashbreaker_alone_can_be_exported_within_observed_range(self):
         folder = self.replace(ui.filedialog, "askdirectory", return_value=str(self.game))
         window = self.window
@@ -493,6 +530,32 @@ class NativeModelEditTests(unittest.TestCase):
         window.new_lane.set(options[0])
         window.add_lane()
         self.assertEqual(len(window.schedule.waves[1].lanes), 2)
+
+    def test_3d_map_matches_the_top_view_when_looking_straight_down(self):
+        import math
+        window = self.window
+        window.roads = {"path_count": 1, "paths": [{"center": [[0, 0, 0], [100, 20, 50]]}]}
+        window.wave_canvas.configure(width=300, height=200)
+        self.root.update()
+        window.map_view, window.map_cy = (50.0, 25.0, 120.0), 10.0
+        flat, _ = window._map_frame()
+        window.map_3d.set(True)
+        window.map_yaw, window.map_pitch = 0.0, math.pi / 2
+        top, _ = window._map_frame()
+        for point in ([0, 0, 0], [100, 20, 50], [30, -5, 80]):
+            self.assertAlmostEqual(flat(point)[0], top(point)[0], places=6)
+            self.assertAlmostEqual(flat(point)[1], top(point)[1], places=6)
+        window.map_pitch = 0.3  # tilted: a higher point is drawn higher on screen
+        tilted, _ = window._map_frame()
+        self.assertLess(tilted([50, 40, 25])[1], tilted([50, 0, 25])[1])
+
+    def test_level_number_and_shared_start_appear_in_the_heading(self):
+        window = self.window
+        window.numbers = {self.event.key: 8}
+        window.places = {self.event.key: {"shared_with": []}}
+        window.event = None
+        window.select()
+        self.assertIn("Level 8", window.heading.get())
 
     def test_add_several_shows_a_preview_before_adding(self):
         window = self.window
