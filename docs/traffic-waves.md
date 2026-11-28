@@ -223,9 +223,10 @@ block, and the waves read back from the ISO equal the requested file.
   confirm the disc path end to end. The test ISO for that is described below.
 - The clock starts with the event; whether it counts from the moment the
   event loads or from "GO" was not measured separately.
-- A flag at `0x00665ea0` (set by some front-end routines) makes the game release
-  every vehicle with a time of 45 s or less as soon as possible. Normal Crash
-  play had it at 0 in every savestate. Its purpose is unknown.
+- The flag at `0x00665ea0` is the **preview fly-by** shown before the countdown: while
+  it is set, every vehicle due before 45 s is released at once and later waves load
+  0.1 s apart, so the preview shows the whole traffic (observed in an isolated PCSX2;
+  see [event cameras](event-cameras.md)). Normal play runs with it at 0.
 - Not named yet: the source flags, the per-wave density and 0x48/0x10-byte
   tables, the `+0x9C` point list and the upper bits of the event flags at
   `+0xB4`. They are preserved byte for byte.

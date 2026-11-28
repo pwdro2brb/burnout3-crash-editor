@@ -104,6 +104,7 @@ edit, then **Resume**. Live edits are lost when the event restarts; save a scene
 | Paths and speed | [routes-and-speed.md](docs/routes-and-speed.md) |
 | Capacity, trucks and late traffic | [traffic-capacity-and-trucks.md](docs/traffic-capacity-and-trucks.md) |
 | Dense scenes and the VIF assert | [high-density-experiments.md](docs/high-density-experiments.md) |
+| Preview fly-by and results cameras | [event-cameras.md](docs/event-cameras.md) |
 | Research history and early findings | [project-history.md](docs/project-history.md), [findings.md](docs/findings.md) |
 | Milestones | [repositioning](docs/repositioning-milestone.md), [moving traffic](docs/moving-traffic-reference.md), [vehicle creation](docs/vehicle-creation-milestone.md) |
 | What comes next | [roadmap.md](docs/roadmap.md) |
