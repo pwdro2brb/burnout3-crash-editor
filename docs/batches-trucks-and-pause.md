@@ -149,7 +149,7 @@ incompatible.
 
 | File | What it keeps | How to reuse it |
 | --- | --- | --- |
-| JSON from **Save configuration…** | Recipe of actions and initial reference | Reload exactly the initial state, connect and open the recipe |
+| JSON from **Save recipe…** | Recipe of actions and initial reference | Reload exactly the initial state, connect and open the recipe |
 | `.p2s` from **Save state…** | Capture of the edited emulator session | Load the matching game and restore the file in PCSX2 |
 
 Exporting a state needs a confirmed pause and nothing pending. The suggested

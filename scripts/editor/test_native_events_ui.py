@@ -164,7 +164,7 @@ class NativeEventGuiTests(unittest.TestCase):
         dialog = self.replace(ui.filedialog, "askdirectory", return_value=str(self.game))
         window = self.window
         window.export(False)
-        self.assertIn("Change the model order", window.status.get())
+        self.assertIn("Change a model", window.status.get())
         window.fields[0].insert("end", "x")
         window.export(False)
         self.assertIn("whole numbers", window.status.get())
@@ -302,3 +302,81 @@ class NativeWaveTabTests(NativeEventGuiTests):
         target.write_text(__import__("json").dumps(data), encoding="utf-8")
         window.import_waves_json()
         self.assertIn("belongs to event", window.status.get())
+
+    def test_add_several_fills_a_lane_on_the_road_and_later(self):
+        window = self.window
+        self.pick("w0/l0")
+        window.quick_model.set("COMPCAR12")
+        window.quick_count.set("2")
+        window.quick_role.set("placed")
+        _set = ui._set
+        _set(window.quick_spacing, "20")
+        window.add_vehicles_to_lane()
+        lane = window.schedule.waves[0].lanes[0]
+        placed = [round(v.distance, 1) for v in lane.vehicles[:lane.initial]]
+        self.assertEqual(placed[-2:], [115.0, 95.0])
+        window.quick_role.set("released")
+        _set(window.quick_start, "2")
+        _set(window.quick_every, "0.5")
+        window.add_vehicles_to_lane()
+        lane = window.schedule.waves[0].lanes[0]
+        times = [round(v.time, 2) for v in lane.vehicles[lane.initial:]]
+        self.assertEqual(times, [0.5, 2.0, 2.5])
+        self.assertIn("drive in from 2 s", window.status.get())
+
+    def test_inspector_shows_only_the_selected_level(self):
+        window = self.window
+        self.pick("w1")
+        self.assertTrue(window.wave_panel.winfo_ismapped() or window.wave_panel.grid_info())
+        self.assertFalse(window.vehicle_panel.grid_info())
+        self.pick("w0/l0/v0")
+        self.assertTrue(window.vehicle_panel.grid_info())
+        self.assertFalse(window.lane_panel.grid_info())
+        self.assertIn("On the road", window.inspector_text.get())
+
+
+class NativeModelReplaceTests(NativeWaveTabTests):
+    """Replacing a model renames it in the groups and the waves of the draft."""
+
+    def test_replace_model_updates_groups_waves_and_export(self):
+        window = self.window
+        self.window.tabs.select(window.models_page)
+        window.models.selection_set("0/1")
+        window.model_selected()
+        options = window.replacement.cget("values")
+        self.assertTrue(any(o.startswith("COMPCAR18") for o in options))
+        window.replacement.set(next(o for o in options if o.startswith("COMPCAR18")))
+        window.replace_model()
+        self.assertEqual(window.orders[0], ("COMPCAR14", "COMPCAR18"))
+        names = {v.model for w in window.schedule.waves for l in w.lanes for v in l.vehicles}
+        self.assertIn("COMPCAR18", names)
+        self.assertNotIn("COMPCAR12", names)
+        self.assertIn("replaces COMPCAR12", window.models.item("0/1", "values"))
+        prepared = self.replace(ui, "prepare_changes", return_value={"x": (b"a", b"b")})
+        self.replace(ui, "export_resources", return_value=self.game / "result")
+        self.replace(ui.filedialog, "askdirectory", return_value=str(self.game))
+        window.export(False)
+        self.finish_job()
+        self.assertEqual(prepared.call_args.kwargs["model_swaps"], {"COMPCAR12": "COMPCAR18"})
+        self.assertNotIn("waves", prepared.call_args.kwargs)
+        # Replacing back with the original removes the change.
+        window.models.selection_set("0/1")
+        window.model_selected()
+        window.replacement.set(next(o for o in window.replacement.cget("values") if o.startswith("COMPCAR12")))
+        window.replace_model()
+        self.assertEqual(window.swaps, ())
+        self.assertEqual(window.schedule, self.base)
+
+    def test_wave_edit_after_a_replacement_validates_against_the_original_file(self):
+        window = self.window
+        window.models.selection_set("0/1")
+        window.model_selected()
+        window.replacement.set(next(o for o in window.replacement.cget("values") if o.startswith("COMPCAR18")))
+        window.replace_model()
+        self.pick("w0/l0")
+        window.quick_model.set("COMPCAR18")
+        window.quick_count.set("1")
+        window.add_vehicles_to_lane()
+        lane = window.schedule.waves[0].lanes[0]
+        self.assertEqual(lane.vehicles[lane.initial - 1].model, "COMPCAR18")
+

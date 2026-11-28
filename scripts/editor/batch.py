@@ -44,13 +44,52 @@ class BatchPending:
     physics_wait_started: float | None = None
     physics_wait_polls: int = 0
     items: list[dict] | None = None
+    # One entry per request when a batch spans several references (paths):
+    # {'path', 'lateral', 'target_ref'}. None keeps the single-chain layout.
+    requests_meta: list[dict] | None = None
 
 
 def reference(snapshot, vehicle_id):
     row = snapshot.vehicles.get(vehicle_id) if type(vehicle_id) is int else None
     if not row or not row.get('can_reference', row.get('editable', False)):
-        raise EditorError('Select a vehicle with an initialized path and physics to act as the reference.')
+        raise EditorError('Select a vehicle with a valid traffic path to act as the reference.')
     return row
+
+
+def _occupied(peer):
+    """Position of a peer that already occupies its path, or None.
+
+    Distant traffic has no physics points, but its render centre follows the
+    path node, so it still blocks a stretch of road.
+    """
+    if not (peer.get('initialized') or peer.get('far_reference')):
+        return None
+    position = peer.get('position')
+    if (not isinstance(position,(list,tuple)) or len(position) != 3
+            or not all(type(v) in (int,float) and math.isfinite(v) for v in position)):
+        return None
+    return position
+
+
+def beyond_physics(snapshot, row) -> bool:
+    """True when a vehicle is outside the player's physics range (~250 units).
+
+    The game initializes physics points only inside that range, so a new
+    vehicle there legitimately stays without physics until the player nears.
+    Without a readable player position nothing is assumed.
+    """
+    player = getattr(snapshot,'player',None)
+    position = row.get('position')
+    if not isinstance(player,dict) or not isinstance(position,(list,tuple)) or len(position) != 3:
+        return False
+    origin = player.get('position')
+    try:
+        values = [float(v) for v in list(position)+list(origin)]
+    except (TypeError,ValueError):
+        return False
+    if len(values) != 6 or not all(math.isfinite(v) for v in values) or not any(values[:3]):
+        return False
+    return math.dist(values[:3],values[3:]) >= profile.PHYSICS_RANGE
 
 
 def model_pair(snapshot, model_id, secondary_model_id):
@@ -176,9 +215,9 @@ def stage(editor, vehicle_id, model_id, gap, count, secondary_model_id=None, *, 
             progress,point = projection['progression'],projection['point']
         if not experimental:
             for peer in snap.vehicles.values():
-                if peer['id'] != target['id'] and peer.get('initialized') and peer.get('path') == target['path']:
-                    if math.dist(point,peer['position']) < 6:
-                        raise EditorError('The batch would pass through an existing vehicle. Increase the distance or change the reference.')
+                occupied = _occupied(peer) if peer['id'] != target['id'] and peer.get('path') == target['path'] else None
+                if occupied is not None and math.dist(point,occupied) < 6:
+                    raise EditorError('The batch would pass through an existing vehicle. Increase the distance or change the reference.')
             if projection is not None and math.dist(point,target['position']) < 6:
                 raise EditorError('The point is too close to the reference. Choose another point or use experimental mode.')
         if not experimental and any(math.dist(point,previous) < 6 for previous in positions):
@@ -241,6 +280,190 @@ def stage(editor, vehicle_id, model_id, gap, count, secondary_model_id=None, *, 
     message = f'Batch of {count} prepared. Resume PCSX2 once and pause again to finish them all.'
     if projection:
         message += f" Point snapped to path {target['path']}; X/Z difference: {projection['error_distance']:.2f}."
+    if experimental:
+        message += ' Experimental mode: high risk of freezes and lost physics.'
+    return {'pending':True,'core_paused':True,'message':message}
+
+
+def stage_segments(editor, segments, gap, *, experimental=False, reserve=None):
+    """Stage one batch that adds vehicles behind several references at once.
+
+    ``segments`` is a list of ``{'vehicle_id', 'items', 'keys'}``: each segment
+    is a chain behind its own reference (possibly on different paths). All
+    requests still run in one traffic update (at most eight), every position is
+    planned before the first write, and the same capacity, hook and spacing
+    checks as ``stage`` apply. ``reserve`` = ``(vehicles, objects)`` reserves
+    pool space for the queued remainder of a larger request.
+    """
+    if type(experimental) is not bool:
+        raise EditorError('Invalid experimental mode.')
+    if (type(gap) not in (int,float) or not math.isfinite(gap)
+            or (gap <= 0 if experimental else not 8 <= gap <= 50)):
+        raise EditorError('Use a positive finite distance.' if experimental else
+                          'Use a distance between 8 and 50 game units.')
+    if type(segments) not in (list,tuple) or not segments:
+        raise EditorError('Choose at least one reference vehicle.')
+    count = sum(len(segment.get('items') or ()) for segment in segments)
+    if not 1 <= count <= spawncode.BATCH_MAX_REQUESTS:
+        raise EditorError('A batch holds 1 to 8 vehicles; the rest waits in the queue.')
+    snap = editor._ready()
+    plans = []
+    seen_targets = set()
+    for segment in segments:
+        if not isinstance(segment,dict) or set(segment)-{'vehicle_id','items','keys'}:
+            raise EditorError('Invalid batch segment.')
+        target = reference(snap,segment.get('vehicle_id'))
+        if target['id'] in seen_targets:
+            raise EditorError('Each reference vehicle can appear only once in a batch.')
+        seen_targets.add(target['id'])
+        items = []
+        for item in segment.get('items') or ():
+            if (not isinstance(item,dict) or set(item)-{'model_id','secondary_model_id','variant'}
+                    or type(item.get('variant',0)) is not int or not 0 <= item.get('variant',0) <= 7):
+                raise EditorError('Invalid model or visual variant in the sequence.')
+            model_id = item.get('model_id') or target['model_id']
+            primary,child = model_pair(snap,model_id,item.get('secondary_model_id'))
+            items.append(dict(model_id=model_id,model_hash=primary['model_hash'],type=primary['type'],
+                secondary_model_id=item.get('secondary_model_id'),
+                secondary_model_hash=child['model_hash'] if child else 0,variant=item.get('variant',0)))
+        if not items:
+            raise EditorError('Each reference needs at least one vehicle.')
+        if (not experimental and gap < 30 and
+                (any(item['secondary_model_id'] or item['type'] == 5 for item in items)
+                 or target.get('native_pair_valid') or target['type'] == 5)):
+            raise EditorError('Use a distance of 30 to 50 units for buses or cab-and-trailer sets.')
+        plans.append((target,items,segment.get('keys')))
+    needed = sum(2 if item['secondary_model_id'] else 1 for _t,items,_k in plans for item in items)
+    vehicles_needed,objects_needed = (count,needed) if reserve is None else reserve
+    if (type(vehicles_needed) is not int or type(objects_needed) is not int
+            or not count <= vehicles_needed <= 253 or not needed <= objects_needed <= 506):
+        raise EditorError('The amount exceeds the known traffic capacity.')
+    counts = snap.inspection['counts']
+    if (counts['free_objects'] < objects_needed+1 or counts['free_nodes'] < vehicles_needed
+            or counts['active_objects']+objects_needed+1 > counts['capacity_budget_byte_0x363ab']):
+        raise EditorError('The batch exceeds the space available in the traffic pools.')
+    collision_count = snap.memory.u32(0x55EF70+0x1CB70)
+    endpoint_count = snap.memory.u32(0x55EF70+0x1CB74)
+    if (not 0 <= collision_count <= 1224-needed
+            or not 0 <= endpoint_count <= 2448-2*needed):
+        raise EditorError('The batch exceeds the space available in the collision records.')
+    if snap.memory.u8(0x527440+0x363BE):
+        raise EditorError('The game is blocking new instances right now.')
+    if editor.client.read_bytes(spawncode.HOOK,8) != spawncode.ORIGINAL:
+        raise EditorError("The event's code changed. Reload a clean reference.")
+    if editor.client.read_bytes(spawncode.CAVE,4096) not in (bytes(4096), spawncode.clean_batch_scratch()):
+        raise EditorError('There is a temporary request in memory. Click Finish pending request before creating another batch.')
+    # Plan every chain before the first write.
+    keys_all = []
+    next_key = editor.next_key
+    for _target,items,keys in plans:
+        if keys is None:
+            keys = list(range(next_key,next_key+len(items)))
+        keys = list(keys)
+        if len(keys) != len(items):
+            raise EditorError('Invalid batch identifiers.')
+        keys_all.append(keys)
+        next_key = max([next_key]+[k+1 for k in keys if type(k) is int])
+    flat_keys = [k for keys in keys_all for k in keys]
+    if len(set(flat_keys)) != len(flat_keys) or any(type(k) is not int or not 1 <= k <= 10000 for k in flat_keys):
+        raise EditorError('Invalid batch identifiers.')
+    requests, meta, flat_items, planned_points = [], [], [], []
+    for (target,items,_keys),keys in zip(plans,keys_all):
+        progress = target['progress']
+        origin = profile.lane(snap.memory,target['path'],progress,target['lateral'])['point']
+        residual = [target['position'][k]-origin[k] for k in range(3)]
+        for index,item in enumerate(items):
+            options = {'node':target['node']}
+            if experimental:
+                options['experimental'] = True
+            progress = profile.behind_progress(snap.memory,target['path'],progress,
+                target['lateral'],float(gap),**options)
+            point = profile.lane(snap.memory,target['path'],progress,target['lateral'])['point']
+            point = [point[k]+residual[k] for k in range(3)]
+            if not experimental:
+                for peer in snap.vehicles.values():
+                    occupied = (_occupied(peer) if peer['id'] not in seen_targets
+                                and peer.get('path') == target['path'] else None)
+                    if occupied is not None and math.dist(point,occupied) < 6:
+                        raise EditorError('The batch would pass through an existing vehicle. Increase the distance or change the reference.')
+                for other in snap.vehicles.values():
+                    if (other['id'] in seen_targets and other['id'] != target['id']
+                            and other.get('path') == target['path']):
+                        occupied = _occupied(other)
+                        if occupied is not None and math.dist(point,occupied) < 6:
+                            raise EditorError('A chain would reach another selected vehicle on the same lane. '
+                                              'Use fewer vehicles or a shorter distance.')
+                if any(path == target['path'] and math.dist(point,previous) < 6
+                       for path,previous in planned_points):
+                    raise EditorError('The batch positions ended up too close on this path.')
+            planned_points.append((target['path'],point))
+            requests.append(dict(manager=spawncode.MANAGER,type_code=item['type'],
+                model_hash=item['model_hash'],path_descriptor=profile.PATHS+target['path']*profile.PATH_STRIDE,
+                progression=progress,speed=target['speed'],spacing=target['spacing_scalar'],
+                variant=item['variant'],secondary_type_code=11 if item['secondary_model_id'] else 0,
+                secondary_model_hash=item['secondary_model_hash']))
+            meta.append(dict(path=target['path'],lateral=target['lateral'],
+                target_ref=target if index == 0 else {'kind':'created','key':keys[index-1]}))
+            flat_items.append(item)
+    if not getattr(editor,'completion_history_loaded',False):
+        from .recovery import known_completion_tokens
+        editor.completion_tokens.update(known_completion_tokens(editor.journal_dir))
+        editor.completion_history_loaded = True
+    for _ in range(32):
+        nonce = secrets.token_bytes(16)
+        if spawncode.completion_token(nonce) not in editor.completion_tokens:
+            break
+    else:
+        raise EditorError('Could not reserve a new identifier for the batch. No write was applied.')
+    payload = spawncode.build_batch(requests,nonce=nonce)
+    editor.completion_tokens.add(payload['completion_token'])
+    editor._start_recipe(snap)
+    editor.recovery_digest = _state_digest(snap)
+    for request in meta:
+        # The first request of each chain targets its reference vehicle; the
+        # baseline must exist before a reference is classified.
+        if 'kind' not in request['target_ref']:
+            request['target_ref'] = editor._reference(request['target_ref'])
+    first = flat_items[0]
+    editor.pending = BatchPending(payload['scratch_bytes'],payload['hook_bytes'],nonce.hex(),
+        first['model_id'],first['model_hash'],first['type'],first['secondary_model_id'],
+        first['secondary_model_hash'],meta[0]['path'],meta[0]['lateral'],
+        set(snap.vehicles),meta[0]['target_ref'],float(gap),flat_keys,
+        [p['address'] for p in payload['probes']],
+        (spawncode.DATA-spawncode.CAVE,)+tuple(p['offset']+o for p in payload['probes'] for o in (0,4,8)),
+        payload['clean_scratch'],payload['completion_address'],payload['completion_token'],
+        (payload['hook_bytes'],payload['hook_bytes'][:4]+spawncode.ORIGINAL[4:],spawncode.ORIGINAL),
+        time.monotonic())
+    editor.pending.experimental = experimental
+    editor.pending.items = flat_items
+    editor.pending.requests_meta = meta
+    editor.next_key = max(editor.next_key,max(flat_keys)+1)
+    try:
+        editor.client.write_bytes(spawncode.CAVE,payload['scratch_bytes'])
+        if editor.client.read_bytes(spawncode.CAVE,4096) != payload['scratch_bytes']:
+            raise EditorError('The batch setup did not check out.')
+        editor.client.apply_patch([
+            Patch(spawncode.HOOK,4,_word(spawncode.ORIGINAL[:4]),_word(payload['hook_bytes'][:4])),
+            Patch(spawncode.HOOK+4,4,_word(spawncode.ORIGINAL[4:]),_word(payload['hook_bytes'][4:]))])
+    except Exception:
+        editor.unsafe = True
+        editor._journal('batch_stage_unconfirmed',nonce=nonce.hex())
+        raise EditorError('The batch setup could not be confirmed. Reload the clean reference.')
+    editor._journal('batch_staged',nonce=nonce.hex(),model_id=first['model_id'],
+        secondary_model_id=first['secondary_model_id'],count=count,gap=float(gap),
+        paths=sorted({m['path'] for m in meta}),references=[t['id'] for t,_i,_k in plans],
+        completion_token=payload['completion_token'],format_version=payload['format_version'],
+        experimental=experimental,requested_count=vehicles_needed,
+        capacity=dict(counts,colliders=collision_count,endpoints=endpoint_count),
+        items=[dict(model_id=item['model_id'],secondary_model_id=item['secondary_model_id'],
+                    variant=item['variant'],type_code=item['type']) for item in flat_items],
+        progressions=[r['progression'] for r in requests])
+    far = sum(1 for t,_i,_k in plans if not t.get('initialized'))
+    message = (f'Batch of {count} behind {len(plans)} reference(s) prepared. '
+               'Resume PCSX2 once and pause again to finish them all.')
+    if far:
+        message += (f' {far} reference(s) are far from the player: their new vehicles start without '
+                    'physics and the game turns it on when you get close.')
     if experimental:
         message += ' Experimental mode: high risk of freezes and lost physics.'
     return {'pending':True,'core_paused':True,'message':message}
@@ -324,23 +547,30 @@ def poll(editor):
         snap = editor._snapshot(pending=True)
     except profile.ProfileError as error:
         return _wait_for_physics(editor,pending,reason='profile_not_ready',detail=str(error))
-    selected,seen,cold = [],set(),[]
+    selected,seen,cold,far = [],set(),[],set()
     invalid = False
     expected_items = pending.items or [dict(model_id=pending.model_id,model_hash=pending.model_hash,
         type=pending.type_code,secondary_model_id=pending.secondary_model_id,
         secondary_model_hash=pending.secondary_model_hash,variant=0) for _ in probes]
-    if len(expected_items) != len(probes):
+    meta = getattr(pending,'requests_meta',None) or [dict(path=pending.path,lateral=pending.lateral)
+                                                     for _ in probes]
+    if len(expected_items) != len(probes) or len(meta) != len(probes):
         raise EditorError('The batch description does not match the prepared requests.')
-    for (_state,object_ptr,node_ptr),item in zip(probes,expected_items):
+    for (_state,object_ptr,node_ptr),item,request in zip(probes,expected_items,meta):
         index = (object_ptr-profile.VEHICLES)//profile.VEHICLE_STRIDE
         row = snap.vehicles.get(index)
         if (not object_ptr or object_ptr != profile.VEHICLES+index*profile.VEHICLE_STRIDE
                 or index in pending.old_ids or index in seen or not row
                 or row['node'] != node_ptr or row['model_hash'] != item['model_hash']
-                or row['type'] != item['type'] or row['path'] != pending.path):
+                or row['type'] != item['type'] or row['path'] != request['path']):
             invalid = True
             break
         seen.add(index)
+        # Outside the player's physics range the game keeps new traffic on its
+        # path node only; that is the expected state, not a failed creation.
+        distant = not row['initialized'] and beyond_physics(snap,row)
+        if distant:
+            far.add(index)
         if item['secondary_model_id'] is not None:
             child = snap.vehicles.get(row.get('child_id'))
             if (not row.get('native_pair_valid') or not child or child['id'] in pending.old_ids
@@ -349,7 +579,7 @@ def poll(editor):
                 invalid = True
                 break
             seen.add(child['id'])
-            if not child['initialized']:
+            if not child['initialized'] and not distant:
                 cold.append(child['id'])
             else:
                 try:
@@ -363,7 +593,7 @@ def poll(editor):
         elif not row['independent']:
             invalid = True
             break
-        if not row['initialized']:
+        if not row['initialized'] and not distant:
             cold.append(row['id'])
         else:
             try:
@@ -384,9 +614,10 @@ def poll(editor):
         return _wait_for_physics(editor,pending,reason='physics_not_ready',vehicle_ids=cold)
     patches = []
     try:
-        for row in selected:
+        for row,request in zip(selected,meta):
             options = {'experimental':True} if pending.experimental else {}
-            patches.extend(profile.lateral_patches(snap,row['id'],pending.lateral*100,**options))
+            align = profile.far_lateral_patches if row['id'] in far else profile.lateral_patches
+            patches.extend(align(snap,row['id'],request['lateral']*100,**options))
     except profile.ProfileError as error:
         return _wait_for_physics(editor,pending,reason='alignment_not_ready',
             vehicle_ids=[row['id'] for row in selected],detail=str(error))
@@ -400,9 +631,10 @@ def poll(editor):
         raise EditorError('The batch finish could not be confirmed. Reload the clean reference.')
     editor.pending = None
     target_ref = pending.target_ref
-    for row,key,item in zip(selected,pending.created_keys,expected_items):
+    for row,key,item,request in zip(selected,pending.created_keys,expected_items,meta):
         editor.actor_keys[row['id']] = key
         editor.replay_ids[key] = row['id']
+        target_ref = request.get('target_ref',target_ref)
         operation = {'op':'add_behind','target':target_ref,'model_id':item['model_id'],
             'gap':pending.gap,'created_key':key}
         if pending.at_point is not None:
@@ -418,7 +650,8 @@ def poll(editor):
         target_ref = {'kind':'created','key':key}
     editor._journal('batch_finished',nonce=pending.nonce,
         new_vehicle_ids=[row['id'] for row in selected],count=len(selected),
-        model_id=pending.model_id,secondary_model_id=pending.secondary_model_id)
+        model_id=pending.model_id,secondary_model_id=pending.secondary_model_id,
+        distant_vehicle_ids=sorted(far))
     if editor.replay_queue:
         try:
             result = editor._continue_recipe()
@@ -429,6 +662,9 @@ def poll(editor):
         result.setdefault('new_vehicle_id',selected[-1]['id'])
         result.setdefault('new_vehicle_ids',[row['id'] for row in selected])
         return result
+    message = f'{len(selected)} vehicle(s) added and batch finished. You can resume to test.'
+    if far:
+        message += (f' {len(far)} of them are far from the player and have no physics yet; '
+                    'the game turns it on when you get within about 250 units.')
     return {'pending':False,'core_paused':True,'new_vehicle_id':selected[-1]['id'],
-        'new_vehicle_ids':[row['id'] for row in selected],
-        'message':f'{len(selected)} vehicle(s) added and batch finished. You can resume to test.'}
+        'new_vehicle_ids':[row['id'] for row in selected],'message':message}

@@ -87,7 +87,7 @@ class ReferenceEligibilityTests(unittest.TestCase):
                 self.assertEqual(state.memory.data,before)
 
     def test_public_reasons_distinguish_cold_missing_node_and_missing_path(self):
-        for changes,expected in ((dict(initialized=False),'physics points'),
+        for changes,expected in ((dict(initialized=False),'250 game units'),
                                  (dict(node_index=None),'traffic node'),
                                  (dict(path=255),'traffic path')):
             with self.subTest(changes=changes):

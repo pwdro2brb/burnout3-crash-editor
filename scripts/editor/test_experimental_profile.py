@@ -113,7 +113,7 @@ class ExperimentalProfileTests(unittest.TestCase):
         state=self.fixture()
         before=dict(state.memory.data)
         # Fraction1e38 fits float32, but the ten-unit lane delta does not.
-        with self.assertRaisesRegex(profile.ProfileError,'Coordenada'):
+        with self.assertRaisesRegex(profile.ProfileError,'Coordinate'):
             profile.lateral_patches(state,9,1e40,experimental=True)
         self.assertEqual(state.memory.data,before)
 

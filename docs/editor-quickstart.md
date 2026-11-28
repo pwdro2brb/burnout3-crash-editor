@@ -24,14 +24,14 @@ copy of the emulator and keep a reference state of the event before editing.
    `[EmuCore]`: `EnablePINE=enabled`. Close the emulator before editing that
    file, keep a copy and restart it afterwards. Only change the test
    installation. The default port is 28011 and the connection is local only.
-3. Open **Open Editor.cmd** in the project folder and click **Connect / new session**.
+3. Open **Open Editor.cmd** in the project folder and click **Connect**.
 4. When shown, use **Pause PCSX2** and **Resume** in the editor. They identify
    the installation behind the PINE connection and confirm the pause through
    the emulator. Otherwise use **System → Pause** in the right PCSX2 window.
    **Start** in the game's own pause menu does not replace a core pause.
-5. Select a vehicle in **Vehicles present** to see its model and position.
+5. Select a vehicle in **Vehicles** to see its model and position.
    **Refresh list** re-reads the current session. After loading another state
-   or event, click **Connect / new session** before starting a recipe.
+   or event, click **Connect** before starting a recipe.
 
 When you select a blocked vehicle, the details say whether it is a linked
 component, a type that is not enabled yet, or whether the game has not
@@ -55,21 +55,44 @@ paused** in the test PCSX2 (`CloseOnEsc=disabled` in `PCSX2_ui.ini` in the
 researched install). The editor never changes that setting. See
 [pause and preservation](batches-trucks-and-pause.md).
 
-## Why only vehicles near the player can be edited
+## Vehicles far from the player (oncoming lanes)
 
 The game builds the full physics body of a traffic vehicle only when the vehicle
 comes within about **250 game units** of the player car (the per-object update
 `FUN_00186850` marks vehicles closer than 250 units and clears the mark beyond
 275). Until then the vehicle only follows its path and its two physics points are
 still zero. In 38 savestates, all 538 vehicles inside that radius had their physics
-ready, while 223 of the 251 vehicles outside it did not.
+ready, while 223 of the 251 vehicles outside it did not. This is about distance,
+not direction: oncoming traffic is usually far ahead at the start of an event, so it
+looked as if oncoming lanes were blocked. Oncoming vehicles that are close to the
+player have physics like any other.
 
-The live editor needs those physics points to move a vehicle or to add vehicles
-behind it without breaking the game's physics, so it blocks vehicles that have not
-been near the player yet; the details say so. The **Top view** draws that radius as
-a dashed circle around the player. To change vehicles that are still far away,
-drive closer and pause again, or edit the event itself in **Traffic waves** (button
-in the top-right corner), which has no distance limit.
+- **Adding behind a far vehicle works.** The list shows it as *Far (no physics)* and
+  the **Top view** draws it as a hollow circle. Its path, position along the path,
+  lane, speed and direction are valid, so it can be a reference. The new vehicles
+  start without physics too (the editor only sets their lane on the path node) and
+  the game gives them physics when the player comes within ~250 units, exactly like
+  its own traffic.
+- **Moving a far vehicle sideways is not available**, because there is no physics
+  body to move yet. Drive closer and pause again, or edit the event on the disc in
+  **Traffic waves**, which has no distance limit.
+
+Checked in an isolated PCSX2 (Grand Slam): one batch added two cars behind a near car
+on P21 and two vans behind an oncoming van 294 units away on P20. The far ones were
+created without physics, 0.4–0.5 units from their lane; after resuming they got
+physics at about 260 units and drove along their lane past the player.
+
+## Add behind several vehicles at once
+
+Select several vehicles (Ctrl or Shift, or **Last car of each lane** to pick the
+tail of every queue) and the button becomes **Add behind each of the N selected**:
+the amount becomes *per vehicle*, and the same model choice, distance and colour
+apply to every chain. "Same model as selected" uses each reference's own model (a
+cab keeps its own trailer). All requests run in one traffic update when they fit
+in eight; larger sets wait in the queue and each further group needs one
+Resume/Pause. Vehicles that cannot be a reference are skipped and the panel says
+how many. Outside experimental mode the limit is 8 per vehicle and 64 in total;
+mind the 50-vehicle warning.
 
 ## Create an event project
 
@@ -126,7 +149,7 @@ For independent vehicles the profile requires two initialized, non-degenerate
 physics points, consistency with the rendered position and the collider, and a
 valid path and occupancy. A distant vehicle with zeroed points stays blocked.
 
-The **Loaded catalogue** tab lists every model found, its category and its
+The **Loaded models** tab lists every model found, its category and its
 creation status: **Available**, **Available with truck** or **Creation not
 validated**, so you can identify a loaded bus even when it cannot be created.
 
@@ -239,7 +262,7 @@ code stays blocked.
 While a creation is in progress, do not load another state, change event or
 close the editor. If an operation fails, follow the message. If a clean state is
 requested, reload the previous reference, pause the emulator and click
-**Connect / new session**. The previous creation is never repeated automatically;
+**Connect**. The previous creation is never repeated automatically;
 repeating an action without knowing its result may add another instance.
 
 ## Experimental mode and larger requests
@@ -306,8 +329,8 @@ never repeats the creation command or performs this cleanup on its own.
 
 ## Keep the configuration
 
-**Save configuration…** writes a local JSON with the data the editor used.
-**Open configuration…** applies it to the current event. It requires **exactly
+**Save recipe…** writes a local JSON with the data the editor used.
+**Open recipe…** applies it to the current event. It requires **exactly
 the same initial state** (before the edits) that was used to prepare the
 recipe: reload that reference, pause, start a new session and open the JSON.
 Recipes that create vehicles need the same resume/pause steps as above.
@@ -320,7 +343,7 @@ Vehicles that appeared after the initial reference, without a confirmed
 creation in the recipe, can be edited when the profile admits them. If an
 action uses such a reference, the editor refuses to save the JSON rather than
 promise a replay it cannot rebuild. Use a `.p2s` to keep the session, or
-**Connect / new session** to adopt the current scene as a new reference.
+**Connect** to adopt the current scene as a new reference.
 
 **Save state…** exports a `.p2s` of the edited session, with the emulator paused
 and nothing pending. Choose a new name. The button only appears when the

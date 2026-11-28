@@ -33,14 +33,18 @@ def _number(value, label):
 def _references(state, reference_id, x, z):
     if reference_id is not None and type(reference_id) is not int:
         raise profile.ProfileError('Select a valid reference for the placement.')
+    def usable(row):
+        # Distant traffic has no physics points yet, but the profile admits
+        # it as a reference when its path node is valid (far_reference).
+        return bool(row and row.get('can_reference')
+                    and (row.get('initialized') or row.get('far_reference') is True))
     if reference_id is not None:
         row = state.vehicles.get(reference_id)
-        if not row or not row.get('can_reference') or not row.get('initialized'):
-            raise profile.ProfileError('The reference needs an initialized path and physics.')
+        if not usable(row):
+            raise profile.ProfileError('The reference needs a valid path, and physics or a validated distant node.')
         rows = [row]
     else:
-        rows = [row for row in state.vehicles.values()
-                if row.get('can_reference') and row.get('initialized')]
+        rows = [row for row in state.vehicles.values() if usable(row)]
     # One observed reference per path. Its render-to-spline residual keeps the
     # map estimate in the same coordinate convention as the existing editor.
     paths = {}
@@ -57,7 +61,7 @@ def _references(state, reference_id, x, z):
         if path not in paths or rank < paths[path][0]:
             paths[path] = (rank,row)
     if not paths:
-        raise profile.ProfileError('No path has a reference with initialized physics.')
+        raise profile.ProfileError('No path has a usable reference vehicle.')
     return [paths[path][1] for path in sorted(paths)]
 
 
@@ -120,7 +124,7 @@ def project_target(state, reference_id, x, z, *, experimental=False):
                 raise profile.ProfileError("The reference's data does not allow projecting the position.") from error
             failures.append(str(error))
     if not coarse:
-        detail = failures[0] if failures else 'Nenhuma geometria admitida.'
+        detail = failures[0] if failures else 'No admitted geometry.'
         raise profile.ProfileError('Could not project the position: '+detail)
     coarse.sort(key=lambda result:(result['distance'],result['context']['path'],result['progress']))
     best = coarse[0]

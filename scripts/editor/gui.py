@@ -17,6 +17,8 @@ from typing import Any, Callable, Protocol
 
 from resources.traffic_waves import density_warning
 
+from editor import theme
+
 
 EXPORT_DIRECTORY = Path(__file__).resolve().parents[2] / 'outputs' / 'events'
 PROJECT_DIRECTORY = Path(__file__).resolve().parents[2] / 'outputs' / 'projects'
@@ -35,6 +37,9 @@ class Controller(Protocol):
     def add_mixed_behind(self, vehicle_id: int, choices: list[dict[str, Any]], gap: float,
                          count: int, *, experimental: bool = False,
                          color_mode: str = 'original') -> dict[str, Any]: ...
+    def add_behind_each(self, vehicle_ids: list[int], choices: list[dict[str, Any]], gap: float,
+                        count: int, *, experimental: bool = False,
+                        color_mode: str = 'original') -> dict[str, Any]: ...
     def add_at(self, vehicle_id: int, model_id: str | None, x: float, z: float,
                secondary_model_id: str | None = None,
                experimental: bool = False) -> dict[str, Any]: ...
@@ -227,6 +232,20 @@ def map_to_world(view: tuple[float, float, float], width: float, height: float,
 PHYSICS_RANGE = 250.0  # game units; FUN_00186850 marks traffic within this radius of a player
 
 
+def physics_label(vehicle: dict[str, Any]) -> str:
+    if vehicle.get('initialized') is True:
+        return 'Active'
+    if vehicle.get('reference_far'):
+        return 'Far (no physics)'
+    return 'Not active'
+
+
+def physics_tag(vehicle: dict[str, Any]) -> str | None:
+    if vehicle.get('initialized') is True:
+        return None
+    return 'far' if vehicle.get('reference_far') else 'blocked'
+
+
 def capacity_summary(snapshot: dict[str, Any]) -> str:
     vehicles = snapshot.get('vehicles') or []
     counts = snapshot.get('capacity') or snapshot.get('counts') or {}
@@ -281,7 +300,7 @@ class EditorApp:
         self.results: queue.Queue[Any] = queue.Queue()
         self.status = tk.StringVar(value='Connect to the emulator with an event loaded.')
         self.pending_text = tk.StringVar(value='')
-        self.connection_text = tk.StringVar(value='Desconectado')
+        self.connection_text = tk.StringVar(value='Not connected')
         self.core_text = tk.StringVar(value='')
         self.selection_text = tk.StringVar(value='Select a vehicle in the list.')
         self.position_text = tk.StringVar(value='X: —     Y: —     Z: —')
@@ -308,6 +327,8 @@ class EditorApp:
         self.mixed_text = tk.StringVar(value='Choose at least two loaded models to alternate.')
         self.map_notice = tk.StringVar(value='Vehicle positions; no track drawing.')
         self.instructions_text = tk.StringVar(value='Pause PCSX2 with Esc and refresh the list before editing. Changes apply to the current session.')
+        self.far_text = tk.StringVar(value='')
+        self.multi_text = tk.StringVar(value='')
         self._build()
         for variable in (self.point_x, self.point_z):
             variable.trace_add('write', self._point_changed)
@@ -320,332 +341,373 @@ class EditorApp:
 
     def _build(self) -> None:
         root = self.root
-        root.title('Burnout 3 — Current event editor')
-        root.geometry('1040x710')
-        root.minsize(850, 600)
+        root.title('Burnout 3 — Crash event editor')
+        root.geometry('1180x800')
+        root.minsize(900, 620)
         root.columnconfigure(0, weight=1)
         root.rowconfigure(0, weight=1)
-        container = ttk.Frame(root, padding=18)
+        style = theme.apply(root)
+        palette = theme.PALETTE
+        container = ttk.Frame(root)
         container.grid(row=0, column=0, sticky='nsew')
         container.columnconfigure(0, weight=1)
         container.rowconfigure(3, weight=1)
 
-        header = ttk.Frame(container)
+        # --- title bar ------------------------------------------------------
+        header = ttk.Frame(container, style='Header.TFrame', padding=(20, 14))
         header.grid(row=0, column=0, sticky='ew')
-        header.columnconfigure(0, weight=1)
-        ttk.Label(header, text='Current event editor',
-                  font=('Segoe UI', 19, 'bold')).grid(row=0, column=0, sticky='w')
-        ttk.Label(header, text='Experimental · Burnout 3 USA / PCSX2',
-                  foreground='#5f6875').grid(row=1, column=0, sticky='w', pady=(4, 0))
-        self.connect_button = ttk.Button(header, text='Connect / new session', command=self.connect)
-        self.connect_button.grid(row=0, column=1, rowspan=2, padx=(15, 8))
-        self.refresh_button = ttk.Button(header, text='Refresh list', command=self.refresh)
-        self.refresh_button.grid(row=0, column=2, rowspan=2)
-        self.waves_button = ttk.Button(header, text='Traffic waves…',
+        header.columnconfigure(1, weight=1)
+        titles = ttk.Frame(header, style='Header.TFrame')
+        titles.grid(row=0, column=0, sticky='w')
+        name = ttk.Frame(titles, style='Header.TFrame')
+        name.pack(anchor='w')
+        ttk.Label(name, text='BURNOUT 3', style='HeaderAccent.TLabel').pack(side='left')
+        ttk.Label(name, text='  Crash event editor', style='Header.TLabel').pack(side='left')
+        ttk.Label(titles, text='Live editing of the event running in PCSX2 · USA (SLUS-21050) · experimental',
+                  style='HeaderMuted.TLabel').pack(anchor='w', pady=(2, 0))
+        actions = ttk.Frame(header, style='Header.TFrame')
+        actions.grid(row=0, column=2, sticky='e')
+        self.connect_button = ttk.Button(actions, text='Connect', style='HeaderAccent.TButton',
+                                         command=self.connect)
+        self.connect_button.pack(side='left')
+        self.refresh_button = ttk.Button(actions, text='Refresh list', style='Header.TButton',
+                                         command=self.refresh)
+        self.refresh_button.pack(side='left', padx=(8, 0))
+        self.waves_button = ttk.Button(actions, text='Waves & models (disc)…', style='Header.TButton',
                                        command=lambda: self.open_native_events(tab='waves'))
-        self.waves_button.grid(row=0, column=3, rowspan=2, padx=(8, 0))
-        connection = ttk.Frame(container)
-        connection.grid(row=1, column=0, sticky='ew', pady=(15, 4))
-        connection.columnconfigure(0, weight=1)
-        ttk.Label(connection, textvariable=self.connection_text,
-                  foreground='#305d86').grid(row=0, column=0, sticky='w')
-        ttk.Label(connection, textvariable=self.core_text,
-                  foreground='#305d86').grid(row=0, column=1, sticky='e')
-        self.emulator_controls = ttk.Frame(connection)
-        self.emulator_controls.grid(row=0, column=2, padx=(12, 0))
-        self.pause_button = ttk.Button(self.emulator_controls, text='Pause PCSX2', command=self.pause_emulator)
+        self.waves_button.pack(side='left', padx=(8, 0))
+
+        # --- connection / emulator strip -------------------------------------
+        body = ttk.Frame(container, padding=(16, 12, 16, 0))
+        body.grid(row=1, column=0, sticky='ew')
+        body.columnconfigure(0, weight=1)
+        strip = theme.card(body, padding=(14, 10), row=0, column=0, sticky='ew')
+        strip.columnconfigure(2, weight=1)
+        self.connection_label = ttk.Label(strip, textvariable=self.connection_text, style='Pill.TLabel')
+        self.connection_label.grid(row=0, column=0, sticky='w')
+        self.core_label = ttk.Label(strip, textvariable=self.core_text, style='Pill.TLabel')
+        self.core_label.grid(row=0, column=1, sticky='w', padx=(8, 0))
+        ttk.Label(strip, textvariable=self.instructions_text, style='CardMuted.TLabel', wraplength=700).grid(
+            row=1, column=0, columnspan=4, sticky='w', pady=(8, 0))
+        controls = ttk.Frame(strip, style='Card.TFrame')
+        controls.grid(row=0, column=3, sticky='e')
+        self.emulator_controls = ttk.Frame(controls, style='Card.TFrame')
+        self.emulator_controls.grid(row=0, column=0)
+        self.pause_button = ttk.Button(self.emulator_controls, text='⏸ Pause PCSX2', command=self.pause_emulator)
         self.pause_button.pack(side='left')
-        self.resume_button = ttk.Button(self.emulator_controls, text='Resume', command=self.resume_emulator)
+        self.resume_button = ttk.Button(self.emulator_controls, text='▶ Resume', command=self.resume_emulator)
         self.resume_button.pack(side='left', padx=(6, 0))
         self.emulator_controls.grid_remove()
-        self.finalize_button = ttk.Button(connection, text='Finish pending request',
-                                          command=self.finalize_pending)
-        self.finalize_button.grid(row=0, column=3, padx=(8, 0))
-        self.cancel_queue_button = ttk.Button(connection, text='Cancel queue', command=self.cancel_queue)
-        self.cancel_queue_button.grid(row=0, column=4, padx=(6, 0))
-        ttk.Label(connection, textvariable=self.capacity_text,
-                  foreground='#5f6875', wraplength=920).grid(row=1, column=0, columnspan=5, sticky='w', pady=(5, 0))
-        instructions = ttk.Frame(container)
-        instructions.grid(row=2, column=0, sticky='ew', pady=(0, 12))
-        instructions.columnconfigure(0, weight=1)
-        ttk.Label(instructions,
-                  textvariable=self.instructions_text,
-                  foreground='#5f6875').grid(row=0, column=0, sticky='w')
-        self.experimental_check = ttk.Checkbutton(instructions,
-            text='Experimental mode: larger amounts and distances',
-            variable=self.experimental, command=self._experimental_changed)
-        self.experimental_check.grid(row=1, column=0, sticky='w', pady=(6, 0))
-        self.experimental_warning = ttk.Label(instructions,
-            text='High risk of freezes/lost physics. Above 50 vehicles the game does not work properly; '
-                 'around 64 crashed vehicles it crashed in tests. Save a state before testing. '
-                 'The queue uses groups of up to 8; resume and pause to finish each group.',
-            foreground='#a33922', wraplength=850)
-        self.experimental_warning.grid(row=2, column=0, sticky='w', pady=(4, 0))
-        self.experimental_warning.grid_remove()
-        self.pending_banner = tk.Label(instructions, textvariable=self.pending_text,
-            background='#fff0b3', foreground='#574100', font=('Segoe UI', 10, 'bold'),
-            anchor='w', justify='left', padx=12, pady=10, wraplength=780)
-        self.pending_banner.grid(row=3, column=0, sticky='ew', pady=(10, 0))
+        self.finalize_button = ttk.Button(controls, text='Finish pending request', command=self.finalize_pending)
+        self.finalize_button.grid(row=0, column=1, padx=(8, 0))
+        self.cancel_queue_button = ttk.Button(controls, text='Cancel queue', command=self.cancel_queue)
+        self.cancel_queue_button.grid(row=0, column=2, padx=(6, 0))
+        self.capacity_label = ttk.Label(strip, textvariable=self.capacity_text, style='CardMuted.TLabel',
+                                        wraplength=1000)
+        self.capacity_label.grid(row=2, column=0, columnspan=4, sticky='w', pady=(2, 0))
+        self.pending_banner = theme.banner(body, self.pending_text, kind='warn', wraplength=1000)
+        self.pending_banner.grid(row=1, column=0, sticky='ew', pady=(10, 0))
         self.pending_banner.grid_remove()
 
+        # --- main area --------------------------------------------------------
         pane = ttk.Panedwindow(container, orient=tk.HORIZONTAL)
-        pane.grid(row=3, column=0, sticky='nsew')
+        pane.grid(row=3, column=0, sticky='nsew', padx=16, pady=12)
         list_frame = ttk.Frame(pane)
         list_frame.columnconfigure(0, weight=1)
         list_frame.rowconfigure(0, weight=1)
         lists = ttk.Notebook(list_frame)
         lists.grid(row=0, column=0, sticky='nsew')
-        actors = ttk.Frame(lists, padding=(0, 8, 0, 0))
+        self.lists = lists
+        actors = ttk.Frame(lists, style='Card.TFrame', padding=10)
         actors.columnconfigure(0, weight=1)
         actors.rowconfigure(0, weight=1)
-        lists.add(actors, text='Vehicles present')
-        self.table = ttk.Treeview(actors, columns=('vehicle', 'type', 'model','speed'),
+        lists.add(actors, text='Vehicles')
+        self.table = ttk.Treeview(actors, columns=('vehicle', 'type', 'model', 'speed', 'physics'),
                                   show='headings', selectmode='extended', height=15)
-        for key, title, width in [('vehicle', 'Vehicle', 140), ('type', 'Category', 105),
-                                  ('model', 'Model', 150),('speed','Nominal km/h A/S',150)]:
+        for key, title, width in [('vehicle', 'Vehicle', 90), ('type', 'Category', 110),
+                                  ('model', 'Model', 110), ('speed', 'Nominal km/h A/S', 130),
+                                  ('physics', 'Physics', 110)]:
             self.table.heading(key, text=title)
-            self.table.column(key, width=width, minwidth=70, stretch=True)
+            self.table.column(key, width=width, minwidth=60, stretch=True)
+        self.table.tag_configure('far', foreground=palette['info'])
+        self.table.tag_configure('blocked', foreground='#97a2ae')
         self.table.grid(row=0, column=0, sticky='nsew')
         scroll = ttk.Scrollbar(actors, orient='vertical', command=self.table.yview)
         scroll.grid(row=0, column=1, sticky='ns')
         self.table.configure(yscrollcommand=scroll.set)
         self.table.bind('<<TreeviewSelect>>', self._selection_changed)
-        ttk.Label(actors, text='Ctrl: pick several · Shift: select a range.',
-                  foreground='#5f6875', wraplength=420).grid(row=1, column=0, sticky='w', pady=(6, 0))
-        self.select_speed_button = ttk.Button(actors, text='Select speed-eligible',
-                                              command=self.select_speed_eligible)
-        self.select_speed_button.grid(row=2, column=0, sticky='w', pady=(6, 0))
-        view = ttk.Frame(lists, padding=(0, 8, 0, 0))
+        picks = ttk.Frame(actors, style='Card.TFrame')
+        picks.grid(row=1, column=0, columnspan=2, sticky='ew', pady=(8, 0))
+        ttk.Label(picks, text='Select several with Ctrl or Shift.', style='CardMuted.TLabel').pack(side='left')
+        self.select_speed_button = ttk.Button(picks, text='Speed-eligible', command=self.select_speed_eligible)
+        self.select_speed_button.pack(side='right')
+        self.select_tails_button = ttk.Button(picks, text='Last car of each lane', command=self.select_lane_tails)
+        self.select_tails_button.pack(side='right', padx=(0, 6))
+        view = ttk.Frame(lists, style='Card.TFrame', padding=10)
         view.columnconfigure(0, weight=1)
         view.rowconfigure(1, weight=1)
         lists.add(view, text='Top view')
-        ttk.Label(view, textvariable=self.map_notice, wraplength=420,
-                  foreground='#5f6875').grid(row=0, column=0, sticky='w', pady=(0, 6))
-        self.map_canvas = tk.Canvas(view, background='#f5f7f9', highlightthickness=0,
-                                    width=450, height=350)
+        ttk.Label(view, textvariable=self.map_notice, wraplength=520,
+                  style='CardMuted.TLabel').grid(row=0, column=0, sticky='w', pady=(0, 6))
+        self.map_canvas = tk.Canvas(view, background=palette['map_bg'], highlightthickness=1,
+                                    highlightbackground=palette['border'], width=470, height=360)
         self.map_canvas.grid(row=1, column=0, sticky='nsew')
         self.map_canvas.bind('<Configure>', lambda _event: self._draw_traffic())
         self.map_canvas.bind('<Button-1>', self._map_select)
         self.map_canvas.bind('<MouseWheel>', self._map_zoom)
-        self.map_canvas.bind('<ButtonPress-3>',self._map_pan_start)
-        self.map_canvas.bind('<B3-Motion>',self._map_pan)
-        self.map_canvas.bind('<ButtonRelease-3>',self._map_pan_end)
-        map_footer = ttk.Frame(view)
-        map_footer.grid(row=2, column=0, sticky='ew', pady=(6, 0))
-        map_footer.columnconfigure(1,weight=1)
+        self.map_canvas.bind('<ButtonPress-3>', self._map_pan_start)
+        self.map_canvas.bind('<B3-Motion>', self._map_pan)
+        self.map_canvas.bind('<ButtonRelease-3>', self._map_pan_end)
+        map_footer = ttk.Frame(view, style='Card.TFrame')
+        map_footer.grid(row=2, column=0, sticky='ew', pady=(8, 0))
+        map_footer.columnconfigure(2, weight=1)
         self.mark_button = ttk.Button(map_footer, text='Mark position', command=self._mark_position)
-        self.mark_button.grid(row=0,column=0,sticky='w')
-        self.routes_check = ttk.Checkbutton(map_footer,text='Show lanes',variable=self.show_routes,
-                                            command=self._routes_changed)
-        self.routes_check.grid(row=0,column=1,sticky='w',padx=8)
-        ttk.Label(map_footer, text='Wheel: zoom · right button: pan', foreground='#5f6875',
-                  wraplength=270).grid(row=1,column=0,columnspan=2,sticky='w',pady=(5,0))
-        ttk.Button(map_footer, text='Fit', command=self._map_reset).grid(row=0,column=2,sticky='e')
-        ttk.Button(map_footer,text='Path',command=self._map_selected_path).grid(row=1,column=2,sticky='e',pady=(5,0))
-        point_controls = ttk.LabelFrame(view, text='Add at point X/Z', padding=8)
-        point_controls.grid(row=3, column=0, sticky='ew', pady=(8, 0))
-        point_controls.columnconfigure(1, weight=1)
-        point_controls.columnconfigure(3, weight=1)
-        ttk.Label(point_controls, text='X').grid(row=0, column=0, padx=(0, 5))
+        self.mark_button.grid(row=0, column=0, sticky='w')
+        self.routes_check = ttk.Checkbutton(map_footer, text='Show lanes', variable=self.show_routes,
+                                            style='Card.TCheckbutton', command=self._routes_changed)
+        self.routes_check.grid(row=0, column=1, sticky='w', padx=10)
+        ttk.Label(map_footer, text='Wheel: zoom · right button: pan · click: select',
+                  style='CardMuted.TLabel').grid(row=0, column=2, sticky='w')
+        ttk.Button(map_footer, text='Fit', command=self._map_reset).grid(row=0, column=3, sticky='e')
+        ttk.Button(map_footer, text='Selected path', command=self._map_selected_path).grid(
+            row=0, column=4, sticky='e', padx=(6, 0))
+        point_controls = theme.card(view, padding=10, row=3, column=0, sticky='ew', pady=(10, 0))
+        point_controls.columnconfigure(2, weight=1)
+        point_controls.columnconfigure(4, weight=1)
+        ttk.Label(point_controls, text='Add at a point', style='Section.TLabel').grid(
+            row=0, column=0, sticky='w', padx=(0, 12))
+        ttk.Label(point_controls, text='X', style='Card.TLabel').grid(row=0, column=1, padx=(0, 5))
         self.point_x_entry = ttk.Entry(point_controls, textvariable=self.point_x, width=12)
-        self.point_x_entry.grid(row=0, column=1, sticky='ew')
-        ttk.Label(point_controls, text='Z').grid(row=0, column=2, padx=(10, 5))
+        self.point_x_entry.grid(row=0, column=2, sticky='ew')
+        ttk.Label(point_controls, text='Z', style='Card.TLabel').grid(row=0, column=3, padx=(10, 5))
         self.point_z_entry = ttk.Entry(point_controls, textvariable=self.point_z, width=12)
-        self.point_z_entry.grid(row=0, column=3, sticky='ew')
+        self.point_z_entry.grid(row=0, column=4, sticky='ew')
         self.add_at_button = ttk.Button(point_controls, text='Add at point', command=self.add_at)
-        self.add_at_button.grid(row=1, column=0, columnspan=4, sticky='ew', pady=(7, 0))
+        self.add_at_button.grid(row=0, column=5, sticky='ew', padx=(10, 0))
         ttk.Label(point_controls,
-            text='Uses a reference with verified path and physics and the model chosen beside it. The point may be snapped to the lane.',
-            foreground='#5f6875', wraplength=410).grid(row=2, column=0, columnspan=4, sticky='w', pady=(5, 0))
-        catalog = ttk.Frame(lists, padding=(0, 8, 0, 0))
+            text='Click Mark position, then the map. Uses the model chosen on the right; the point snaps '
+                 'to the nearest lane that has a reference vehicle (near or far).',
+            style='CardMuted.TLabel', wraplength=560).grid(row=1, column=0, columnspan=6, sticky='w', pady=(6, 0))
+        catalog = ttk.Frame(lists, style='Card.TFrame', padding=10)
         catalog.columnconfigure(0, weight=1)
-        catalog.rowconfigure(0, weight=1)
-        lists.add(catalog, text='Loaded catalogue')
+        catalog.rowconfigure(1, weight=1)
+        lists.add(catalog, text='Loaded models')
+        ttk.Label(catalog, wraplength=520, style='CardMuted.TLabel',
+                  text='The live editor can only create models this event already loaded (up to 12). '
+                       'To use a model from another event, replace one in Waves & models (disc) → '
+                       'Models and goals, then play the edited ISO.').grid(row=0, column=0, columnspan=2,
+                                                                            sticky='w', pady=(0, 8))
         self.catalog_table = ttk.Treeview(catalog,
             columns=('model', 'type', 'availability'), show='headings', selectmode='none', height=15)
         for key, title, width in [('model', 'Model', 150), ('type', 'Category', 105),
                                   ('availability', 'Creation', 185)]:
             self.catalog_table.heading(key, text=title)
             self.catalog_table.column(key, width=width, minwidth=70, stretch=True)
-        self.catalog_table.grid(row=0, column=0, sticky='nsew')
+        self.catalog_table.grid(row=1, column=0, sticky='nsew')
         catalog_scroll = ttk.Scrollbar(catalog, orient='vertical', command=self.catalog_table.yview)
-        catalog_scroll.grid(row=0, column=1, sticky='ns')
+        catalog_scroll.grid(row=1, column=1, sticky='ns')
         self.catalog_table.configure(yscrollcommand=catalog_scroll.set)
-        project_container = ttk.Frame(lists)
+        project_container = ttk.Frame(lists, style='Card.TFrame')
         project_container.columnconfigure(0, weight=1)
         project_container.rowconfigure(0, weight=1)
         lists.add(project_container, text='Project')
         self.project_canvas = tk.Canvas(project_container, highlightthickness=0, height=200,
-            background=ttk.Style(root).lookup('TFrame','background') or root.cget('background'))
+                                        background=palette['surface'])
         self.project_canvas.grid(row=0, column=0, sticky='nsew')
         project_scroll = ttk.Scrollbar(project_container, orient='vertical', command=self.project_canvas.yview)
         project_scroll.grid(row=0, column=1, sticky='ns')
         self.project_canvas.configure(yscrollcommand=project_scroll.set)
-        project_tab = ttk.Frame(self.project_canvas, padding=12)
-        self.project_window = self.project_canvas.create_window(0,0,window=project_tab,anchor='nw')
-        project_tab.bind('<Configure>',self._project_region)
-        self.project_canvas.bind('<Configure>',self._project_resize)
+        project_tab = ttk.Frame(self.project_canvas, style='Card.TFrame', padding=14)
+        self.project_window = self.project_canvas.create_window(0, 0, window=project_tab, anchor='nw')
+        project_tab.bind('<Configure>', self._project_region)
+        self.project_canvas.bind('<Configure>', self._project_resize)
         project_tab.columnconfigure(0, weight=1)
         project_tab.columnconfigure(1, weight=1)
-        ttk.Label(project_tab, text='Name for a new project').grid(row=0, column=0, sticky='w')
-        ttk.Button(project_tab, text='Native events / traffic waves…', command=self.open_native_events).grid(
-            row=0, column=1, sticky='e')
+        ttk.Label(project_tab, text='Event project', style='Section.TLabel').grid(row=0, column=0, sticky='w')
+        ttk.Label(project_tab, text='Name for a new project', style='CardMuted.TLabel').grid(
+            row=1, column=0, sticky='w', pady=(8, 0))
         self.project_name_entry = ttk.Entry(project_tab, textvariable=self.project_name)
-        self.project_name_entry.grid(row=1, column=0, columnspan=2, sticky='ew', pady=(5, 10))
-        self.new_project_button = ttk.Button(project_tab, text='Create project…', command=self.create_project)
-        self.new_project_button.grid(row=2, column=0, sticky='ew', padx=(0, 5))
+        self.project_name_entry.grid(row=2, column=0, columnspan=2, sticky='ew', pady=(4, 10))
+        self.new_project_button = ttk.Button(project_tab, text='Create project…', style='Accent.TButton',
+                                             command=self.create_project)
+        self.new_project_button.grid(row=3, column=0, sticky='ew', padx=(0, 5))
         self.open_project_button = ttk.Button(project_tab, text='Open project…', command=self.open_project)
-        self.open_project_button.grid(row=2, column=1, sticky='ew', padx=(5, 0))
+        self.open_project_button.grid(row=3, column=1, sticky='ew', padx=(5, 0))
         self.save_project_button = ttk.Button(project_tab, text='Save scene to project', command=self.save_project)
-        self.save_project_button.grid(row=3, column=0, columnspan=2, sticky='ew', pady=(8, 0))
+        self.save_project_button.grid(row=4, column=0, columnspan=2, sticky='ew', pady=(8, 0))
         self.test_project_button = ttk.Button(project_tab, text='Test scene', command=self.test_project)
-        self.test_project_button.grid(row=4, column=0, sticky='ew', padx=(0, 5), pady=(8, 0))
+        self.test_project_button.grid(row=5, column=0, sticky='ew', padx=(0, 5), pady=(8, 0))
         self.restart_project_button = ttk.Button(project_tab, text='Back to start', command=self.restart_project)
-        self.restart_project_button.grid(row=4, column=1, sticky='ew', padx=(5, 0), pady=(8, 0))
+        self.restart_project_button.grid(row=5, column=1, sticky='ew', padx=(5, 0), pady=(8, 0))
         self.restore_base_button = ttk.Button(project_tab, text='Restore original base', command=self.restore_project_base)
-        self.restore_base_button.grid(row=5, column=0, columnspan=2, sticky='ew', pady=(8, 0))
+        self.restore_base_button.grid(row=6, column=0, columnspan=2, sticky='ew', pady=(8, 0))
         self.project_help_label = ttk.Label(project_tab, text='Test saves the scene and resumes the game. Back to start restores that saved scene; '
                   "pause PCSX2 first. Restore base brings back the project's original reference.",
-                  wraplength=400, foreground='#5f6875')
-        self.project_help_label.grid(row=6, column=0, columnspan=2, sticky='w', pady=(12, 0))
+                  wraplength=400, style='CardMuted.TLabel')
+        self.project_help_label.grid(row=7, column=0, columnspan=2, sticky='w', pady=(12, 0))
         self.project_status_label = ttk.Label(project_tab, textvariable=self.project_text, wraplength=400,
-                  foreground='#305d86')
-        self.project_status_label.grid(row=7, column=0, columnspan=2, sticky='w', pady=(12, 0))
-        manual_project = ttk.LabelFrame(project_tab, text='Alternative without a free slot', padding=10)
-        manual_project.grid(row=8, column=0, columnspan=2, sticky='ew', pady=(16, 0))
+                  style='Info.TLabel')
+        self.project_status_label.grid(row=8, column=0, columnspan=2, sticky='w', pady=(12, 0))
+        manual_project = theme.card(project_tab, padding=10, row=9, column=0, columnspan=2,
+                                    sticky='ew', pady=(16, 0))
         manual_project.columnconfigure(0, weight=1)
         manual_project.columnconfigure(1, weight=1)
+        ttk.Label(manual_project, text='Alternative without a free slot', style='Section.TLabel').grid(
+            row=0, column=0, columnspan=2, sticky='w', pady=(0, 8))
         self.import_project_button = ttk.Button(manual_project, text='Create from .p2s…', command=self.import_project)
-        self.import_project_button.grid(row=0, column=0, sticky='ew', padx=(0, 4))
+        self.import_project_button.grid(row=1, column=0, sticky='ew', padx=(0, 4))
         self.save_project_state_button = ttk.Button(manual_project, text='Save scene from .p2s…', command=self.save_project_from_state)
-        self.save_project_state_button.grid(row=0, column=1, sticky='ew', padx=(4, 0))
+        self.save_project_state_button.grid(row=1, column=1, sticky='ew', padx=(4, 0))
         self.confirm_scene_button = ttk.Button(manual_project, text='Check loaded scene…', command=self.confirm_project_scene)
-        self.confirm_scene_button.grid(row=1, column=0, columnspan=2, sticky='ew', pady=(8, 0))
+        self.confirm_scene_button.grid(row=2, column=0, columnspan=2, sticky='ew', pady=(8, 0))
         self.confirm_base_button = ttk.Button(manual_project, text='Check loaded base…', command=self.confirm_project_base)
-        self.confirm_base_button.grid(row=2, column=0, columnspan=2, sticky='ew', pady=(8, 0))
+        self.confirm_base_button.grid(row=3, column=0, columnspan=2, sticky='ew', pady=(8, 0))
         self.project_manual_label = ttk.Label(manual_project,
             text='No free slot: save/load with System → Save/Load state → File… and check it here. '
-                 'The files must match the paused scene.', wraplength=360, foreground='#5f6875')
-        self.project_manual_label.grid(row=3, column=0, columnspan=2, sticky='w', pady=(10, 0))
+                 'The files must match the paused scene.', wraplength=360, style='CardMuted.TLabel')
+        self.project_manual_label.grid(row=4, column=0, columnspan=2, sticky='w', pady=(10, 0))
         self.slot_manager_button = ttk.Button(project_tab, text='Manage slots…', command=self.manage_slots)
-        self.slot_manager_button.grid(row=9, column=0, columnspan=2, sticky='ew', pady=(14, 0))
+        self.slot_manager_button.grid(row=10, column=0, columnspan=2, sticky='ew', pady=(14, 0))
         pane.add(list_frame, weight=3)
 
+        # --- side panel -------------------------------------------------------
         details_panel = ttk.Frame(pane)
-        details_panel.columnconfigure(0,weight=1)
-        details_panel.rowconfigure(0,weight=1)
-        self.details_canvas = tk.Canvas(details_panel,width=360,height=200,highlightthickness=0,
-            background=ttk.Style(root).lookup('TFrame','background') or root.cget('background'))
-        self.details_canvas.grid(row=0,column=0,sticky='nsew')
-        self.details_scroll = ttk.Scrollbar(details_panel,orient='vertical',command=self.details_canvas.yview)
-        self.details_scroll.grid(row=0,column=1,sticky='ns')
+        details_panel.columnconfigure(0, weight=1)
+        details_panel.rowconfigure(0, weight=1)
+        self.details_canvas = tk.Canvas(details_panel, width=390, height=200, highlightthickness=0,
+                                        background=palette['bg'])
+        self.details_canvas.grid(row=0, column=0, sticky='nsew')
+        self.details_scroll = ttk.Scrollbar(details_panel, orient='vertical', command=self.details_canvas.yview)
+        self.details_scroll.grid(row=0, column=1, sticky='ns')
         self.details_canvas.configure(yscrollcommand=self.details_scroll.set)
-        details = ttk.Frame(self.details_canvas, padding=(18,0,6,12))
-        self.details_window = self.details_canvas.create_window(0,0,window=details,anchor='nw')
-        details.bind('<Configure>',self._details_region)
-        self.details_canvas.bind('<Configure>',self._details_resize)
+        details = ttk.Frame(self.details_canvas, padding=(12, 0, 6, 12))
+        self.details_window = self.details_canvas.create_window(0, 0, window=details, anchor='nw')
+        details.bind('<Configure>', self._details_region)
+        self.details_canvas.bind('<Configure>', self._details_resize)
         details.columnconfigure(0, weight=1)
         pane.add(details_panel, weight=2)
-        self.selection_label = ttk.Label(details,textvariable=self.selection_text,
-                                        font=('Segoe UI',11,'bold'),wraplength=320)
-        self.selection_label.grid(row=0,column=0,sticky='w')
-        position = ttk.Frame(details)
-        position.grid(row=1,column=0,sticky='ew',pady=(7,14))
-        self.position_label = ttk.Label(position,textvariable=self.position_text,wraplength=320)
-        self.position_label.grid(row=0,column=0,sticky='w')
-        self.speed_label = ttk.Label(position,textvariable=self.speed_text,wraplength=320,foreground='#5f6875')
-        self.speed_label.grid(row=1,column=0,sticky='w',pady=(5,0))
+        summary = theme.card(details, padding=14, row=0, column=0, sticky='ew')
+        summary.columnconfigure(0, weight=1)
+        self.selection_label = ttk.Label(summary, textvariable=self.selection_text,
+                                         style='Section.TLabel', wraplength=340)
+        self.selection_label.grid(row=0, column=0, sticky='w')
+        self.position_label = ttk.Label(summary, textvariable=self.position_text, style='Card.TLabel',
+                                        wraplength=340)
+        self.position_label.grid(row=1, column=0, sticky='w', pady=(6, 0))
+        self.speed_label = ttk.Label(summary, textvariable=self.speed_text, wraplength=340,
+                                     style='CardMuted.TLabel')
+        self.speed_label.grid(row=2, column=0, sticky='w', pady=(5, 0))
+        self.far_label = ttk.Label(summary, textvariable=self.far_text, wraplength=340, style='Info.TLabel')
+        self.far_label.grid(row=3, column=0, sticky='w', pady=(6, 0))
 
-        movement = ttk.LabelFrame(details, text='Move the selected vehicle', padding=12)
-        movement.grid(row=2, column=0, sticky='ew')
-        movement.columnconfigure(0, weight=1)
-        ttk.Label(movement, text='Position across the lane width').grid(row=0, column=0, sticky='w')
-        self.lateral_scale = ttk.Scale(movement, from_=0, to=100, orient='horizontal',
-                                       variable=self.lateral, command=self._lateral_changed)
-        self.lateral_scale.grid(row=1, column=0, sticky='ew', pady=9)
-        ttk.Label(movement, textvariable=self.lateral_text).grid(row=1, column=1, padx=(8, 0))
-        ttk.Label(movement, text='The position along the path is kept.',
-                  wraplength=280, foreground='#5f6875').grid(row=2, column=0, columnspan=2, sticky='w')
-        self.move_button = ttk.Button(movement, text='Apply position', command=self.move)
-        self.move_button.grid(row=3, column=0, columnspan=2, sticky='ew', pady=(10, 0))
-        self.speed_controls = ttk.Frame(movement)
-        self.speed_controls.grid(row=4,column=0,columnspan=2,sticky='ew',pady=(12,0))
-        self.speed_controls.columnconfigure(1,weight=1)
-        ttk.Label(self.speed_controls,text='Nominal target (km/h)').grid(row=0,column=0,sticky='w',padx=(0,8))
-        self.speed_entry = ttk.Entry(self.speed_controls,textvariable=self.speed_target_kmh,width=10)
-        self.speed_entry.grid(row=0,column=1,sticky='ew')
-        self.speed_button = ttk.Button(self.speed_controls,text='Apply speed',command=self.set_speed)
-        self.speed_button.grid(row=1,column=0,columnspan=2,sticky='ew',pady=(7,0))
-        self.speed_selection_label = ttk.Label(self.speed_controls, textvariable=self.speed_selection_text,
-                                                wraplength=300, foreground='#5f6875')
-        self.speed_selection_label.grid(row=2,column=0,columnspan=2,sticky='w',pady=(6,0))
-        self.speed_controls.grid_remove()
-
-        addition = ttk.LabelFrame(details, text='Add vehicles behind', padding=12)
-        addition.grid(row=3, column=0, sticky='ew', pady=(14, 0))
-        addition.columnconfigure(0, weight=1)
-        ttk.Label(addition, text='Model of the new vehicles').grid(row=0, column=0, sticky='w')
+        addition = theme.section(details, 'Add vehicles behind', row=1)
+        ttk.Label(addition, text='Model', style='CardMuted.TLabel').grid(row=1, column=0, sticky='w', pady=(8, 0))
         self.model_box = ttk.Combobox(addition, textvariable=self.model_choice,
                                       values=('Same model as selected',), state='readonly', width=29)
-        self.model_box.grid(row=1, column=0, sticky='ew', pady=(5, 9))
+        self.model_box.grid(row=2, column=0, sticky='ew', pady=(3, 8))
         self.model_box.bind('<<ComboboxSelected>>', self._model_changed)
-        distance = ttk.Frame(addition)
-        distance.grid(row=2, column=0, sticky='ew')
+        self.spawn_mode_box = ttk.Combobox(addition, textvariable=self.spawn_mode,
+            values=('Single model', 'Alternate models'), state='readonly', width=29)
+        self.spawn_mode_box.grid(row=3, column=0, sticky='ew')
+        self.spawn_mode_box.bind('<<ComboboxSelected>>', self._spawn_options_changed)
+        self.mixed_button = ttk.Button(addition, text='Choose alternating models…', command=self.choose_mixed_models)
+        self.mixed_button.grid(row=4, column=0, sticky='ew', pady=(6, 0))
+        self.mixed_label = ttk.Label(addition, textvariable=self.mixed_text, wraplength=320, style='CardMuted.TLabel')
+        self.mixed_label.grid(row=5, column=0, sticky='w', pady=(4, 0))
+        distance = ttk.Frame(addition, style='Card.TFrame')
+        distance.grid(row=6, column=0, sticky='ew', pady=(10, 0))
         distance.columnconfigure(1, weight=1)
-        ttk.Label(distance, text='Distance behind').grid(row=0, column=0, sticky='w', padx=(0, 8))
-        self.gap_entry = ttk.Entry(distance, textvariable=self.gap, width=10)
+        ttk.Label(distance, text='Distance behind', style='Card.TLabel').grid(row=0, column=0, sticky='w', padx=(0, 8))
+        self.gap_entry = ttk.Entry(distance, textvariable=self.gap, width=8)
         self.gap_entry.grid(row=0, column=1, sticky='ew')
-        self.count_label = ttk.Label(distance, text='Amount')
+        self.count_label = ttk.Label(distance, text='Amount', style='Card.TLabel')
         self.count_label.grid(row=0, column=2, padx=(10, 8))
         self.count_box = ttk.Spinbox(distance, from_=1, to=8, textvariable=self.count, width=4)
         self.count_box.grid(row=0, column=3)
-        self.gap_hint = ttk.Label(addition, text='From 8 to 50 game units.', foreground='#5f6875')
-        self.gap_hint.grid(row=3, column=0, sticky='w', pady=(5, 0))
-        self.secondary_label = ttk.Label(addition, text='Truck trailer')
-        self.secondary_label.grid(row=4, column=0, sticky='w', pady=(9, 0))
+        self.gap_hint = ttk.Label(addition, text='From 8 to 50 game units.', style='CardMuted.TLabel')
+        self.gap_hint.grid(row=7, column=0, sticky='w', pady=(4, 0))
+        self.secondary_label = ttk.Label(addition, text='Truck trailer', style='CardMuted.TLabel')
+        self.secondary_label.grid(row=8, column=0, sticky='w', pady=(9, 0))
         self.secondary_box = ttk.Combobox(addition, textvariable=self.secondary_choice,
             values=('Select the trailer',), state='disabled', width=29)
-        self.secondary_box.grid(row=5, column=0, sticky='ew', pady=(5, 0))
+        self.secondary_box.grid(row=9, column=0, sticky='ew', pady=(3, 0))
         self.secondary_label.grid_remove()
         self.secondary_box.grid_remove()
-        self.add_button = ttk.Button(addition, text='Add vehicles behind', command=self.add_behind)
-        self.spawn_mode_box = ttk.Combobox(addition, textvariable=self.spawn_mode,
-            values=('Single model','Alternate models'),state='readonly',width=29)
-        self.spawn_mode_box.grid(row=6,column=0,sticky='ew',pady=(10,0))
-        self.spawn_mode_box.bind('<<ComboboxSelected>>',self._spawn_options_changed)
-        self.mixed_button = ttk.Button(addition,text='Choose alternating models…',command=self.choose_mixed_models)
-        self.mixed_button.grid(row=7,column=0,sticky='ew',pady=(6,0))
-        self.mixed_label = ttk.Label(addition,textvariable=self.mixed_text,wraplength=300,foreground='#5f6875')
-        self.mixed_label.grid(row=8,column=0,sticky='w',pady=(5,0))
-        self.spawn_color_label = ttk.Label(addition,text='Batches: experimental visual variation (colour to be confirmed)',
-            wraplength=300,foreground='#5f6875')
-        self.spawn_color_label.grid(row=9,column=0,sticky='w',pady=(10,0))
-        self.spawn_color_box = ttk.Combobox(addition,textvariable=self.spawn_color,
-            values=('Original (0)','Alternate variants (0–7)'),state='readonly',width=29)
-        self.spawn_color_box.grid(row=10,column=0,sticky='ew',pady=(5,0))
-        self.add_button.grid(row=11, column=0, sticky='ew', pady=(11, 0))
-        ttk.Label(addition, text='Cars that arrive later in the event (waves) are scheduled on the disc:',
-                  wraplength=300, foreground='#5f6875').grid(row=12, column=0, sticky='w', pady=(12, 0))
-        ttk.Button(addition, text='Open traffic waves…',
-                   command=lambda: self.open_native_events(tab='waves')).grid(row=13, column=0, sticky='ew', pady=(5, 0))
+        self.spawn_color_label = ttk.Label(addition, text='Colour variation (experimental)',
+            wraplength=320, style='CardMuted.TLabel')
+        self.spawn_color_label.grid(row=10, column=0, sticky='w', pady=(10, 0))
+        self.spawn_color_box = ttk.Combobox(addition, textvariable=self.spawn_color,
+            values=('Original (0)', 'Alternate variants (0–7)'), state='readonly', width=29)
+        self.spawn_color_box.grid(row=11, column=0, sticky='ew', pady=(3, 0))
+        self.multi_label = ttk.Label(addition, textvariable=self.multi_text, wraplength=320, style='Info.TLabel')
+        self.multi_label.grid(row=12, column=0, sticky='w', pady=(10, 0))
+        self.add_button = ttk.Button(addition, text='Add vehicles behind', style='Accent.TButton',
+                                     command=self.add_behind)
+        self.add_button.grid(row=13, column=0, sticky='ew', pady=(10, 0))
+        waves_row = ttk.Frame(addition, style='Card.TFrame')
+        waves_row.grid(row=14, column=0, sticky='ew', pady=(10, 0))
+        ttk.Label(waves_row, text='Traffic that arrives later is scheduled on the disc:',
+                  style='CardMuted.TLabel', wraplength=230).pack(side='left')
+        ttk.Button(waves_row, text='Traffic waves…', style='Link.TButton',
+                   command=lambda: self.open_native_events(tab='waves')).pack(side='right')
 
-        footer = ttk.Frame(container)
-        footer.grid(row=4, column=0, sticky='ew', pady=(16, 0))
-        footer.columnconfigure(3, weight=1)
-        self.save_button = ttk.Button(footer, text='Save configuration…', command=self.save_preset)
+        movement = theme.section(details, 'Move and speed', row=2)
+        ttk.Label(movement, text='Position across the lane width', style='CardMuted.TLabel').grid(
+            row=1, column=0, sticky='w', pady=(8, 0))
+        self.lateral_scale = ttk.Scale(movement, from_=0, to=100, orient='horizontal',
+                                       variable=self.lateral, command=self._lateral_changed)
+        self.lateral_scale.grid(row=2, column=0, sticky='ew', pady=9)
+        ttk.Label(movement, textvariable=self.lateral_text, style='Card.TLabel').grid(row=2, column=1, padx=(8, 0))
+        ttk.Label(movement, text='The position along the path is kept. Needs active physics (near the player).',
+                  wraplength=320, style='CardMuted.TLabel').grid(row=3, column=0, columnspan=2, sticky='w')
+        self.move_button = ttk.Button(movement, text='Apply position', command=self.move)
+        self.move_button.grid(row=4, column=0, columnspan=2, sticky='ew', pady=(10, 0))
+        self.speed_controls = ttk.Frame(movement, style='Card.TFrame')
+        self.speed_controls.grid(row=5, column=0, columnspan=2, sticky='ew', pady=(12, 0))
+        self.speed_controls.columnconfigure(1, weight=1)
+        ttk.Label(self.speed_controls, text='Nominal target (km/h)', style='Card.TLabel').grid(
+            row=0, column=0, sticky='w', padx=(0, 8))
+        self.speed_entry = ttk.Entry(self.speed_controls, textvariable=self.speed_target_kmh, width=10)
+        self.speed_entry.grid(row=0, column=1, sticky='ew')
+        self.speed_button = ttk.Button(self.speed_controls, text='Apply speed', command=self.set_speed)
+        self.speed_button.grid(row=1, column=0, columnspan=2, sticky='ew', pady=(7, 0))
+        self.speed_selection_label = ttk.Label(self.speed_controls, textvariable=self.speed_selection_text,
+                                               wraplength=320, style='CardMuted.TLabel')
+        self.speed_selection_label.grid(row=2, column=0, columnspan=2, sticky='w', pady=(6, 0))
+        self.speed_controls.grid_remove()
+
+        # --- footer -----------------------------------------------------------
+        footer = theme.card(container, padding=(14, 10), row=4, column=0, sticky='ew', padx=16)
+        footer.columnconfigure(1, weight=1)
+        self.experimental_check = ttk.Checkbutton(footer,
+            text='Experimental mode (larger amounts and distances)', style='Card.TCheckbutton',
+            variable=self.experimental, command=self._experimental_changed)
+        self.experimental_check.grid(row=0, column=0, sticky='w')
+        files = ttk.Frame(footer, style='Card.TFrame')
+        files.grid(row=0, column=2, sticky='e')
+        self.save_button = ttk.Button(files, text='Save recipe…', command=self.save_preset)
         self.save_button.grid(row=0, column=0)
-        self.load_button = ttk.Button(footer, text='Open configuration…', command=self.load_preset)
-        self.load_button.grid(row=0, column=1, padx=8)
-        self.export_button = ttk.Button(footer, text='Save state…', command=self.export_state)
-        self.export_button.grid(row=0, column=2)
+        self.load_button = ttk.Button(files, text='Open recipe…', command=self.load_preset)
+        self.load_button.grid(row=0, column=1, padx=(6, 0))
+        self.export_button = ttk.Button(files, text='Save state…', command=self.export_state)
+        self.export_button.grid(row=0, column=2, padx=(6, 0))
         self.export_button.grid_remove()
-        ttk.Label(footer, text='The JSON recipe and the state are separate files.',
-                  foreground='#5f6875', wraplength=260).grid(row=0, column=3, sticky='e', padx=(10, 0))
-        self.progress = ttk.Progressbar(container, mode='indeterminate')
-        self.progress.grid(row=5, column=0, sticky='ew', pady=(13, 6))
-        self.status_label = ttk.Label(container, textvariable=self.status,
-                                      foreground='#273444', wraplength=950)
-        self.status_label.grid(row=6, column=0, sticky='ew')
+        self.experimental_warning = ttk.Label(footer,
+            text='High risk of freezes or lost physics. Above 50 vehicles the game does not work properly; '
+                 'around 64 crashed vehicles it crashed in tests. Save a state before testing. '
+                 'The queue uses groups of up to 8; resume and pause to finish each group.',
+            style='Danger.TLabel', wraplength=1000)
+        self.experimental_warning.grid(row=1, column=0, columnspan=3, sticky='w', pady=(6, 0))
+        self.experimental_warning.grid_remove()
+        self.progress = theme.ActivityBar(container, mode='determinate', value=0)
+        self.progress.grid(row=5, column=0, sticky='ew', padx=16, pady=(10, 0))
+        status_bar = ttk.Frame(container, padding=(16, 6, 16, 10))
+        status_bar.grid(row=6, column=0, sticky='ew')
+        status_bar.columnconfigure(0, weight=1)
+        self.status_label = ttk.Label(status_bar, textvariable=self.status, wraplength=1100)
+        self.status_label.grid(row=0, column=0, sticky='w')
+        ttk.Label(status_bar, text='Recipes (.json) and states (.p2s) are separate files.',
+                  style='Muted.TLabel').grid(row=0, column=1, sticky='e', padx=(10, 0))
 
     def selected(self) -> dict[str, Any] | None:
         selected = self.table.selection()
@@ -670,6 +732,34 @@ class EditorApp:
                 self.table.focus(iids[0])
             self.table.see(self.table.focus())
         self._selection_changed()
+
+    def select_lane_tails(self) -> None:
+        """Select the last vehicle of every lane, to extend every queue at once."""
+        if (self.closed or self.busy or self.pending or not self.connected
+                or not getattr(self, 'profile_valid', True) or self.core_paused is not True):
+            return
+        tails = {}
+        for iid, vehicle in self.vehicles.items():
+            progress, path = vehicle.get('progress'), vehicle.get('path')
+            if (vehicle.get('can_reference') is not True or not vehicle.get('active', True)
+                    or type(path) is not int or type(progress) not in (int, float)):
+                continue
+            if path not in tails or progress < tails[path][0]:
+                tails[path] = (progress, iid)
+        iids = [iid for _progress, iid in sorted(tails.values(), key=lambda item: item[1])]
+        self.table.selection_set(iids)
+        if iids:
+            self.table.focus(iids[0])
+            self.table.see(iids[0])
+        self._selection_changed()
+        self._set_status(f'{len(iids)} lane end(s) selected. "Add behind each" extends every queue.'
+                         if iids else 'No lane has a usable reference vehicle in this read.')
+
+    def _references(self) -> list[dict[str, Any]]:
+        """Selected vehicles that can act as a reference for adding behind them."""
+        return [vehicle for vehicle in self.selected_vehicles()
+                if vehicle.get('active', True)
+                and vehicle.get('can_reference', vehicle.get('editable', False))]
 
     def _project_region(self, _event: Any = None) -> None:
         if hasattr(self, 'project_canvas') and not self.closed:
@@ -699,10 +789,10 @@ class EditorApp:
         width=max(1,int(event.width))
         self.details_canvas.itemconfigure(self.details_window,width=width)
         for name in ('selection_label','position_label','speed_label','speed_selection_label',
-                     'mixed_label','spawn_color_label'):
+                     'mixed_label','spawn_color_label','far_label','multi_label'):
             label=getattr(self,name,None)
             if label is not None:
-                label.configure(wraplength=max(100,width-24))
+                label.configure(wraplength=max(100,width-64))
         self._details_region()
 
     def _selection_changed(self, _event: Any = None) -> None:
@@ -730,7 +820,7 @@ class EditorApp:
             path = vehicle.get('path')
             self.position_text.set(self.position_text.get()+
                 (f'\nPath: P{path}' if type(path) is int else '\nNo recognized traffic path.'))
-            if vehicle.get('edit_reason'):
+            if vehicle.get('edit_reason') and not vehicle.get('reference_far'):
                 self.position_text.set(self.position_text.get() + '\n' + str(vehicle['edit_reason']))
             reference_reason = vehicle.get('reference_reason')
             if (reference_reason and not vehicle.get('can_reference',vehicle.get('editable',False))
@@ -744,9 +834,33 @@ class EditorApp:
             except (TypeError, ValueError):
                 self.lateral.set(50)
             self._lateral_changed()
+        if hasattr(self, 'far_text'):
+            self.far_text.set('Far from the player, without physics yet. You can still add vehicles behind '
+                              'it: they start without physics and the game turns it on when you get within '
+                              'about 250 units.' if (vehicle or {}).get('reference_far') else '')
+        self._update_multi_text()
         self._update_secondary_choices()
         self._update_controls()
         self._draw_traffic()
+
+    def _update_multi_text(self) -> None:
+        if not hasattr(self, 'multi_text'):
+            return
+        selected = self.selected_vehicles()
+        references = self._references()
+        if len(selected) < 2:
+            self.multi_text.set('')
+            return
+        try:
+            count = int(str(self.count.get()).strip())
+        except (TypeError, ValueError):
+            count = 0
+        skipped = len(selected) - len(references)
+        note = (f'{len(references)} reference vehicles selected: adds {count} behind each '
+                f'({count * len(references)} in total), in groups of up to 8 per resume/pause.')
+        if skipped:
+            note += f' {skipped} selected vehicle(s) cannot be a reference and are skipped.'
+        self.multi_text.set(note)
 
     def _chosen_model(self) -> dict[str, Any]:
         selected = self.selected() or {}
@@ -769,9 +883,11 @@ class EditorApp:
 
     def _creation_ready(self) -> bool:
         vehicle = self.selected()
-        return bool(not self.closed and not self.busy and not self.pending and self.connected
-                    and getattr(self,'profile_valid',True) and self.core_paused is True
-                    and vehicle and vehicle.get('active',True)
+        idle = bool(not self.closed and not self.busy and not self.pending and self.connected
+                    and getattr(self,'profile_valid',True) and self.core_paused is True)
+        if idle and len(self.selected_vehicles()) > 1:
+            return bool(self._references())
+        return bool(idle and vehicle and vehicle.get('active',True)
                     and vehicle.get('can_reference',vehicle.get('editable',False)))
 
     def _mixed_candidates(self) -> list[dict[str,Any]]:
@@ -881,7 +997,7 @@ class EditorApp:
         self.secondary_choice.set(next((label for label, model_id in self.secondary_choices.items()
                                          if preferred is not None and model_id == preferred), 'Select the trailer'))
         self.secondary_box.configure(values=tuple(self.secondary_choices))
-        self.count_label.configure(text='Conjuntos' if truck else 'Amount')
+        self.count_label.configure(text='Sets' if truck else 'Amount')
         self.add_button.configure(text='Add sets behind' if truck else 'Add vehicles behind')
         reference_model = self.models.get(str(selected.get('model_id')), {})
         compound = (truck or selected.get('kind') == 'truck' or reference_model.get('kind') == 'truck'
@@ -1019,8 +1135,10 @@ class EditorApp:
             return
         canvas.delete('all')
         self.map_hits = []
+        # Far traffic has no physics points, but its render centre follows the
+        # path node, so it is drawn (hollow) and can be picked as a reference.
         points = {iid: point for iid, vehicle in self.vehicles.items()
-                  if vehicle.get('initialized') is True
+                  if (vehicle.get('initialized') is True or vehicle.get('reference_far') is True)
                   and (point := xz(vehicle.get('position'))) is not None}
         player = xz(self.player.get('position')) if self.player else None
         target = self._target_point()
@@ -1028,11 +1146,13 @@ class EditorApp:
         path_points = route_points({'paths':paths})
         if not points and player is None and target is None and not path_points:
             canvas.create_text(width / 2, height / 2, text='Connect with the game paused and refresh the list.',
-                               width=max(100, width - 40), fill='#5f6875')
+                               width=max(100, width - 40), fill=theme.PALETTE['muted'])
             return
         if self.map_view is None:
-            self.map_view = fit_view([*points.values(),*path_points,
-                                     *([player] if player else []),*([target] if target else [])])
+            # Frame the traffic and the player (where editing happens); the
+            # whole road network only when there is no traffic to show.
+            focus = [*points.values(),*([player] if player else []),*([target] if target else [])]
+            self.map_view = fit_view(focus if focus else path_points)
         cx, cz, span = self.map_view
         scale = min(max(1, width - 40), max(1, height - 50)) / span
         def project(point):
@@ -1083,7 +1203,7 @@ class EditorApp:
             if any(path.get('source') == 'descriptor_candidate' for path in paths):
                 canvas.create_text(10,44,anchor='nw',width=max(100,width-20),
                     text='P?: candidate lane with no associated vehicle; current use not confirmed',fill='#7c8994')
-        colors = {'Car': '#2c70b6', 'Van': '#7752a3', 'Bus': '#23846c'}
+        colors = theme.CATEGORY_COLOURS
         selected = self.table.selection()
         for iid, point in points.items():
             px, py = project(point)
@@ -1092,9 +1212,10 @@ class EditorApp:
             vehicle = self.vehicles[iid]
             category = str(vehicle.get('type_label') or '')
             color = colors.get(category, '#71808f')
-            outline = '#e4a400' if iid in selected else '#ffffff'
-            canvas.create_oval(px - 5, py - 5, px + 5, py + 5, fill=color,
-                               outline=outline, width=3 if iid in selected else 1)
+            far = vehicle.get('initialized') is not True
+            outline = theme.PALETTE['accent'] if iid in selected else (color if far else '#ffffff')
+            canvas.create_oval(px - 5, py - 5, px + 5, py + 5, fill=theme.PALETTE['map_bg'] if far else color,
+                               outline=outline, width=3 if iid in selected else (2 if far else 1))
             self.map_hits.append((px, py, iid))
             if iid in selected:
                 canvas.create_text(px + 9, py - 10, anchor='sw',
@@ -1176,8 +1297,11 @@ class EditorApp:
                          and self.core_paused is True)
         editable = bool(available and (selected.get('editable', selected.get('eligible', False))
                         or (self._experimental_enabled() and selected.get('experimental_editable') is True)))
-        can_reference = bool(available and selected.get('can_reference',
+        point_reference = bool(available and selected.get('can_reference',
                               selected.get('editable', selected.get('eligible', False))))
+        multi = len(selections) > 1
+        can_reference = (bool(idle and self.connected and profile_valid and self.core_paused is True
+                              and self._references()) if multi else point_reference)
         if hasattr(self,'speed_controls'):
             eligible = sum(vehicle.get('can_set_speed') is True and vehicle.get('active', True)
                            for vehicle in selections)
@@ -1203,6 +1327,10 @@ class EditorApp:
                 elif len(selections) > 1:
                     note += (' The same target will be applied to all. Position and creation use the focused vehicle.')
                 self.speed_selection_text.set(note)
+        if hasattr(self, 'select_tails_button'):
+            tails_available = any(vehicle.get('can_reference') is True for vehicle in self.vehicles.values())
+            self.select_tails_button.configure(state='normal' if idle and self.connected and profile_valid
+                and self.core_paused is True and tails_available else 'disabled')
         if hasattr(self, 'select_speed_button'):
             speed_available = any(vehicle.get('can_set_speed') is True and vehicle.get('active', True)
                                   for vehicle in self.vehicles.values())
@@ -1253,10 +1381,14 @@ class EditorApp:
         for name in ('point_x_entry', 'point_z_entry', 'mark_button'):
             widget = getattr(self, name, None)
             if widget is not None:
-                widget.configure(state='normal' if can_reference else 'disabled')
+                widget.configure(state='normal' if point_reference else 'disabled')
         if hasattr(self, 'add_at_button'):
-            self.add_at_button.configure(state='normal' if can_reference and self._target_point() is not None
+            self.add_at_button.configure(state='normal' if point_reference and self._target_point() is not None
                                           else 'disabled')
+        if multi and hasattr(self, 'count_label'):
+            references = len(self._references())
+            self.add_button.configure(text=f'Add behind each of the {references} selected')
+            self.count_label.configure(text='Per vehicle')
         if hasattr(self, 'experimental_check'):
             self.experimental_check.configure(state='normal' if idle else 'disabled')
         if hasattr(self, 'experimental_warning'):
@@ -1442,7 +1574,9 @@ class EditorApp:
             self.table.insert('', 'end', iid=iid,
                               values=(f"Vehicle {vehicle['id']}",
                                       vehicle.get('type_label') or 'Unidentified',
-                                      str(vehicle.get('model_id') or 'Unnamed model'),speed_summary(vehicle)))
+                                      str(vehicle.get('model_id') or 'Unnamed model'),speed_summary(vehicle),
+                                      physics_label(vehicle)),
+                              **({'tags': (physics_tag(vehicle),)} if physics_tag(vehicle) else {}))
             if vehicle['id'] in selected_ids:
                 selected_iids.append(iid)
             if vehicle['id'] == selected_id:
@@ -1483,7 +1617,7 @@ class EditorApp:
             self.state_export = connection.get('state_export') is True
             self._set_pending(bool(snapshot.get('pending', connection.get('pending', False))))
             parts = [str(connection.get(key) or '') for key in ('game', 'profile')]
-            self.connection_text.set(' · '.join(part for part in parts if part) or 'Conectado')
+            self.connection_text.set(' · '.join(part for part in parts if part) or 'Connected')
             self._set_core_state(connection)
             self._snapshot(snapshot)
             if snapshot.get('warning'):
@@ -1640,6 +1774,9 @@ class EditorApp:
                      lambda: self.controller.move(vehicle_id, lateral_percent, **options))
 
     def add_behind(self) -> None:
+        if len(self.selected_vehicles()) > 1:
+            self.add_behind_each_selected()
+            return
         vehicle = self.selected()
         if not self._creation_ready() or not vehicle:
             return
@@ -1688,6 +1825,51 @@ class EditorApp:
         self._change('Adding the vehicles behind…',
                      lambda: self.controller.add_many_behind(vehicle_id, model_id, gap, count,
                                                               **options))
+
+    def add_behind_each_selected(self) -> None:
+        """Add the same set behind every selected reference vehicle (one queue)."""
+        references = self._references()
+        if not self._creation_ready() or not references:
+            return
+        try:
+            gap = number(self.gap.get(), positive=True)
+            experimental = self._experimental_enabled()
+            count = quantity(self.count.get(), experimental=experimental)
+            models = getattr(self, 'models', {})
+            if self._alternating_models():
+                self._refresh_mixed_models()
+                if len(self.mixed_model_ids) < 2:
+                    raise ValueError('Choose at least two loaded models to alternate.')
+                choices = [{'model_id': model_id} for model_id in self.mixed_model_ids]
+            else:
+                model_id = self.model_choices.get(self.model_choice.get())
+                secondary_id = None
+                if model_id is not None and models.get(model_id, {}).get('kind') == 'truck':
+                    secondary_id = self.secondary_choices.get(self.secondary_choice.get())
+                    if secondary_id is None:
+                        raise ValueError('Choose a compatible trailer for the truck.')
+                choices = [{'model_id': model_id, 'secondary_model_id': secondary_id}]
+            heavy = any(models.get(str(v.get('model_id')), {}).get('kind') == 'truck'
+                        or models.get(str(v.get('model_id')), {}).get('type') == 5
+                        or v.get('native_pair_valid') for v in references)
+            heavy = heavy or any(models.get(str(c.get('model_id')), {}).get('kind') == 'truck'
+                                 or models.get(str(c.get('model_id')), {}).get('type') == 5 for c in choices)
+            minimum = 30 if heavy else 8
+            if not experimental and not minimum <= gap <= 50:
+                raise ValueError(f'Use a distance between {minimum} and 50 game units.')
+            limit = 253 if experimental else 64
+            if count * len(references) > limit:
+                raise ValueError(f'That adds {count * len(references)} vehicles; the limit is {limit}'
+                                 + (' in experimental mode.' if experimental else '. Use fewer or enable experimental mode.'))
+        except ValueError as exc:
+            messagebox.showinfo('Add vehicles', str(exc), parent=self.root)
+            return
+        ids = [int(vehicle['id']) for vehicle in references]
+        color_mode = ('cycle' if getattr(self, 'spawn_color', None) is not None
+                      and self.spawn_color.get() == 'Alternate variants (0–7)' else 'original')
+        options = {'experimental': experimental, 'color_mode': color_mode}
+        self._change(f'Adding vehicles behind {len(ids)} reference vehicles…',
+                     lambda: self.controller.add_behind_each(ids, choices, gap, count, **options))
 
     def add_at(self) -> None:
         if (self.closed or self.busy or self.pending or not self.connected

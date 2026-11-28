@@ -52,6 +52,16 @@ the same event block or its descriptor:
 - the traffic sources (`+0x3C`) that bind lanes to paths, and the per-wave lane speeds;
 - the crash-zone and scoring rules (unknown location).
 
+## Traffic models
+
+- **Done (file side):** replace a model with one that another event uses in the same
+  group ([model replacement](model-replacement.md)). Waiting for a play test of
+  `Grand Slam - models test.iso`.
+- **Next:** add a model to an event that loads fewer than 12 (71 of 100 events); this
+  needs the arrays after the model groups to move inside the event block.
+- **Out of reach for now:** garage (player) cars as traffic, and loading a model that
+  the event did not load while the event is running.
+
 ## Vehicle limits
 
 - **The game.** The crash-physics manager holds a fixed table of 64 records of 9,264

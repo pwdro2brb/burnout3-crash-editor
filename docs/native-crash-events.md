@@ -1,6 +1,6 @@
 # Editing an event in the game files
 
-Open **Open Editor.cmd** and click **Traffic waves…** or **Project → Native events / traffic waves…**. This window works with PCSX2
+Open **Open Editor.cmd** and click **Waves & models (disc)…**. This window works with PCSX2
 closed. Choose **Open game folder…** and pick the extracted Burnout 3 USA folder that
 contains `DATA` and `TRACKS`. If the extraction sits next to the editor with its
 default name, the window opens the catalogue automatically.
@@ -60,7 +60,9 @@ appeared where and the exact moment the Crashbreaker unlocked were not recorded.
   directory. The three goals are at `+0x3A0`, `+0x3A4` and `+0x3A8`; the event screen
   links them to the gold, silver and bronze texts. The field at `+0x3AC` feeds the
   wrecked-vehicle counter shown by the Crashbreaker.
-- Each event block holds six model groups. In all 100 events, swapping the order of
+- Each event block holds six model groups; a model can also be replaced with one that
+  another event uses in the same group ([model replacement](model-replacement.md)).
+  In all 100 events, swapping the order of
   the identifiers, re-reading and undoing the swap recovered the original files byte
   for byte. The export keeps the models' auxiliary fields and the file sizes.
 - 2,572 paths were read from 36 track files. In Grand Slam, the 27 paths and 2,821

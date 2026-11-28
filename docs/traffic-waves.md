@@ -50,26 +50,31 @@ print the same listing for any event.
 
 ### In the editor window
 
-**Traffic waves…** (top-right button of the editor, or **Project → Native events / traffic waves…**) shows the waves of the selected
-event as a tree (wave → lane → vehicle) next to a small map that highlights the
-lanes of the selected wave, their placed vehicles (dots) and entry points
-(triangles).
+**Waves & models (disc)…** (top-right button of the editor) opens the events on the
+disc; the **Traffic waves** tab has four parts:
 
-- **Wave start (s)** changes when a wave loads. Wave 1 always starts at 0.
-- **Add wave / Remove wave** append an empty wave after the last one or delete
-  the selected one.
-- **Lane entry distance** moves where timed vehicles of that lane appear.
-- **Add lane** binds a new lane to a road slot that the wave does not use yet;
-  it starts with one car 50 units after the entry.
-- For a vehicle: model, trailer (trucks only), colour variant 0–7, and either
-  **Placed at distance** or **Enters at time (s)**. **Duplicate** copies a
-  placed vehicle 15 units behind, or a timed one 1 s later.
-- **Export waves JSON… / Import waves JSON…** save or load the event's waves
-  as a shareable file.
+- A **timeline** across the top: one bar per wave from the moment it loads, with how
+  many cars it puts on the road, and a dot for every car that drives in later. Click a
+  bar to select that wave.
+- A small **map** next to it with the lanes of the selected wave, their cars on the
+  road (dots) and the points where late cars enter (triangles).
+- The **list** (wave → lane → vehicle). Cars that drive in later are blue.
+- A **panel** on the right that shows only what applies to the selected row:
+  - a **wave**: when it loads (wave 1 always at 0), **Remove wave**, and **+ Add lane**
+    to give it traffic on a road lane it does not use yet (the lane starts with one car
+    50 units after its entry);
+  - a **lane**: where its late cars enter, **Remove lane**, and **Add several**: N cars
+    *on the road*, every X units behind the last one, or N cars that *drive in* from T
+    seconds, one every S seconds;
+  - a **vehicle**: model, trailer (trucks only), colour variant 0–7, and either
+    **On the road at** a distance or **Drives in at** a time; **Duplicate** copies it
+    15 units behind (on the road) or 1 s later (drives in); **Front/Back** reorder the
+    queue.
 
-Every change is checked against the rules below and the free space before it
-is accepted. **Export files…** or **Build ISO copy…** writes it together with
-the other edits of the event.
+**+ Add wave** appends an empty wave 5 s after the last one. **Export / Import waves
+JSON…** save or load the event's waves as a shareable file. Every change is checked
+against the rules below and the free space before it is accepted. **Build ISO copy…**
+(or **Export files…**) writes it together with the other edits of the event.
 
 ### As a JSON file
 

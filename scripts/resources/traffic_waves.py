@@ -371,6 +371,20 @@ def _check_vehicle(schedule: WaveSchedule, vehicle: WaveVehicle, number: int) ->
         raise ValueError(f"Wave {number}: use a colour variant from 0 to 7.")
 
 
+def vehicle_record_offsets(bgd: bytes, event_offset: int) -> list[int]:
+    """Absolute offsets of every 32-byte wave vehicle record of one event."""
+    block = _event_block(bgd, event_offset)
+    u32, u8 = block.u32, block.u8
+    offsets = []
+    for wave in range(u32(0x50)):
+        base = u32(0x4C) + wave * WAVE_SIZE
+        for lane in range(u32(base + 0x3C)):
+            header = u32(base + 0x38) + lane * LANE_SIZE
+            records = u32(header)
+            offsets.extend(event_offset + records + i * VEHICLE_SIZE for i in range(u8(header + 8)))
+    return offsets
+
+
 def vehicle_type_for(schedule: WaveSchedule, model: str) -> int | None:
     """Type byte that this event uses for a loaded model, or None if it is not loaded."""
     group = schedule.models.get(model)
