@@ -324,6 +324,26 @@ class WaveExportTests(unittest.TestCase):
             prepare_changes(self.root, self.event, orders, waves=self.edited(),
                             expected_waves=self.schedule.waves)
 
+    def test_prepare_many_matches_a_single_event_and_rejects_repeats(self):
+        from resources.native_edit import prepare_many
+        orders = (GROUPS[0][::-1], *GROUPS[1:])
+        options = dict(waves=self.edited(), expected_waves=self.schedule.waves)
+        alone = prepare_changes(self.root, self.event, orders, **options)
+        combined = prepare_many(self.root, [(self.event, orders, None, options)])
+        self.assertEqual(combined, alone)
+        with self.assertRaisesRegex(ValueError, "twice"):
+            prepare_many(self.root, [(self.event, orders, None, options), (self.event, orders, None, options)])
+
+    def test_chained_calls_start_from_the_previous_result(self):
+        current = {}
+        orders = (GROUPS[0][::-1], *GROUPS[1:])
+        prepare_changes(self.root, self.event, orders, current=current)
+        later = prepare_changes(self.root, self.event, GROUPS, waves=self.edited(), current=current)
+        (_rel, (old, new)), = later.items()
+        self.assertEqual(old, self.track.read_bytes())          # reported against the original file
+        self.assertEqual(read_groups(new, EVENT), GROUPS)       # second call undid the reorder
+        self.assertEqual(tw.read_waves(new, EVENT).waves[1].start, 3.5)
+
     def test_cli_plan_applies_documents_and_rejects_duplicates(self):
         document = tw.waves_to_dict(self.edited(), event_key=self.event.key)
         plan = waves_cli.plan_build(self.root, [self.event], [("a.json", document)])

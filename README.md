@@ -77,7 +77,8 @@ python -B scripts/editor/run_editor.py
    colour and position/time. Any traffic model can be chosen; one the event does not load
    yet is added to it. In **Models and goals**, replace or add models, or change the goals
    and the Crashbreaker count.
-4. Click **Build ISO copy…**, choose the original ISO and a new file name.
+4. Click **Build ISO copy…**, choose the original ISO and a new file name. If you edited
+   several events, one ISO can hold all of them.
 5. Boot the **new ISO** in PCSX2 and enter the event from the game menu. A savestate made
    with the original ISO brings back the old event data, so don't load one to test.
 
@@ -124,6 +125,7 @@ when you get close. Live edits are lost when the event restarts; save a scene in
 | Capacity, trucks and late traffic | [traffic-capacity-and-trucks.md](docs/traffic-capacity-and-trucks.md) |
 | Dense scenes and the VIF assert | [high-density-experiments.md](docs/high-density-experiments.md) |
 | Preview fly-by and results cameras | [event-cameras.md](docs/event-cameras.md) |
+| How an event is put together, places shared by levels, the crash camera | [event-structure.md](docs/event-structure.md) |
 | Research history and early findings | [project-history.md](docs/project-history.md), [findings.md](docs/findings.md) |
 | Milestones | [repositioning](docs/repositioning-milestone.md), [moving traffic](docs/moving-traffic-reference.md), [vehicle creation](docs/vehicle-creation-milestone.md) |
 | What comes next | [roadmap.md](docs/roadmap.md) |

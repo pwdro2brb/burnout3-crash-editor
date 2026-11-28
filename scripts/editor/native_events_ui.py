@@ -13,11 +13,12 @@ from tkinter import filedialog, messagebox, ttk
 from editor import theme
 from editor.catalog import traffic_catalog
 from resources.crash_events import bgd_path, load_crash_events
+from resources.event_places import level_numbers, places
 from resources.model_swap import (
     CANDIDATES, GROUP_LABELS, MAX_MODELS, add_models, budget, can_add, candidates_for, group_of,
     rename_schedule, replace_models, tram_models,
 )
-from resources.native_edit import export_resources, prepare_changes
+from resources.native_edit import export_resources, prepare_changes, prepare_many
 from resources.native_iso import export_iso
 from resources.native_roads import point_at_distance, read_roads
 from resources.native_traffic import read_groups
@@ -34,6 +35,7 @@ LANE_COLOURS = theme.LANE_COLOURS
 EMPTY_HINT = ("Select a wave, a lane or a vehicle in the list on the left. "
               "Tip: select a lane and use \"Add several\" to fill it quickly.")
 KMH_PER_SPEED_UNIT = 1.609344  # the game's speed values read as miles per hour (nominal)
+MAP_HEIGHT_SCALE = 2.0  # the 3D lane map stretches heights so slopes and bridges stand out
 NOT_LOADED = " — not loaded yet"
 PLAY_NOTE = ("To test it, start THIS new ISO in PCSX2 (System → Boot ISO) and enter the event from the "
              "game menu. A savestate made with the original ISO brings the old event back.")
@@ -52,6 +54,7 @@ class NativeEventsWindow(tk.Toplevel):
         self.events = {}
         self.event = None
         self.drafts = {}
+        self.initials = {}
         self.exported = {}
         self.track = None
         self.track_bytes = None
@@ -67,10 +70,15 @@ class NativeEventsWindow(tk.Toplevel):
         self.map_view = None
         self.map_focus = None
         self.map_drag = None
+        self.map_cy = 0.0
+        self.map_yaw, self.map_pitch = 0.6, 0.75
+        self.map_rotate = None
         self.picking_lane = False
         self.lane_choices = {}
         self.model_choices = {}
         self.labels = {m["asset_id"]: m["category_label"] for m in traffic_catalog()}
+        self.numbers = {}
+        self.places = {}
         self.columnconfigure(0, weight=1)
         self.rowconfigure(1, weight=1)
         bar = ttk.Frame(self, style="Header.TFrame", padding=(16, 10))
@@ -93,16 +101,18 @@ class NativeEventsWindow(tk.Toplevel):
         ttk.Label(left, text="Events", style="Section.TLabel").grid(row=0, column=0, sticky="w")
         self.query = tk.StringVar()
         ttk.Entry(left, textvariable=self.query).grid(row=1, column=0, columnspan=2, sticky="ew", pady=(6, 6))
-        self.event_list = ttk.Treeview(left, columns=("title", "track"), show="headings",
+        self.event_list = ttk.Treeview(left, columns=("number", "title", "track", "place"), show="headings",
                                        selectmode="browse")
-        for key, label, width in (("title", "Event", 160), ("track", "Track", 85)):
+        for key, label, width in (("number", "No.", 38), ("title", "Event", 140), ("track", "Track", 78),
+                                  ("place", "Same start as", 92)):
             self.event_list.heading(key, text=label)
-            self.event_list.column(key, width=width, minwidth=50)
+            self.event_list.column(key, width=width, minwidth=30, stretch=key != "number")
         self.event_list.grid(row=2, column=0, sticky="nsew")
         scroll = ttk.Scrollbar(left, command=self.event_list.yview)
         scroll.grid(row=2, column=1, sticky="ns")
         self.event_list.configure(yscrollcommand=scroll.set)
-        ttk.Label(left, text="Type to search by event, track or key.", style="CardMuted.TLabel").grid(
+        ttk.Label(left, text="Type to search by number, event, track or key. \"Same start as\" lists the "
+                  "levels whose car starts at the same spot.", style="CardMuted.TLabel", wraplength=300).grid(
             row=3, column=0, columnspan=2, sticky="w", pady=(6, 0))
         pane.add(left.outer, weight=1)
         right = ttk.Frame(pane, padding=(10, 0, 0, 0))
@@ -379,8 +389,11 @@ class NativeEventsWindow(tk.Toplevel):
         map_bar.grid(row=0, column=0, sticky="ew")
         self.map_hint = tk.StringVar(value="Wheel: zoom · drag: move")
         ttk.Label(map_bar, textvariable=self.map_hint, style="CardMuted.TLabel").pack(side="left")
+        self.map_3d = tk.BooleanVar(value=False)
+        ttk.Checkbutton(map_bar, text="3D", variable=self.map_3d, style="Card.TCheckbutton",
+                        command=self.map_mode_changed).pack(side="right", padx=(6, 0))
         ttk.Button(map_bar, text="Whole track", style="Small.TButton", command=self.map_whole_track).pack(side="right")
-        ttk.Button(map_bar, text="Selected", style="Small.TButton", command=self.map_fit_selection).pack(
+        ttk.Button(map_bar, text="Fit", style="Small.TButton", command=self.map_fit_selection).pack(
             side="right", padx=(0, 4))
         self.wave_canvas = tk.Canvas(map_area, background=theme.PALETTE["map_bg"], highlightthickness=1,
                                      highlightbackground=theme.PALETTE["border"], width=320, height=160)
@@ -391,6 +404,8 @@ class NativeEventsWindow(tk.Toplevel):
         self.wave_canvas.bind("<B1-Motion>", self.map_motion)
         self.wave_canvas.bind("<ButtonRelease-1>", self.map_release)
         self.wave_canvas.bind("<Double-Button-1>", lambda _e: self.map_whole_track())
+        self.wave_canvas.bind("<ButtonPress-3>", self.map_rotate_start)
+        self.wave_canvas.bind("<B3-Motion>", self.map_rotate_motion)
         left = ttk.Frame(page, style="Card.TFrame")
         left.grid(row=2, column=0, sticky="nsew")
         left.columnconfigure(0, weight=1)
@@ -1266,31 +1281,51 @@ class NativeEventsWindow(tk.Toplevel):
         points = [p for pid in wanted if 0 <= pid < len(paths) for p in paths[pid]["center"]]
         return points or [p for path in paths for p in path["center"]]
 
+    def _3d(self):
+        variable = getattr(self, "map_3d", None)
+        return bool(variable is not None and variable.get())
+
+    def _fit(self, points, margin):
+        xs, ys, zs = [p[0] for p in points], [p[1] for p in points], [p[2] for p in points]
+        span = max(max(xs) - min(xs), max(zs) - min(zs), 60.0) * margin
+        self.map_cy = sum(ys) / len(ys)
+        return (min(xs) + max(xs)) / 2, (min(zs) + max(zs)) / 2, span
+
     def _map_frame(self):
+        """(project, scale): world X/Y/Z -> canvas. Top view, or an orbit view in 3D mode."""
         c = self.wave_canvas
         width, height = c.winfo_width(), c.winfo_height()
         if min(width, height) < 24 or not self.roads.get("paths"):
             return None
         if self.map_view is None:
-            points = self._focus_points()
-            xs, zs = [p[0] for p in points], [p[2] for p in points]
-            span = max(max(xs) - min(xs), max(zs) - min(zs), 60.0) * 1.15
-            self.map_view = ((min(xs) + max(xs)) / 2, (min(zs) + max(zs)) / 2, span)
+            self.map_view = self._fit(self._focus_points(), 1.15)
         cx, cz, span = self.map_view
         scale = min(width - 20, height - 20) / span
+        if not self._3d():
+            def project(p):
+                return width / 2 + (p[0] - cx) * scale, height / 2 - (p[2] - cz) * scale
+            return project, scale
+        cos_yaw, sin_yaw = math.cos(self.map_yaw), math.sin(self.map_yaw)
+        cos_pitch, sin_pitch = math.cos(self.map_pitch), math.sin(self.map_pitch)
+        lift, cy = MAP_HEIGHT_SCALE, self.map_cy
 
         def project(p):
-            return width / 2 + (p[0] - cx) * scale, height / 2 - (p[2] - cz) * scale
+            x, y, z = p[0] - cx, (p[1] - cy) * lift, p[2] - cz
+            across = x * cos_yaw - z * sin_yaw
+            depth = x * sin_yaw + z * cos_yaw
+            return width / 2 + across * scale, height / 2 - (depth * sin_pitch + y * cos_pitch) * scale
         return project, scale
+
+    def map_mode_changed(self):
+        self.map_hint.set("Right-drag: turn · wheel: zoom" if self._3d() else "Wheel: zoom · drag: move")
+        self.draw_waves()
 
     def map_whole_track(self):
         paths = self.roads.get("paths") or []
         points = [p for path in paths for p in path["center"]]
         if not points:
             return
-        xs, zs = [p[0] for p in points], [p[2] for p in points]
-        self.map_view = ((min(xs) + max(xs)) / 2, (min(zs) + max(zs)) / 2,
-                         max(max(xs) - min(xs), max(zs) - min(zs), 60.0) * 1.05)
+        self.map_view = self._fit(points, 1.05)
         self.draw_waves()
 
     def map_fit_selection(self):
@@ -1306,9 +1341,12 @@ class NativeEventsWindow(tk.Toplevel):
         c = self.wave_canvas
         factor = 0.8 if event.delta > 0 else 1.25
         new_span = max(10.0, min(200000.0, span * factor))
-        side = min(c.winfo_width() - 20, c.winfo_height() - 20)
-        dx, dz = event.x - c.winfo_width() / 2, c.winfo_height() / 2 - event.y
-        self.map_view = (cx + dx / side * (span - new_span), cz + dz / side * (span - new_span), new_span)
+        if self._3d():
+            self.map_view = (cx, cz, new_span)  # the orbit view zooms on its centre
+        else:
+            side = min(c.winfo_width() - 20, c.winfo_height() - 20)
+            dx, dz = event.x - c.winfo_width() / 2, c.winfo_height() / 2 - event.y
+            self.map_view = (cx + dx / side * (span - new_span), cz + dz / side * (span - new_span), new_span)
         self.draw_waves()
 
     def map_press(self, event):
@@ -1322,8 +1360,28 @@ class NativeEventsWindow(tk.Toplevel):
             return
         c = self.wave_canvas
         scale = min(c.winfo_width() - 20, c.winfo_height() - 20) / span
-        self.map_view = (cx - (event.x - x0) / scale, cz + (event.y - y0) / scale, span)
+        if self._3d():
+            across = -(event.x - x0) / scale
+            depth = (event.y - y0) / (scale * max(0.2, math.sin(self.map_pitch)))
+            cos_yaw, sin_yaw = math.cos(self.map_yaw), math.sin(self.map_yaw)
+            self.map_view = (cx + across * cos_yaw + depth * sin_yaw, cz - across * sin_yaw + depth * cos_yaw, span)
+        else:
+            self.map_view = (cx - (event.x - x0) / scale, cz + (event.y - y0) / scale, span)
         self.map_drag = (x0, y0, (cx, cz, span), True)
+        self.draw_waves()
+
+    def map_rotate_start(self, event):
+        if not self._3d():
+            self.map_3d.set(True)
+            self.map_mode_changed()
+        self.map_rotate = (event.x, event.y, self.map_yaw, self.map_pitch)
+
+    def map_rotate_motion(self, event):
+        if not self.map_rotate or not self._3d():
+            return
+        x0, y0, yaw, pitch = self.map_rotate
+        self.map_yaw = yaw + (event.x - x0) * 0.01
+        self.map_pitch = min(math.pi / 2, max(0.12, pitch - (event.y - y0) * 0.01))
         self.draw_waves()
 
     def map_release(self, event):
@@ -1381,7 +1439,14 @@ class NativeEventsWindow(tk.Toplevel):
         choices = set()
         if self.picking_lane and self.schedule is not None:
             choices = {self.schedule.sources[s].paths[k] for s, k in self.lane_choices.values()}
-        for path in paths:
+        order = paths
+        if self._3d():
+            sin_yaw, cos_yaw = math.sin(self.map_yaw), math.cos(self.map_yaw)
+            def depth(path):
+                points = path["center"] or [[0, 0, 0]]
+                return -sum(p[0] * sin_yaw + p[2] * cos_yaw for p in points) / len(points)
+            order = sorted(paths, key=depth)
+        for path in order:
             coords = [v for p in path["center"] for v in project(p)]
             if len(coords) >= 4:
                 strong = path.get("id") in highlight
@@ -1507,7 +1572,16 @@ class NativeEventsWindow(tk.Toplevel):
             self.open_game(Path(selected))
 
     def open_game(self, folder):
-        def loaded(events):
+        def read(folder):
+            events = load_crash_events(folder)
+            try:
+                found = places(folder, events)
+            except (OSError, ValueError):
+                found = {}
+            return events, found
+
+        def loaded(result):
+            events, found = result
             if not self.can_discard():
                 self.status.set("The current folder and edits were kept.")
                 return
@@ -1517,8 +1591,11 @@ class NativeEventsWindow(tk.Toplevel):
             if self.query.get():
                 self.query.set("")
             self.drafts.clear()
+            self.initials.clear()
             self.exported.clear()
-            self.events = {e.key: e for e in events}
+            self.events = {e.key: e for e in sorted(events, key=lambda e: e.progression_index)}
+            self.numbers = level_numbers(events)
+            self.places = found
             active = self.current_identity() or {}
             key = active.get("event_key")
             if key not in self.events:
@@ -1527,7 +1604,7 @@ class NativeEventsWindow(tk.Toplevel):
             self.status.set("Pick an event. Traffic waves: when and where traffic appears. "
                             "Models and goals: replace or add models, change goals.")
             self.filter_events(key)
-        self.run("Reading the Crash catalogue…", lambda: load_crash_events(folder), loaded)
+        self.run("Reading the Crash catalogue…", lambda: read(folder), loaded)
 
     def focus_event(self, key):
         self.event_list.selection_set(key)
@@ -1547,8 +1624,10 @@ class NativeEventsWindow(tk.Toplevel):
         word = self.query.get().strip().casefold()
         self.event_list.delete(*self.event_list.get_children())
         for key, event in self.events.items():
-            if word in f"{event.title} {event.track} {key}".casefold():
-                self.event_list.insert("", "end", iid=key, values=(event.title, event.track))
+            number = self.numbers.get(key, "")
+            if word in f"{number} {event.title} {event.track} {key}".casefold() or word == str(number):
+                shared = ", ".join(str(self.numbers.get(k, "?")) for k in self.places.get(key, {}).get("shared_with", []))
+                self.event_list.insert("", "end", iid=key, values=(number, event.title, event.track, shared))
         if preferred and self.event_list.exists(preferred):
             self.focus_event(preferred)
         elif self.event and self.event_list.exists(self.event.key):
@@ -1622,12 +1701,16 @@ class NativeEventsWindow(tk.Toplevel):
         wrecks = event.crashbreaker_wrecks
         self.initial = (orders, tuple(format(n, ".9g") for n in event.thresholds),
                         str(wrecks) if wrecks is not None else "", waves, (), ())
+        self.initials[event.key] = (event, self.initial)
         self.orders, fields, count, self.schedule, self.swaps, self.additions = self.drafts.get(event.key, self.initial)
         try:
             self._rebuild_draft()
         except ValueError as exc:
             self.status.set(str(exc))
-        self.heading.set(f"{event.title}  ·  {event.track}  ·  {event.key}")
+        number = self.numbers.get(event.key)
+        shared = [str(self.numbers.get(k, "?")) for k in self.places.get(event.key, {}).get("shared_with", [])]
+        self.heading.set((f"Level {number}  ·  " if number else "") + f"{event.title}  ·  {event.track}  ·  {event.key}"
+                         + (f"  ·  same start as level {', '.join(shared)}" if shared else ""))
         self.fill_models()
         aligned = event.thresholds == event.bgd_thresholds
         for entry, value in zip(self.fields, fields):
@@ -1692,34 +1775,77 @@ class NativeEventsWindow(tk.Toplevel):
 
     # --- export --------------------------------------------------------------
 
-    def export(self, to_iso):
-        if not self.event or self.job is not None:
-            return
-        event, game = self.event, self.game
-        orders, fields, count, schedule, swaps, additions = self.get_draft()
-        expected_orders = self.initial[0]
+    def _export_plan(self, event, draft, initial, track_draft=None):
+        """(orders, goals, prepare_changes options) for one event's draft, or None if unchanged."""
+        orders, fields, count, schedule, swaps, additions = draft
+        title = event.title.strip()
         try:
-            goals = tuple(map(int, fields)) if fields != self.initial[1] else None
-        except ValueError:
-            self.status.set("Use whole numbers for the goals.")
-            return
+            goals = tuple(map(int, fields)) if fields != initial[1] else None
+        except ValueError as exc:
+            raise ValueError(f"{title}: use whole numbers for the goals.") from exc
         wrecks = None
-        if count != self.initial[2]:
+        if count != initial[2]:
             try:
                 wrecks = int(count)
             except ValueError:
                 pass
             if wrecks is None or not 6 <= wrecks <= 15:
-                self.status.set("Use a whole number from 6 to 15 for the Crashbreaker.")
-                return
-        if self.initial[3] is not None and (swaps or additions) and self.track_draft is not None:
-            draft_base = read_waves(self.track_draft, event.event_offset)
-        else:
-            draft_base = self.initial[3]
-        waves = (schedule if schedule is not None and draft_base is not None and schedule.waves != draft_base.waves
-                 else None)
-        if (goals is None and wrecks is None and orders == expected_orders and waves is None
+                raise ValueError(f"{title}: use a whole number from 6 to 15 for the Crashbreaker.")
+        base = initial[3]
+        if base is not None and (swaps or additions):
+            if track_draft is None:
+                track_draft = bgd_path(self.game, event.track).read_bytes()
+                if swaps:
+                    track_draft = replace_models(track_draft, event.event_offset, dict(swaps))
+                if additions:
+                    track_draft = add_models(track_draft, event.event_offset, additions,
+                                             trams=tram_models(read_waves(track_draft, event.event_offset)))
+            base = read_waves(track_draft, event.event_offset)
+        waves = schedule if schedule is not None and base is not None and schedule.waves != base.waves else None
+        if (goals is None and wrecks is None and orders == initial[0] and waves is None
                 and not swaps and not additions):
+            return None
+        options = {"expected_orders": initial[0], "crashbreaker_wrecks": wrecks}
+        if waves is not None:
+            options.update(waves=waves, expected_waves=initial[3].waves)
+        if swaps:
+            options["model_swaps"] = dict(swaps)
+        if additions:
+            options["model_additions"] = list(additions)
+        return orders, goals, options
+
+    def export(self, to_iso):
+        """Export the open event, or every edited event when the user agrees."""
+        if not self.event or self.job is not None:
+            return
+        self.remember_draft()
+        event, game = self.event, self.game
+        current = self.get_draft()
+        try:
+            plan = self._export_plan(event, current, self.initial, self.track_draft)
+            others = []
+            for key, draft in self.drafts.items():
+                if key == event.key or draft == self.exported.get(key) or key not in self.initials:
+                    continue
+                other_event, initial = self.initials[key]
+                other_plan = self._export_plan(other_event, draft, initial)
+                if other_plan is not None:
+                    others.append((other_event, draft, other_plan))
+        except (OSError, ValueError) as exc:
+            self.status.set(str(exc))
+            return
+        jobs = [(event, current, plan)] if plan is not None else []
+        if others:
+            names = "\n".join(f"  • {e.title.strip()}" for e, _d, _p in [*jobs, *others])
+            question = (f"{len(jobs) + len(others)} events have edits that are not exported yet:\n\n{names}\n\n"
+                        "Put all of them in this " + ("ISO" if to_iso else "export") + "?")
+            if plan is not None:
+                question += f"\n\nNo = only {event.title.strip()} (the open event)."
+            if messagebox.askyesno("Several edited events", question, parent=self):
+                jobs += others
+            elif plan is None:
+                return
+        if not jobs:
             self.status.set("Change a model, a goal, the Crashbreaker wrecks or a traffic wave first.")
             return
         if to_iso:
@@ -1727,39 +1853,40 @@ class NativeEventsWindow(tk.Toplevel):
                                                 initialdir=game.parent, filetypes=[("ISO", "*.iso")])
             if not source:
                 return
+            name = event.title.strip() if len(jobs) == 1 else f"{len(jobs)} events"
             dest = filedialog.asksaveasfilename(parent=self, title="Choose a new ISO file", initialdir=game.parent,
-                    initialfile=event.title.strip() + " - edited.iso", defaultextension=".iso",
+                    initialfile=name + " - edited.iso", defaultextension=".iso",
                     filetypes=[("ISO", "*.iso")])
         else:
             dest = filedialog.askdirectory(parent=self, title="Folder that will receive a new subfolder with the edited files")
         if not dest:
             return
-        extra = {} if waves is None else {"waves": waves, "expected_waves": self.initial[3].waves}
-        if swaps:
-            extra["model_swaps"] = dict(swaps)
-        if additions:
-            extra["model_additions"] = list(additions)
-        dialog = ProgressDialog(self, event.title.strip(), to_iso) if to_iso else None
+        titles = ", ".join(e.title.strip() for e, _d, _p in jobs)
+        dialog = ProgressDialog(self, titles, to_iso) if to_iso else None
         self.progress_state = None
 
         def progress(stage, done, total):
             self.progress_state = (stage, done, total)
 
         def write():
-            changes = prepare_changes(game, event, orders, goals, expected_orders=expected_orders,
-                                      crashbreaker_wrecks=wrecks, **extra)
+            if len(jobs) == 1:
+                orders, goals, options = jobs[0][2]
+                changes = prepare_changes(game, event, orders, goals, **options)
+            else:
+                changes = prepare_many(game, [(e, p[0], p[1], p[2]) for e, _d, p in jobs])
             if to_iso:
                 export_iso(Path(source), Path(dest), changes, progress=progress)
                 return Path(dest)
-            return export_resources(game, Path(dest), event, changes)
+            return export_resources(game, Path(dest), event if len(jobs) == 1 else [e for e, _d, _p in jobs], changes)
 
         def saved(path):
-            self.exported[event.key] = (orders, fields, count, schedule, swaps, additions)
-            self.status.set(f"{event.title} · verified copy at {path}")
+            for exported_event, draft, _plan in jobs:
+                self.exported[exported_event.key] = draft
+            self.status.set(f"{titles} · verified copy at {path}")
             if dialog is not None:
                 dialog.finish(path)
             else:
-                messagebox.showinfo("Export finished", f"{event.title}\n\n{path}\n\nBuild an ISO with these files "
+                messagebox.showinfo("Export finished", f"{titles}\n\n{path}\n\nBuild an ISO with these files "
                                     "(or use Build ISO copy) to play the edit.", parent=self)
 
         def failed(_exc):
