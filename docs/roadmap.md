@@ -35,30 +35,20 @@ The GitHub issues hold the completion criteria and results as the research advan
 To move the crash itself, the following event data still need to be decoded, all in
 the same event block or its descriptor:
 
-- **Resource 0 of the event descriptor** (0x800 bytes in Grand Slam, loaded right
-  before the event block; the game relocates its two offsets at `+0x3E0`/`+0x3E4`).
-  Observed layout in Grand Slam, meanings still to be confirmed:
-  - `+0x000…+0x1DF`: six 0x50-byte transforms (3×4 rotation, position, value 0x25),
-    next to the player's starting point — candidates for the start grid;
-  - `+0x1E0…+0x25F`: four 0x20-byte entries (position, a float of 13–20, a direction)
-    in two pairs, one near the start and one near the queue of P20 — candidates for
-    the intro fly-by camera;
-  - `+0x3E0` → a list of 0x20-byte points (13 in Grand Slam, count at `+0x3F8`), each
-    a position plus a code such as `0x700…0x703`, `0x604…0x607`, `0x204…0x206`,
-    `0x408`, `0x200` (type in the high byte, index in the low byte) — candidates for
-    the bonus tokens of the junction;
+- **Resource 0 of the event descriptor** (loaded right before the event block). Its
+  first transform is the player's start position (confirmed), and its point list at
+  `+0x3E0` is the route of the preview fly-by camera (traced in PCSX2). The meaning of
+  the point codes and of the entries at `+0x1E0` is open. See [event cameras](event-cameras.md);
 - **the `+0x9C` list** of 4-byte points (0 to 24 per event). Every one of the 725
   points of the 100 events decodes as a valid (16-bit node, 16-bit path) position on
   a traffic path of its track, often the same node on neighbouring lanes, and 412 of
   them sit on lanes used by the waves. Grand Slam has (node 193, P20) and (node 322,
   P21). Their purpose (stop lines, crash zone or the results camera) is open;
-- **the results camera.** After the countdown the camera travels along a fixed route,
-  showing each wrecked vehicle's value, and stops after the last wrecked vehicle on
-  the route or at the end of the route; in several events it stops before showing
-  every wreck. Its route data are not located yet. The next step is a few savestates
-  taken during that camera (start, middle, stop) in an event where it shows every
-  wreck and in one where it stops early, to find the camera in RAM and match it to
-  the data above;
+- **the results camera.** After the crash the camera travels along a fixed route,
+  showing each wrecked vehicle's value, and stops after the last wreck on the route
+  or at the end of the route. Not observed yet; the next step is savestates taken
+  during the tally (start, middle, stop) in an event where it shows every wreck and in
+  one where it stops early ([event cameras](event-cameras.md));
 - the traffic sources (`+0x3C`) that bind lanes to paths, and the per-wave lane speeds;
 - the crash-zone and scoring rules (unknown location).
 
